@@ -1,0 +1,17 @@
+/bin/
+/dist/
+/build/
+*.exe
+*.msi
+*.log
+*.tmp
+*.part
+*.agp
+*.mstate
+*.db
+*.sqlite
+node_modules/
+desktop/frontend/dist/
+desktop/build/bin/
+.env
+.DS_Store
