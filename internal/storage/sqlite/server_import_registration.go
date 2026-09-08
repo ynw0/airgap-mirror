@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -143,6 +144,9 @@ func (s *ServerStore) RegisterImportBundle(ctx context.Context, d domain.BatchDe
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE source_states SET active_epoch_id=?,updated_at=? WHERE source_id=?`, d.EpochID, timeString(session.UpdatedAt), d.SourceID)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "source has active maintenance job; epoch is blocked") {
+			return domain.ImportSession{}, fmt.Errorf("source has an active maintenance job; import is blocked: %w", domain.ErrConflict)
+		}
 		return domain.ImportSession{}, err
 	}
 	if err = tx.Commit(); err != nil {

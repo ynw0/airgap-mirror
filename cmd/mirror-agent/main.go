@@ -62,6 +62,7 @@ func main() {
 	maintenanceCtx, maintenanceCancel := context.WithCancel(context.Background())
 	defer maintenanceCancel()
 	maintenanceRunner := service.NewMaintenanceRunner(maintenanceCtx, store, store, store, registry, storesqlite.NewRebuildCatalogFactory(maintenance))
+	maintenanceRunner.Candidates = storesqlite.NewGCCandidateFactory(maintenance)
 	recoverCtx, recoverCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	if err = maintenanceRunner.RecoverInterrupted(recoverCtx); err != nil {
 		recoverCancel()

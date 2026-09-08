@@ -22,8 +22,10 @@ func WithMaintenance(base http.Handler, api *API, runner *service.MaintenanceRun
 	mux := http.NewServeMux()
 	secure := func(fn http.HandlerFunc) http.Handler { return api.auth(fn) }
 	mux.Handle("POST /api/v1/sources/{id}/inventory", secure(h.startInventory))
+	mux.Handle("POST /api/v1/sources/{id}/gc", secure(h.startGC))
 	mux.Handle("GET /api/v1/maintenance", secure(h.list))
 	mux.Handle("GET /api/v1/maintenance/{id}", secure(h.get))
+	mux.Handle("GET /api/v1/maintenance/{id}/candidates", secure(h.candidates))
 	mux.Handle("POST /api/v1/maintenance/{id}/cancel", secure(h.cancel))
 	mux.Handle("/", base)
 	return mux

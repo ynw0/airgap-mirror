@@ -187,7 +187,9 @@ func gcStats(ctx context.Context, db *sql.DB) (domain.GCStats, error) {
 	return out, err
 }
 
-func (r *gcCandidateReader) Stats(ctx context.Context) (domain.GCStats, error) { return gcStats(ctx, r.db) }
+func (r *gcCandidateReader) Stats(ctx context.Context) (domain.GCStats, error) {
+	return gcStats(ctx, r.db)
+}
 
 func (r *gcCandidateReader) List(ctx context.Context, after string, limit int) ([]domain.GCCandidate, error) {
 	if limit <= 0 || limit > 1000 {

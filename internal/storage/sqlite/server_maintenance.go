@@ -64,8 +64,12 @@ func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.Maint
 	}
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO maintenance_jobs(id,source_id,kind,status,execute,created_at) VALUES(?,?,?,?,?,?)`, job.ID, job.SourceID, job.Kind, job.Status, execute, timeString(job.CreatedAt))
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique constraint") {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "unique constraint") {
 			return fmt.Errorf("source already has an active maintenance job: %w", domain.ErrConflict)
+		}
+		if strings.Contains(lower, "source has active epoch; maintenance is blocked") {
+			return fmt.Errorf("source has an active epoch; maintenance is blocked: %w", domain.ErrConflict)
 		}
 		return err
 	}
