@@ -23,8 +23,8 @@ const genericCursorKind = "maven-index-sha256"
 type GenericAdapter struct{ Client *http.Client }
 
 func NewGeneric(client *http.Client) *GenericAdapter { return &GenericAdapter{Client: client} }
-func (*GenericAdapter) Type() domain.SourceType       { return domain.SourceMaven }
-func (*GenericAdapter) Provider() string              { return GenericProvider }
+func (*GenericAdapter) Type() domain.SourceType      { return domain.SourceMaven }
+func (*GenericAdapter) Provider() string             { return GenericProvider }
 
 type genericConfig struct {
 	IndexURL string `json:"indexUrl"`
@@ -159,21 +159,21 @@ func (a *GenericAdapter) planRecord(ctx context.Context, req ports.AnalyzeReques
 	if err != nil {
 		return out, false, err
 	}
-	a := domain.Artifact{ID: id, EpochID: epoch.ID, SourceID: req.Source.ID, LogicalPath: logical, Operation: op, PublishUnitID: deterministicUnitID(epoch.ID, rec.PublishUnit), PackageKey: rec.PackageKey, Version: rec.Version, Metadata: rec.Metadata, Attributes: rec.Attributes}
+	artifact := domain.Artifact{ID: id, EpochID: epoch.ID, SourceID: req.Source.ID, LogicalPath: logical, Operation: op, PublishUnitID: deterministicUnitID(epoch.ID, rec.PublishUnit), PackageKey: rec.PackageKey, Version: rec.Version, Metadata: rec.Metadata, Attributes: rec.Attributes}
 	if op == domain.ArtifactDelete {
-		a.Size = 0
-		a.SHA256 = emptySHA256
+		artifact.Size = 0
+		artifact.SHA256 = emptySHA256
 	} else {
 		integrity, err := integrityFromHex("sha256", rec.SHA256)
 		if err != nil {
 			return out, false, err
 		}
-		a.Size = rec.Size
-		a.SHA256 = rec.SHA256
-		a.UpstreamURL = rec.URL
-		a.UpstreamIntegrity = integrity
+		artifact.Size = rec.Size
+		artifact.SHA256 = rec.SHA256
+		artifact.UpstreamURL = rec.URL
+		artifact.UpstreamIntegrity = integrity
 	}
-	out = genericPlanned{UnitKey: rec.PublishUnit, MetadataPath: rec.MetadataPath, Artifact: a}
+	out = genericPlanned{UnitKey: rec.PublishUnit, MetadataPath: rec.MetadataPath, Artifact: artifact}
 	return out, true, nil
 }
 

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"path"
 	"sort"
 	"strings"
@@ -25,8 +24,8 @@ const centralCursorKind = "maven-central-dependency-set"
 type CentralAdapter struct{ Client *http.Client }
 
 func NewCentral(client *http.Client) *CentralAdapter { return &CentralAdapter{Client: client} }
-func (*CentralAdapter) Type() domain.SourceType       { return domain.SourceMaven }
-func (*CentralAdapter) Provider() string              { return CentralProvider }
+func (*CentralAdapter) Type() domain.SourceType      { return domain.SourceMaven }
+func (*CentralAdapter) Provider() string             { return CentralProvider }
 
 type centralCoordinate struct {
 	GroupID    string `json:"groupId"`
@@ -175,15 +174,12 @@ func centralFileName(c centralCoordinate) string {
 }
 
 func centralURL(base, logical string) (string, error) {
-	root, err := url.Parse(strings.TrimRight(base, "/") + "/")
-	if err != nil {
+	if _, err := cleanLogicalPath(logical); err != nil {
 		return "", err
 	}
-	parts := strings.Split(logical, "/")
-	for i := range parts {
-		parts[i] = url.PathEscape(parts[i])
-	}
-	return root.ResolveReference(&url.URL{Path: strings.Join(parts, "/")}).String(), nil
+	// Central coordinates are validated to a URL-path-safe subset, so joining the
+	// canonical logical path directly avoids double-encoding already escaped bytes.
+	return strings.TrimRight(base, "/") + "/" + logical, nil
 }
 
 type centralAttrs struct {

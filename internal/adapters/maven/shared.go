@@ -19,7 +19,7 @@ import (
 const (
 	GenericProvider = "maven-generic"
 	CentralProvider = "maven-central"
-	emptySHA256      = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	emptySHA256     = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
 
 func httpClient(c *http.Client) *http.Client {
