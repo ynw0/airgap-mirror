@@ -1,0 +1,70 @@
+name: Validate Windows desktop
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-desktop.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/frontend/package.json
+      - name: Apply desktop fixes and resolve Go modules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python .airgap-dev/fix-desktop.py
+          gofmt -w desktop internal/client
+          go mod tidy
+          go build ./internal/...
+          go build ./cmd/...
+      - name: Build React frontend
+        shell: pwsh
+        working-directory: desktop/frontend
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm install
+          npm run build
+      - name: Build Windows Wails executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+          $wails = Join-Path (go env GOPATH) 'bin\wails.exe'
+          Push-Location desktop
+          & $wails build -clean -platform windows/amd64
+          Pop-Location
+          if (-not (Test-Path 'desktop/build/bin/airgap-mirror.exe')) { throw 'Wails executable was not produced' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: airgap-mirror-windows-amd64
+          path: desktop/build/bin/airgap-mirror.exe
+          if-no-files-found: error
+      - name: Commit validated desktop module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Force .airgap-dev/fix-desktop.py
+          if (Test-Path .airgap-dev) { Remove-Item -Recurse -Force .airgap-dev }
+          Remove-Item -Force .github/workflows/validate-desktop.yml
+          if (Test-Path desktop/frontend/wailsjs) { Remove-Item -Recurse -Force desktop/frontend/wailsjs }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: finalize Windows Wails desktop client'
+          git push
