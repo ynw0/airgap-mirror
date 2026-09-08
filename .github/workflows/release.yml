@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux release bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Build Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="dist/airgap-mirror-linux-amd64"
+          mkdir -p "$root/bin"
+          go build -trimpath -ldflags='-s -w' -o "$root/bin/mirror-agent" ./cmd/mirror-agent
+          go build -trimpath -ldflags='-s -w' -o "$root/bin/mirrorctl" ./cmd/mirrorctl
+          cp -R deploy "$root/deploy"
+          mkdir -p "$root/scripts" "$root/docs"
+          cp scripts/install-agent.sh "$root/scripts/"
+          cp README.md LICENSE "$root/"
+          cp docs/DEPLOYMENT.md "$root/docs/"
+          tar -C dist -czf dist/airgap-mirror-linux-amd64.tar.gz airgap-mirror-linux-amd64
+          (cd dist && sha256sum airgap-mirror-linux-amd64.tar.gz > airgap-mirror-linux-amd64.tar.gz.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-amd64
+          path: |
+            dist/airgap-mirror-linux-amd64.tar.gz
+            dist/airgap-mirror-linux-amd64.tar.gz.sha256
+          if-no-files-found: error
+
+  windows:
+    name: Windows release bundle
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/frontend/package-lock.json
+      - name: Build React frontend
+        working-directory: desktop/frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+      - name: Build Windows executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          cd desktop
+          wails build -clean -platform windows/amd64
+          test -f build/bin/airgap-mirror.exe
+      - name: Package Windows executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/airgap-mirror-windows-amd64 | Out-Null
+          Copy-Item desktop/build/bin/airgap-mirror.exe dist/airgap-mirror-windows-amd64/
+          Copy-Item README.md,LICENSE dist/airgap-mirror-windows-amd64/
+          Compress-Archive -Path dist/airgap-mirror-windows-amd64/* -DestinationPath dist/airgap-mirror-windows-amd64.zip -Force
+          $hash = (Get-FileHash dist/airgap-mirror-windows-amd64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  airgap-mirror-windows-amd64.zip" | Set-Content -NoNewline dist/airgap-mirror-windows-amd64.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-amd64
+          path: |
+            dist/airgap-mirror-windows-amd64.zip
+            dist/airgap-mirror-windows-amd64.zip.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            release-assets/airgap-mirror-linux-amd64.tar.gz \
+            release-assets/airgap-mirror-linux-amd64.tar.gz.sha256 \
+            release-assets/airgap-mirror-windows-amd64.zip \
+            release-assets/airgap-mirror-windows-amd64.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
