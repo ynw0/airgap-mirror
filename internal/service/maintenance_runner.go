@@ -180,7 +180,9 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 		r.finishFailure(job.ID, err)
 		return
 	}
-	if err = r.persist(func(pctx context.Context) error { return r.Jobs.ReplaceCatalogFromFile(pctx, source.ID, sink.Path(), actual, r.now()) }); err != nil {
+	if err = r.persist(func(pctx context.Context) error {
+		return r.Jobs.ReplaceCatalogFromFile(pctx, source.ID, sink.Path(), actual, r.now())
+	}); err != nil {
 		r.finishFailure(job.ID, err)
 		return
 	}
@@ -196,7 +198,9 @@ func (r *MaintenanceRunner) finishCancelled(id string) {
 }
 
 func (r *MaintenanceRunner) transition(id string, status domain.MaintenanceStatus, message string) error {
-	return r.persist(func(ctx context.Context) error { return r.Jobs.TransitionMaintenanceJob(ctx, id, status, message, r.now()) })
+	return r.persist(func(ctx context.Context) error {
+		return r.Jobs.TransitionMaintenanceJob(ctx, id, status, message, r.now())
+	})
 }
 
 func (r *MaintenanceRunner) persist(fn func(context.Context) error) error {
