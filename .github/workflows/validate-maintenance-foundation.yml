@@ -1,0 +1,35 @@
+name: Validate maintenance foundation
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-maintenance-foundation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Format and build
+        run: |
+          set -euo pipefail
+          gofmt -w internal/domain/maintenance.go internal/ports/maintenance.go internal/storage/sqlite/schema.go internal/storage/sqlite/server_maintenance.go internal/storage/sqlite/rebuild_catalog.go internal/storage/sqlite/server_catalog_replace.go
+          go build ./internal/...
+          go build ./cmd/...
+      - name: Commit validated module
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/validate-maintenance-foundation.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'chore: validate maintenance foundation'
+          git push
