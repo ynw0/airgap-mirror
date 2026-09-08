@@ -23,8 +23,13 @@ type AgentOverview struct {
 }
 
 type StateExportResult struct {
-	Path    string              `json:"path"`
-	Export  client.StateExport  `json:"export"`
+	Path   string             `json:"path"`
+	Export client.StateExport `json:"export"`
+}
+
+type EpochView struct {
+	Epoch   domain.Epoch   `json:"epoch"`
+	Batches []domain.Batch `json:"batches"`
 }
 
 type DesktopTransferResult struct {
