@@ -12,6 +12,7 @@
 *.sqlite
 node_modules/
 desktop/frontend/dist/
-desktop/build/bin/
+desktop/frontend/wailsjs/
+desktop/build/
 .env
 .DS_Store
