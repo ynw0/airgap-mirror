@@ -117,6 +117,7 @@ type PlanStore interface {
 	FinalizeArtifact(context.Context, string, int64, string) error
 }
 type TransferPlanStore interface {
+	UpdateEpoch(context.Context, domain.Epoch) error
 	CreateBatch(context.Context, domain.Batch) error
 	UpdateBatch(context.Context, domain.Batch) error
 	CreatePack(context.Context, domain.Pack) error

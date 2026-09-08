@@ -120,7 +120,7 @@ func (s *ServerStore) RegisterImportBundle(ctx context.Context, d domain.BatchDe
 		if err != nil {
 			return domain.ImportSession{}, err
 		}
-		if out.SourceID != d.SourceID || out.EpochID != d.EpochID || out.BatchID != d.BatchID {
+		if out.SourceID != d.SourceID || out.EpochID != d.EpochID || out.BatchID != d.BatchID || out.ManifestSize != d.ManifestSize || out.ManifestSHA256 != d.ManifestSHA256 {
 			return domain.ImportSession{}, fmt.Errorf("request id reused for another bundle: %w", domain.ErrConflict)
 		}
 		out.CreatedAt = parseTime(created)
@@ -245,6 +245,51 @@ func (s *ServerStore) RegisterManifest(ctx context.Context, sessionID string) er
 	}
 	if sourceID != sess.SourceID || epochID != sess.EpochID || batchID != sess.BatchID {
 		return fmt.Errorf("manifest identity mismatch: %w", domain.ErrConflict)
+	}
+	schemaVersion, err := meta("schema_version")
+	if err != nil {
+		return err
+	}
+	if schemaVersion != fmt.Sprint(domain.ManifestSchemaVersion) {
+		return fmt.Errorf("unsupported manifest schema %s: %w", schemaVersion, domain.ErrInvalid)
+	}
+	batch, err := s.GetBatch(ctx, sess.BatchID)
+	if err != nil {
+		return err
+	}
+	var invalid int64
+	checks := []struct {
+		query string
+		args  []any
+		name  string
+	}{
+		{`SELECT COUNT(*) FROM incoming.publish_units WHERE epoch_id<>? OR source_id<>? OR required_count<0`, []any{sess.EpochID, sess.SourceID}, "publish unit identity"},
+		{`SELECT COUNT(*) FROM incoming.entries WHERE epoch_id<>? OR source_id<>? OR size<0 OR length(sha256)<>64 OR operation NOT IN('ADD','UPDATE') OR pack_offset<? OR record_length<=0`, []any{sess.EpochID, sess.SourceID, 128}, "entry identity"},
+		{`SELECT COUNT(*) FROM incoming.entries e LEFT JOIN incoming.publish_units u ON u.id=e.publish_unit_id WHERE u.id IS NULL`, nil, "entry publish unit"},
+		{`SELECT COUNT(*) FROM incoming.entries e LEFT JOIN main.packs p ON p.id=e.pack_id AND p.batch_id=? WHERE p.id IS NULL`, []any{sess.BatchID}, "entry pack"},
+		{`SELECT COUNT(*) FROM (SELECT logical_path FROM incoming.entries GROUP BY logical_path HAVING COUNT(*)>1)`, nil, "duplicate logical path"},
+		{`SELECT COUNT(*) FROM incoming.publish_units u WHERE u.required_count < (SELECT COUNT(*) FROM incoming.entries e WHERE e.publish_unit_id=u.id)`, nil, "publish unit required count"},
+	}
+	for _, check := range checks {
+		if err = conn.QueryRowContext(ctx, check.query, check.args...).Scan(&invalid); err != nil {
+			return err
+		}
+		if invalid != 0 {
+			return fmt.Errorf("manifest %s validation failed (%d rows): %w", check.name, invalid, domain.ErrConflict)
+		}
+	}
+	var entryCount int64
+	if err = conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM incoming.entries`).Scan(&entryCount); err != nil {
+		return err
+	}
+	if entryCount != batch.ObjectCount {
+		return fmt.Errorf("manifest entries %d != batch objects %d: %w", entryCount, batch.ObjectCount, domain.ErrConflict)
+	}
+	if err = conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM main.packs p WHERE p.batch_id=? AND p.entry_count<>(SELECT COUNT(*) FROM incoming.entries e WHERE e.pack_id=p.id)`, sess.BatchID).Scan(&invalid); err != nil {
+		return err
+	}
+	if invalid != 0 {
+		return fmt.Errorf("manifest pack entry counts mismatch (%d packs): %w", invalid, domain.ErrConflict)
 	}
 	var count int64
 	if err = conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM incoming.publish_units`).Scan(&count); err != nil {
@@ -394,7 +439,7 @@ func (s *ServerStore) CompleteEpoch(ctx context.Context, epochID string, stats d
 	if err != nil {
 		return mapNotFound(err)
 	}
-	if status != domain.EpochPublished && status != domain.EpochPublishable && status != domain.EpochTransferring {
+	if status != domain.EpochPublished {
 		return fmt.Errorf("epoch %s cannot complete from %s: %w", epochID, status, domain.ErrConflict)
 	}
 	var imported int
@@ -412,9 +457,13 @@ func (s *ServerStore) CompleteEpoch(ctx context.Context, epochID string, stats d
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE source_states SET cursor_kind=?,cursor_value=?,catalog_version=catalog_version+1,live_bytes=?,live_objects=?,active_epoch_id=NULL,updated_at=? WHERE source_id=? AND active_epoch_id=?`, kind, value, stats.Bytes, stats.Objects, timeString(at), sourceID, epochID)
+	r, err := tx.ExecContext(ctx, `UPDATE source_states SET cursor_kind=?,cursor_value=?,catalog_version=catalog_version+1,live_bytes=?,live_objects=?,active_epoch_id=NULL,updated_at=? WHERE source_id=? AND active_epoch_id=?`, kind, value, stats.Bytes, stats.Objects, timeString(at), sourceID, epochID)
 	if err != nil {
 		return err
+	}
+	affected, _ := r.RowsAffected()
+	if affected != 1 {
+		return fmt.Errorf("source active epoch changed before cursor advance: %w", domain.ErrConflict)
 	}
 	return tx.Commit()
 }

@@ -1,7 +1,176 @@
 package pack
-import("context";"crypto/sha256";"encoding/hex";"fmt";"io";"os";"time";"github.com/ynw0/airgap-mirror/internal/domain")
-type Writer struct{f *os.File;header domain.PackHeader;records,payload uint64;closed bool};func Create(p string,h domain.PackHeader)(*Writer,error){f,e:=os.OpenFile(p,os.O_CREATE|os.O_EXCL|os.O_RDWR,0644);if e!=nil{return nil,e};w:=&Writer{f:f,header:h};if w.header.CreatedUnix==0{w.header.CreatedUnix=time.Now().Unix()};if e=w.writeHeader();e!=nil{f.Close();os.Remove(p);return nil,e};return w,nil}
-func Resume(p string,x domain.PackHeader)(*Writer,error){f,e:=os.OpenFile(p,os.O_RDWR,0644);if e!=nil{return nil,e};r,e:=NewReaderFile(f);if e!=nil{f.Close();return nil,e};h:=r.Header();if h.PackID!=x.PackID||h.EpochID!=x.EpochID||h.BatchID!=x.BatchID{f.Close();return nil,fmt.Errorf("pack identity mismatch")};last:=int64(PackHeaderSize);var rc,pay uint64;for{q,b,e:=r.Next(context.Background());if e==io.EOF{break};if e!=nil{break};if _,e=io.Copy(io.Discard,b);e!=nil{break};last=q.Offset+q.RecordLength;rc++;pay+=uint64(q.ContentLength)};if e=f.Truncate(last);e!=nil{f.Close();return nil,e};w:=&Writer{f:f,header:h,records:rc,payload:pay};if e=w.writeHeader();e!=nil{f.Close();return nil,e};_,e=f.Seek(last,io.SeekStart);return w,e}
-func(w *Writer)writeHeader()error{p,e:=uuidBytes(w.header.PackID);if e!=nil{return e};x,e:=uuidBytes(w.header.EpochID);if e!=nil{return e};b,e:=uuidBytes(w.header.BatchID);if e!=nil{return e};h:=make([]byte,PackHeaderSize);copy(h[:8],packMagic);put16(h[8:10],Version);put32(h[12:16],PackHeaderSize);copy(h[16:32],p[:]);copy(h[32:48],x[:]);copy(h[48:64],b[:]);put64(h[64:72],w.records);put64(h[72:80],w.payload);put64(h[80:88],uint64(w.header.CreatedUnix));_,e=w.f.WriteAt(h,0);return e}
-func(w *Writer)Append(ctx context.Context,e domain.PackEntry,r io.Reader)(domain.PackLocation,error){var l domain.PackLocation;a:=e.Artifact;if w.closed{return l,fmt.Errorf("writer closed")};if e:=ValidateLogicalPath(a.LogicalPath);e!=nil{return l,e};sha,e2:=decodeSHA256(a.SHA256);if e2!=nil{return l,e2};id,e2:=uuidBytes(a.ID);if e2!=nil{return l,e2};off,e2:=w.f.Seek(0,io.SeekCurrent);if e2!=nil{return l,e2};pb:=[]byte(a.LogicalPath);h:=make([]byte,RecordHeaderSize);copy(h[:8],recordMagic);put16(h[8:10],Version);put32(h[12:16],RecordHeaderSize);copy(h[16:32],id[:]);put64(h[32:40],uint64(a.Size));put32(h[40:44],uint32(len(pb)));copy(h[48:80],sha[:]);if _,e2=w.f.Write(h);e2!=nil{return l,e2};if _,e2=w.f.Write(pb);e2!=nil{return l,e2};hs:=sha256.New();n,e2:=io.Copy(io.MultiWriter(w.f,hs),io.LimitReader(&ctxReader{ctx:ctx,r:r},a.Size));if e2!=nil||n!=a.Size||hex.EncodeToString(hs.Sum(nil))!=a.SHA256{w.f.Truncate(off);w.f.Seek(off,0);if e2!=nil{return l,e2};return l,fmt.Errorf("artifact content mismatch")};w.records++;w.payload+=uint64(a.Size);if e2=w.writeHeader();e2!=nil{return l,e2};end:=off+RecordHeaderSize+int64(len(pb))+a.Size;_,e2=w.f.Seek(end,0);return domain.PackLocation{PackID:w.header.PackID,Offset:off,RecordLength:end-off},e2}
-func(w *Writer)Close()error{if w.closed{return nil};w.closed=true;if e:=w.writeHeader();e!=nil{w.f.Close();return e};if e:=w.f.Sync();e!=nil{w.f.Close();return e};return w.f.Close()};type ctxReader struct{ctx context.Context;r io.Reader};func(c *ctxReader)Read(p []byte)(int,error){select{case<-c.ctx.Done():return 0,c.ctx.Err();default:return c.r.Read(p)}}
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"github.com/ynw0/airgap-mirror/internal/domain"
+	"io"
+	"os"
+	"time"
+)
+
+type Writer struct {
+	f                *os.File
+	header           domain.PackHeader
+	records, payload uint64
+	closed           bool
+}
+
+func Create(p string, h domain.PackHeader) (*Writer, error) {
+	f, e := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0644)
+	if e != nil {
+		return nil, e
+	}
+	w := &Writer{f: f, header: h}
+	if w.header.CreatedUnix == 0 {
+		w.header.CreatedUnix = time.Now().Unix()
+	}
+	if e = w.writeHeader(); e != nil {
+		f.Close()
+		os.Remove(p)
+		return nil, e
+	}
+	return w, nil
+}
+func Resume(p string, x domain.PackHeader) (*Writer, error) {
+	f, e := os.OpenFile(p, os.O_RDWR, 0644)
+	if e != nil {
+		return nil, e
+	}
+	r, e := NewReaderFile(f)
+	if e != nil {
+		f.Close()
+		return nil, e
+	}
+	h := r.Header()
+	if h.PackID != x.PackID || h.EpochID != x.EpochID || h.BatchID != x.BatchID {
+		f.Close()
+		return nil, fmt.Errorf("pack identity mismatch")
+	}
+	last := int64(PackHeaderSize)
+	var rc, pay uint64
+	for {
+		q, b, e := r.Next(context.Background())
+		if e == io.EOF {
+			break
+		}
+		if e != nil {
+			break
+		}
+		if _, e = io.Copy(io.Discard, b); e != nil {
+			break
+		}
+		last = q.Offset + q.RecordLength
+		rc++
+		pay += uint64(q.ContentLength)
+	}
+	if e = f.Truncate(last); e != nil {
+		f.Close()
+		return nil, e
+	}
+	w := &Writer{f: f, header: h, records: rc, payload: pay}
+	if e = w.writeHeader(); e != nil {
+		f.Close()
+		return nil, e
+	}
+	_, e = f.Seek(last, io.SeekStart)
+	return w, e
+}
+func (w *Writer) writeHeader() error {
+	p, e := uuidBytes(w.header.PackID)
+	if e != nil {
+		return e
+	}
+	x, e := uuidBytes(w.header.EpochID)
+	if e != nil {
+		return e
+	}
+	b, e := uuidBytes(w.header.BatchID)
+	if e != nil {
+		return e
+	}
+	h := make([]byte, PackHeaderSize)
+	copy(h[:8], packMagic)
+	put16(h[8:10], Version)
+	put32(h[12:16], PackHeaderSize)
+	copy(h[16:32], p[:])
+	copy(h[32:48], x[:])
+	copy(h[48:64], b[:])
+	put64(h[64:72], w.records)
+	put64(h[72:80], w.payload)
+	put64(h[80:88], uint64(w.header.CreatedUnix))
+	_, e = w.f.WriteAt(h, 0)
+	return e
+}
+func (w *Writer) Append(ctx context.Context, e domain.PackEntry, r io.Reader) (domain.PackLocation, error) {
+	var l domain.PackLocation
+	a := e.Artifact
+	if w.closed {
+		return l, fmt.Errorf("writer closed")
+	}
+	if e := ValidateLogicalPath(a.LogicalPath); e != nil {
+		return l, e
+	}
+	sha, e2 := decodeSHA256(a.SHA256)
+	if e2 != nil {
+		return l, e2
+	}
+	id, e2 := uuidBytes(a.ID)
+	if e2 != nil {
+		return l, e2
+	}
+	off, e2 := w.f.Seek(0, io.SeekCurrent)
+	if e2 != nil {
+		return l, e2
+	}
+	pb := []byte(a.LogicalPath)
+	h := make([]byte, RecordHeaderSize)
+	copy(h[:8], recordMagic)
+	put16(h[8:10], Version)
+	put32(h[12:16], RecordHeaderSize)
+	copy(h[16:32], id[:])
+	put64(h[32:40], uint64(a.Size))
+	put32(h[40:44], uint32(len(pb)))
+	copy(h[48:80], sha[:])
+	if _, e2 = w.f.Write(h); e2 != nil {
+		return l, e2
+	}
+	if _, e2 = w.f.Write(pb); e2 != nil {
+		return l, e2
+	}
+	hs := sha256.New()
+	n, e2 := io.Copy(io.MultiWriter(w.f, hs), io.LimitReader(&ctxReader{ctx: ctx, r: r}, a.Size))
+	if e2 != nil || n != a.Size || hex.EncodeToString(hs.Sum(nil)) != a.SHA256 {
+		w.f.Truncate(off)
+		w.f.Seek(off, 0)
+		if e2 != nil {
+			return l, e2
+		}
+		return l, fmt.Errorf("artifact content mismatch")
+	}
+	w.records++
+	w.payload += uint64(a.Size)
+	if e2 = w.writeHeader(); e2 != nil {
+		return l, e2
+	}
+	end := off + RecordHeaderSize + int64(len(pb)) + a.Size
+	_, e2 = w.f.Seek(end, 0)
+	return domain.PackLocation{PackID: w.header.PackID, Offset: off, RecordLength: end - off}, e2
+}
+func (w *Writer) Close() error {
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	if e := w.writeHeader(); e != nil {
+		w.f.Close()
+		return e
+	}
+	if e := w.f.Sync(); e != nil {
+		w.f.Close()
+		return e
+	}
+	return w.f.Close()
+}
