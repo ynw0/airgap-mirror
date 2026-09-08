@@ -14,10 +14,11 @@ go build -o dist/mirrorctl ./cmd/mirrorctl
 Mirror Agent 当前运行参数：
 
 ```text
--listen   127.0.0.1:8787
--db       /var/lib/airgap-mirror/server.db
--staging  /var/lib/airgap-mirror/transfer-staging
--exports  /var/lib/airgap-mirror/state-exports
+-listen       127.0.0.1:8787
+-db           /var/lib/airgap-mirror/server.db
+-staging      /var/lib/airgap-mirror/transfer-staging
+-exports      /var/lib/airgap-mirror/state-exports
+-maintenance  /var/lib/airgap-mirror/maintenance
 ```
 
 Bearer Token 优先通过 `AIRGAP_MIRROR_TOKEN` 提供。服务在没有 Token 时拒绝启动。
@@ -33,13 +34,13 @@ sudo ./scripts/install-agent.sh ./dist/mirror-agent ./dist/mirrorctl
 - 创建系统用户/组 `airgap-mirror`；
 - 安装 `/usr/local/bin/mirror-agent`，可选安装 `mirrorctl`；
 - 创建 `/etc/airgap-mirror/agent.env`；首次安装使用 `/dev/urandom` 生成 32 字节随机 Token；
-- 创建 `/var/lib/airgap-mirror`、transfer staging 和 State Capsule export 目录；
+- 创建 `/var/lib/airgap-mirror`、transfer staging、State Capsule export、maintenance workspace；
 - 安装并 enable systemd unit；
 - **不会**启动服务；
 - **不会**修改 Apache；
 - **不会**移动或修改已有仓库目录。
 
-启动前必须让 `airgap-mirror` 对每个 Source 的 `rootPath` 有写权限。Apache 只需要读权限。若已有统一仓库组，可将 `airgap-mirror` 与 Apache 用户加入该组，并让仓库目录使用 setgid；不要为了省事把仓库改成 `0777`。
+启动前必须让 `airgap-mirror` 对每个 Source 的 `rootPath` 有写权限。Apache 只需要读权限。若已有统一仓库组，可将 `airgap-mirror` 与 Apache 用户加入该组，并让仓库目录使用 setgid；不要将仓库改成 `0777`。
 
 示例：
 
@@ -52,9 +53,9 @@ sudo find /srv/mirror -type d -exec chmod 2775 {} +
 sudo find /srv/mirror -type f -exec chmod 0664 {} +
 ```
 
-上面的 `/srv/mirror` 只是示例。已有仓库路径无需迁移。
+已有仓库路径无需迁移。
 
-确认环境文件：
+确认环境并启动：
 
 ```bash
 sudo stat /etc/airgap-mirror/agent.env
@@ -78,7 +79,7 @@ sudo -u airgap-mirror env "$(cat /etc/airgap-mirror/agent.env)" \
 sudo a2enmod proxy proxy_http alias
 ```
 
-将 `deploy/apache/airgap-mirror.conf` 的内容合并到现有内部仓库 VirtualHost。推荐对外入口：
+将 `deploy/apache/airgap-mirror.conf` 合并到现有内部仓库 VirtualHost。推荐入口：
 
 ```text
 https://repo.internal/mirror-control/   -> Mirror Agent 控制面
@@ -95,7 +96,7 @@ https://repo.internal/mirror-control
 
 `/npm/` 是 npm metadata gateway，不使用 Agent Bearer Token；npm CLI 无法携带控制面 Token。Gateway 只读取已经发布且 Catalog 登记的 packument。
 
-npm tarball 必须继续由 Apache 静态提供。例如：
+npm tarball 必须继续由 Apache 静态提供，例如：
 
 ```text
 https://repo.internal/npm-files/
@@ -109,7 +110,7 @@ https://repo.internal/npm-files/
 AllowEncodedSlashes NoDecode
 ```
 
-修改后先检查 Apache 配置再 reload：
+修改后检查配置再 reload：
 
 ```bash
 sudo apachectl configtest
@@ -127,7 +128,9 @@ BASE=https://repo.internal/mirror-control
 
 ### APT
 
-一个 Source 对应一个完整 suite publication set。`releaseMode` 只能是 `inrelease` 或 `detached`。
+一个 Source 对应一个 suite publication set。`releaseMode` 只能是 `inrelease` 或 `detached`。
+
+`pool/` 在 Debian 仓库中可能跨多个 suite 共用，因此 physical GC **默认不管理 pool**。只有当该 Source 的整个 `pool/` 确认不存在其他 suite/Source/工具引用时，才可设置 `gcOwnsPool=true`。
 
 ```bash
 curl -fsS -X POST "$BASE/api/v1/sources" \
@@ -141,13 +144,13 @@ curl -fsS -X POST "$BASE/api/v1/sources" \
     "rootPath":"/srv/mirror/apt/debian",
     "publicUrl":"https://repo.internal/apt/debian",
     "enabled":true,
-    "config":{"suite":"bookworm","releaseMode":"inrelease"}
+    "config":{"suite":"bookworm","releaseMode":"inrelease","gcOwnsPool":false}
   }'
 ```
 
 ### PyPI
 
-`upstreamUrl` 是 PEP 691 Simple API 根。仓库布局中生成 `simple/<project>/index.html`，distribution 文件保持 `packages/...` 原生相对路径。
+`upstreamUrl` 是 PEP 691 Simple API 根。仓库布局生成 `simple/<project>/index.html`，distribution 文件保持 `packages/...` 原生相对路径。
 
 ```bash
 curl -fsS -X POST "$BASE/api/v1/sources" \
@@ -165,7 +168,7 @@ curl -fsS -X POST "$BASE/api/v1/sources" \
   }'
 ```
 
-pip 使用示例：
+pip 使用：
 
 ```bash
 pip install --index-url https://repo.internal/pypi/simple/ <package>
@@ -197,11 +200,11 @@ npm 客户端 registry 使用 Gateway URL，并包含 Source ID：
 https://repo.internal/npm/<source-id>/
 ```
 
-packument 中的 `dist.tarball` 会被 Adapter 重写到 `publicUrl/<原生 tarball logical path>`，因此下载流量不会经过 Agent。
+packument 中的 `dist.tarball` 会被 Adapter 重写到 `publicUrl/<原生 tarball logical path>`，下载流量不会经过 Agent。
 
 ### Maven Generic
 
-Generic Provider **不爬 HTML 目录**。上游必须提供可枚举 NDJSON manifest：
+Generic Provider **不爬 HTML 目录**。上游必须提供可枚举 NDJSON manifest。若需要对一个已有 filesystem repository 执行显式 Inventory/GC，配置 `inventoryMode=filesystem`；这表示维护任务允许遍历该 Source 的独占 root，不改变正常增量同步方式。
 
 ```bash
 curl -fsS -X POST "$BASE/api/v1/sources" \
@@ -215,7 +218,7 @@ curl -fsS -X POST "$BASE/api/v1/sources" \
     "rootPath":"/srv/mirror/maven/internal",
     "publicUrl":"https://repo.internal/maven/internal",
     "enabled":true,
-    "config":{"indexUrl":"https://upstream.example/mirror-index.ndjson"}
+    "config":{"indexUrl":"https://upstream.example/mirror-index.ndjson","inventoryMode":"filesystem"}
   }'
 ```
 
@@ -241,12 +244,70 @@ curl -fsS -X POST "$BASE/api/v1/sources" \
   }'
 ```
 
-## 5. 运维边界
+## 5. Inventory 与 GC
+
+Maintenance 是显式控制面操作，不会在正常同步中自动扫描几十 TB 仓库。
+
+启动 Inventory：
+
+```bash
+curl -fsS -X POST "$BASE/api/v1/sources/<source-id>/inventory" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+启动 GC dry-run：
+
+```bash
+curl -fsS -X POST "$BASE/api/v1/sources/<source-id>/gc" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"execute":false}'
+```
+
+查看任务：
+
+```bash
+curl -fsS "$BASE/api/v1/maintenance?sourceId=<source-id>" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+查看完成的 GC 候选：
+
+```bash
+curl -fsS "$BASE/api/v1/maintenance/<job-id>/candidates?limit=100" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+物理 GC：
+
+```bash
+curl -fsS -X POST "$BASE/api/v1/sources/<source-id>/gc" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"execute":true}'
+```
+
+`execute=true` 会创建一个**新的 GC Job 并重新扫描**，不会直接删除上一次 dry-run 的旧候选。删除前会再次检查 Catalog membership、Source root ownership、regular file、size 和 mtime。
+
+安全边界：
+
+- Active Epoch 与 Active Maintenance Job 互斥；
+- physical GC 要求 Source root 不与任何其他 Source root 相同、嵌套或解析后重叠；
+- repository tree 出现 symlink 时 physical GC 拒绝继续；
+- physical delete 仅在 Linux 实现；
+- APT `pool/` 只有 `gcOwnsPool=true` 才进入删除范围。
+
+## 6. 运维边界
 
 - Apache 静态仓库目录是真实数据面；不要把制品导入 SQLite。
 - 正常同步不会扫描整个几十 TB 仓库。
-- Pack upload staging 只保存正在导入的 Pack，commit 后会释放。
+- Pack upload staging 只保存正在导入的 Pack，commit 后释放。
+- Maintenance workspace 只保存隔离 rebuild Catalog 与 GC candidate DB，不保存仓库本体副本。
 - 同 logical path 不同 hash 是硬冲突，Agent 不覆盖。
-- npm unpublish 等删除先撤销 metadata 引用，旧 tarball 等后续显式 GC 回收。
+- npm unpublish 等删除先撤销 metadata 引用，旧 tarball 通过显式 GC 回收。
 - State Capsule 可以带出隔离网，但不要把 Agent Bearer Token 写进 Capsule 或同步介质。
-- `/mirror-control/` 应只暴露在可信内网；Bearer Token 是控制面身份凭据，不替代网络分区、TLS 和主机访问控制。
+- `/mirror-control/` 应只暴露在可信内网；Bearer Token 不替代网络分区、TLS 和主机访问控制。
+
+## 7. Build 与 Release
+
+`main`/Pull Request 由 `.github/workflows/ci.yml` 执行构建门禁，不运行测试。推送 `v*` tag 后 `.github/workflows/release.yml` 会构建 Linux/Windows amd64 bundle、生成 SHA-256 并创建 GitHub Release。

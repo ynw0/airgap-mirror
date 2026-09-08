@@ -13,57 +13,80 @@
 - 不复制几十 TB live 仓库建立完整 staging。
 - 不使用 fallback 掩盖源状态、hash 或发布冲突。
 
-## 阶段
+## 实施状态
+
+截至 2026-09-08，P0–P8 的实现代码均已进入 `main`。验证方式是 formatting/module/build/configuration gate；自动化测试仍保持为单独阶段，未混入构建门禁。
+
+| 阶段 | 状态 | 主要完成内容 |
+|---|---|---|
+| P0 领域模型与状态机 | 完成 | Source/Epoch/Batch/Pack/PublishUnit/Maintenance 状态机 |
+| P1 SQLite 持久化 | 完成 | Server/Client DB、Catalog、Import、Maintenance、GC candidate |
+| P2 Pack 与 Manifest | 完成 | AGP Pack v1、ResumeWriter、manifest.sqlite、Batch descriptor |
+| P3 Mirror Agent | 完成 | Source/State/Import/Upload/Publish/Capacity/State Capsule API |
+| P4 Adapter | 完成 | APT、PyPI、npm、Maven Generic、Maven Central dependency-set |
+| P5 Windows Wails UI | 完成 | 三页面、断点下载/上传、维护面板、Windows EXE build |
+| P6 Apache/systemd 部署 | 完成 | Apache control/data plane 集成、systemd、安装脚本 |
+| P7 Inventory / GC | 完成 | 隔离 Catalog rebuild、原子切换、dry-run、secure Linux GC |
+| P8 Build / Release | 完成 | 永久 Build workflow 与 `v*` tagged Release workflow |
+
+## 阶段说明
 
 ### P0：领域模型与状态机 — 置信度 99/100
 
-实现 Source、SourceState、Epoch、Batch、Pack、Artifact、PublishUnit、Cursor、StateCapsule；锁定 Epoch/Batch/Publish 状态迁移。
-
-完成条件：核心模型不依赖具体生态；状态非法迁移返回明确错误；Epoch 固化 TotalBatches；PublishUnit 固化整个 Epoch 的 Required 数量。
+实现 Source、SourceState、Epoch、Batch、Pack、Artifact、PublishUnit、Cursor、StateCapsule、MaintenanceJob；非法状态迁移明确拒绝。
 
 ### P1：SQLite 持久化 — 置信度 97/100
 
-服务端数据库保存配置、Catalog、Epoch/Batch/Import/Audit；客户端数据库保存导入的 State Capsule、下载任务、Pack/Entry 进度。软件包本体不入库。
-
-完成条件：schema 可幂等初始化；Repository 接口与 SQL 表一一对应。
+服务端数据库保存配置、Catalog、Epoch/Batch/Import/Maintenance；客户端数据库保存 State Capsule、分析计划、下载和 Pack/Entry 进度。软件包本体不入库。
 
 ### P2：Pack 与 Manifest — 置信度 96/100
 
-定义 `.agp` Pack v1，默认目标 32 GiB/Pack；Batch 可由多个 Pack 组成。详细 entry 位置信息进入 `manifest.sqlite`，`batch.json` 保存批次摘要和 Pack 哈希；每个 Batch 的 manifest 同时携带整个 Epoch 的 PublishUnit 全局声明，使 Batch 可以乱序进入内网。
-
-完成条件：支持顺序写/随机读取；单个 artifact 可独立 SHA-256 校验；Pack 可独立校验与导入。
+`.agp` Pack v1 默认目标约 32 GiB/Pack；Batch 默认约 2 TiB。详细 entry 位置进入 `manifest.sqlite`，`batch.json` 保存批次摘要和 Pack hash。单 artifact 不跨 Pack。
 
 ### P3：Mirror Agent — 置信度 98/100
 
-实现 Source/State/Epoch/Batch API、State Capsule 导出、Import Session、Pack 分片上传、Pack commit、Batch complete、健康检查和容量查询。
-
-完成条件：Apache 不经过 Agent 下载 artifact；Agent 只负责控制面和 npm metadata gateway。
+实现 Source/State/Epoch/Batch、State Capsule、Import Session、Manifest/Pack resumable upload、Pack commit、Batch complete、容量查询和 npm metadata gateway。Artifact 静态下载不经过 Agent。
 
 ### P4：Adapter 契约 — 置信度 96/100
 
-统一 SourceAdapter 接口，按生态实现能力：APT、PyPI、npm、Maven。四个 Adapter 不复制调度、Batch、Pack、导入代码。
+四种生态复用统一 Planner/Downloader/Pack/Importer/Publisher；Adapter 只实现协议语义。Maven Central 明确限制在 dependency-set。
 
 ### P5：Windows Wails UI — 置信度 98/100
 
-三个一级页面：源状态、互联网同步、服务器更新。无 mock/fake 仓库数据；所有数据来自 Go binding 或真实配置。
+三个一级页面：源状态、互联网同步、服务器更新。维护能力嵌入源状态页，不增加第二套业务实现。React 不直接访问 SQLite 或拼装同步协议。
 
 ### P6：部署与现有 Apache 集成 — 置信度 99/100
 
-提供 Agent YAML 示例、systemd unit、Apache Alias/ProxyPass 示例和仓库目录布局。
+Agent 仅监听 loopback，Apache 反代控制 API/npm packument gateway，原生仓库继续静态发布。安装脚本不移动已有仓库。
 
-### P7：Build 验证 — 置信度 95/100
+### P7：Inventory / GC — 置信度 97/100
 
-只运行编译与前端 production build，不运行测试。测试在用户确认后单独执行。
+Inventory 写独立临时 Catalog，完整成功后才原子替换 live Catalog。Maintenance 与 Active Epoch 在 SQLite 边界互斥。GC 先生成持久候选数据库；`execute=false` 零删除，`execute=true` 重新扫描并在删除前再次检查 Catalog、root ownership、regular file、size 和 mtime。Linux 使用 `openat/fstatat/unlinkat` 与 `O_NOFOLLOW`。
+
+APT 的 `pool/` 可能跨 suite 共用，因此只有明确配置 `gcOwnsPool=true` 时才进入 APT physical GC 范围。
+
+### P8：Build / Release — 置信度 98/100
+
+永久 CI 只做可重复的构建门禁，不修改仓库、不运行测试。`v*` tag 才创建 Linux/Windows release bundle 和 SHA-256 文件。
+
+## 仍属于上线前验证而非功能开发的事项
+
+- 在真实几十 TB 仓库副本上做容量、吞吐和长时间中断恢复验证。
+- 在真实 APT/PyPI/npm/Maven 镜像数据上做端到端同步验收。
+- 在确认测试策略后运行自动化/集成测试。
+
+这些事项不改变当前架构或核心模块，只验证运行环境与边界条件。
 
 ## 架构风险
 
 | 风险 | 风险度 | 处理 |
 |---|---|---|
-| TB 级批次中断 | 中 | Epoch/Batch/Pack 状态持久化；按 Pack 续传 |
-| 几百万小文件搬运效率低 | 高 | 传输介质使用 16–32 GiB `.agp` Pack |
-| APT 元数据提前发布引用缺失 `.deb` | 高 | `pool` artifact first，Release/InRelease last |
+| TB 级批次中断 | 中 | Epoch/Batch/Pack 状态持久化；HTTP Range / resumable upload |
+| 几百万小文件搬运效率低 | 高 | 移动介质使用大 `.agp` Pack |
+| APT 元数据提前引用缺失 `.deb` | 高 | artifact first，Release/InRelease last |
 | PyPI/npm metadata 引用未导入文件 | 高 | PublishUnit 完整性门禁 |
-| Maven Central 整体镜像限制 | 高 | Central provider 不开放无授权 full mirror |
+| Maven Central 整体镜像限制 | 高 | Central provider 只做 dependency-set |
 | 同路径不同内容 | 高 | hash conflict 直接阻断，不覆盖 |
-| SQLite Catalog 与文件系统偏离 | 中 | 文件系统为真相；提供显式 Rebuild Catalog |
-| 服务器磁盘被单次导入打满 | 高 | 导入前 Capacity Gate；峰值只保留当前 Pack |
+| Catalog 与文件系统偏离 | 中 | 显式 Inventory，隔离 rebuild 后原子切换 |
+| GC 误删共享仓库文件 | 高 | exclusive root、Adapter ownership、APT pool opt-in、二次 membership/stat 校验 |
+| 服务器磁盘被单次导入打满 | 高 | Capacity Gate；staging 峰值按 Pack 控制 |

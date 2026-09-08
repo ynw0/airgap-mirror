@@ -35,7 +35,7 @@ fi
 install -d -m 0750 -o root -g "${SERVICE_GROUP}" "${ETC_DIR}"
 install -d -m 0750 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${STATE_DIR}"
 install -d -m 0750 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" \
-  "${STATE_DIR}/transfer-staging" "${STATE_DIR}/state-exports"
+  "${STATE_DIR}/transfer-staging" "${STATE_DIR}/state-exports" "${STATE_DIR}/maintenance"
 
 ENV_FILE="${ETC_DIR}/agent.env"
 if [[ ! -e "${ENV_FILE}" ]]; then

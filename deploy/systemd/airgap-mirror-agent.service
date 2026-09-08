@@ -13,7 +13,8 @@ ExecStart=/usr/local/bin/mirror-agent \
   -listen 127.0.0.1:8787 \
   -db /var/lib/airgap-mirror/server.db \
   -staging /var/lib/airgap-mirror/transfer-staging \
-  -exports /var/lib/airgap-mirror/state-exports
+  -exports /var/lib/airgap-mirror/state-exports \
+  -maintenance /var/lib/airgap-mirror/maintenance
 Restart=on-failure
 RestartSec=3s
 TimeoutStopSec=35s
