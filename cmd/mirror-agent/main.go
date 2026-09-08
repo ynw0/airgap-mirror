@@ -21,17 +21,18 @@ import (
 )
 
 func main() {
-	var listen, dbPath, staging, exports, token string
+	var listen, dbPath, staging, exports, maintenance, token string
 	flag.StringVar(&listen, "listen", "127.0.0.1:8787", "HTTP listen address")
 	flag.StringVar(&dbPath, "db", "/var/lib/airgap-mirror/server.db", "server SQLite database")
 	flag.StringVar(&staging, "staging", "/var/lib/airgap-mirror/transfer-staging", "resumable upload staging directory")
 	flag.StringVar(&exports, "exports", "/var/lib/airgap-mirror/state-exports", "State Capsule export directory")
+	flag.StringVar(&maintenance, "maintenance", "/var/lib/airgap-mirror/maintenance", "maintenance workspace directory")
 	flag.StringVar(&token, "token", os.Getenv("AIRGAP_MIRROR_TOKEN"), "Bearer token; AIRGAP_MIRROR_TOKEN is preferred")
 	flag.Parse()
 	if token == "" {
 		log.Fatal("bearer token is required via -token or AIRGAP_MIRROR_TOKEN")
 	}
-	for _, p := range []string{filepath.Dir(dbPath), staging, exports} {
+	for _, p := range []string{filepath.Dir(dbPath), staging, exports, maintenance} {
 		if err := os.MkdirAll(p, 0750); err != nil {
 			log.Fatal(err)
 		}
@@ -57,8 +58,20 @@ func main() {
 	publisher := service.PublisherService{Store: store, Catalog: store, Registry: registry}
 	importer := service.ImportService{Store: store, Installer: service.FileInstaller{}, Manifest: service.ManifestReader{Open: func(path string) (*sql.DB, error) { return sql.Open("sqlite", path) }}, Publisher: publisher}
 	capacity := service.FSCapacityInspector{}
+
+	maintenanceCtx, maintenanceCancel := context.WithCancel(context.Background())
+	defer maintenanceCancel()
+	maintenanceRunner := service.NewMaintenanceRunner(maintenanceCtx, store, store, store, registry, storesqlite.NewRebuildCatalogFactory(maintenance))
+	recoverCtx, recoverCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err = maintenanceRunner.RecoverInterrupted(recoverCtx); err != nil {
+		recoverCancel()
+		log.Fatal(err)
+	}
+	recoverCancel()
+
 	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token}
-	httpServer := &http.Server{Addr: listen, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, WriteTimeout: 0}
+	handler := appserver.WithMaintenance(api.Handler(), api, maintenanceRunner, store)
+	httpServer := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, WriteTimeout: 0}
 	errCh := make(chan error, 1)
 	go func() { log.Printf("mirror-agent listening on %s", listen); errCh <- httpServer.ListenAndServe() }()
 	sig := make(chan os.Signal, 1)
@@ -71,6 +84,7 @@ func main() {
 			log.Fatal(e)
 		}
 	}
+	maintenanceCancel()
 	shutdown, stop := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stop()
 	if err = httpServer.Shutdown(shutdown); err != nil {
