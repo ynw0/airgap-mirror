@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"strings"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -17,7 +18,11 @@ func OpenCatalogSnapshot(path string) (*sql.DB, *CatalogSnapshot, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	dsn := "file:" + url.PathEscape(filepath.ToSlash(abs)) + "?mode=ro&immutable=1"
+	uriPath := filepath.ToSlash(abs)
+	if filepath.VolumeName(abs) != "" && !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	dsn := (&url.URL{Scheme: "file", Path: uriPath, RawQuery: "mode=ro&immutable=1"}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, nil, err
