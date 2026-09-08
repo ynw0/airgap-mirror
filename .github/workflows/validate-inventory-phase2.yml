@@ -36,3 +36,4 @@ jobs:
           git add -A
           git commit -m 'chore: validate npm and Maven inventory scanners'
           git push
+# rerun: 2
