@@ -74,8 +74,12 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     try { const p = await app().BatchProgress(batchID); setProgress(prev => ({ ...prev, [batchID]: p })) } catch { /* batch may not exist after workspace rotation */ }
   }
   async function download(batch: Batch) {
-    if (!destination) { const value = await app().PickDownloadDirectory(); if (!value) return; setDestination(value) }
-    const target = destination || await app().PickDownloadDirectory(); if (!target) return
+    let target = destination
+    if (!target) {
+      target = await app().PickDownloadDirectory()
+      if (!target) return
+      setDestination(target)
+    }
     setRunning(prev => new Set(prev).add(batch.id)); setMessage('')
     try { const bundle = await app().DownloadBatch(batch.id, target, concurrency); setMessage(`Batch ${batch.sequence} READY：${bundle.path}`) }
     catch (e) { setMessage(errorText(e)) }

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	mirrorclient "github.com/ynw0/airgap-mirror/internal/client"
 	"github.com/ynw0/airgap-mirror/internal/domain"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
@@ -165,7 +165,7 @@ func (a *App) PickStateDestination() (string, error) {
 	return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "保存 State Capsule",
 		DefaultFilename: "mirror-state.mstate",
-		Filters: []runtime.FileFilter{{DisplayName: "Mirror State Capsule (*.mstate)", Pattern: "*.mstate"}},
+		Filters:         []runtime.FileFilter{{DisplayName: "Mirror State Capsule (*.mstate)", Pattern: "*.mstate"}},
 	})
 }
 
@@ -189,7 +189,7 @@ func (a *App) ExportStateCapsule(sourceIDs []string, destination string) (StateE
 
 func (a *App) PickCapsuleFile() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "选择 State Capsule",
+		Title:   "选择 State Capsule",
 		Filters: []runtime.FileFilter{{DisplayName: "Mirror State Capsule (*.mstate)", Pattern: "*.mstate"}},
 	})
 }
@@ -247,12 +247,16 @@ func (a *App) ListEpochs(capsuleID, sourceID string) ([]domain.Epoch, error) {
 	return workspace.ListEpochs(a.ctx, capsuleID, sourceID)
 }
 
-func (a *App) ResumeEpoch(epochID string) (domain.Epoch, []domain.Batch, error) {
+func (a *App) ResumeEpoch(epochID string) (EpochView, error) {
 	workspace, err := a.workspaceRef()
 	if err != nil {
-		return domain.Epoch{}, nil, err
+		return EpochView{}, err
 	}
-	return workspace.ResumeEpoch(a.ctx, epochID)
+	epoch, batches, err := workspace.ResumeEpoch(a.ctx, epochID)
+	if err != nil {
+		return EpochView{}, err
+	}
+	return EpochView{Epoch: epoch, Batches: batches}, nil
 }
 
 func (a *App) beginDownload(batchID string) (context.Context, func(), error) {
