@@ -12,8 +12,9 @@ type InventoryProgress struct {
 }
 
 type InventoryRequest struct {
-	Source domain.Source
-	Report func(InventoryProgress) error
+	Source  domain.Source
+	Current CatalogStore
+	Report  func(InventoryProgress) error
 }
 
 type InventoryAdapter interface {
