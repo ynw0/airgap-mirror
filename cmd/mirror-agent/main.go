@@ -15,6 +15,10 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/ynw0/airgap-mirror/internal/adapters/apt"
+	"github.com/ynw0/airgap-mirror/internal/adapters/maven"
+	"github.com/ynw0/airgap-mirror/internal/adapters/npm"
+	"github.com/ynw0/airgap-mirror/internal/adapters/pypi"
 	appserver "github.com/ynw0/airgap-mirror/internal/server"
 	"github.com/ynw0/airgap-mirror/internal/service"
 	storesqlite "github.com/ynw0/airgap-mirror/internal/storage/sqlite"
@@ -50,7 +54,13 @@ func main() {
 	}
 	cancel()
 	store := storesqlite.NewServerStore(db)
-	registry, err := service.NewRegistry()
+	registry, err := service.NewRegistry(
+		apt.New(http.DefaultClient),
+		pypi.New(http.DefaultClient),
+		npm.New(http.DefaultClient),
+		maven.NewGeneric(http.DefaultClient),
+		maven.NewCentral(http.DefaultClient),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
