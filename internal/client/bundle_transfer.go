@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -128,10 +129,11 @@ func ValidateBatchBundle(ctx context.Context, bundleDir string) (ValidatedBundle
 		if err = ctx.Err(); err != nil {
 			return out, err
 		}
-		if spec.ID == "" || spec.Sequence <= 0 || spec.Size < pack.HeaderSize || spec.EntryCount < 0 || len(spec.SHA256) != 64 {
+		if spec.ID == "" || spec.Sequence <= 0 || spec.Size < pack.PackHeaderSize || spec.EntryCount < 0 || len(spec.SHA256) != 64 {
 			return out, fmt.Errorf("invalid pack declaration %s: %w", spec.ID, domain.ErrInvalid)
 		}
-		if _, err = strconv.ParseUint(spec.SHA256[:16], 16, 64); err != nil {
+		digest, digestErr := hex.DecodeString(spec.SHA256)
+		if digestErr != nil || len(digest) != 32 {
 			return out, fmt.Errorf("invalid pack sha256 for %s: %w", spec.ID, domain.ErrInvalid)
 		}
 		if _, exists := packPaths[spec.ID]; exists {
