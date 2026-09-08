@@ -14,6 +14,8 @@ import (
 	"github.com/ynw0/airgap-mirror/internal/ports"
 )
 
+const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
 type PublisherService struct {
 	Store    ports.ServerStore
 	Catalog  ports.CatalogStore
@@ -27,25 +29,38 @@ func (p PublisherService) now() time.Time {
 	}
 	return time.Now()
 }
+
 func publishPriority(t domain.SourceType, path string) int {
-	if t != domain.SourceAPT {
-		return 10
-	}
 	base := filepath.Base(path)
-	switch base {
-	case "Release":
-		return 90
-	case "Release.gpg":
-		return 95
-	case "InRelease":
-		return 100
-	default:
-		if strings.Contains(path, "/by-hash/") {
+	switch t {
+	case domain.SourceAPT:
+		switch base {
+		case "Release":
+			return 90
+		case "Release.gpg":
+			return 95
+		case "InRelease":
+			return 100
+		default:
+			if strings.Contains(path, "/by-hash/") {
+				return 20
+			}
+			return 10
+		}
+	case domain.SourceMaven:
+		lower := strings.ToLower(base)
+		if strings.HasSuffix(lower, ".sha1") || strings.HasSuffix(lower, ".sha256") || strings.HasSuffix(lower, ".sha512") || strings.HasSuffix(lower, ".md5") {
 			return 20
 		}
+		if base == "maven-metadata.xml" {
+			return 100
+		}
+		return 10
+	default:
 		return 10
 	}
 }
+
 func (p PublisherService) PublishReady(ctx context.Context, epochID string) error {
 	ep, err := p.Store.GetEpoch(ctx, epochID)
 	if err != nil {
@@ -101,8 +116,11 @@ func (p PublisherService) PublishReady(ctx context.Context, epochID string) erro
 	}
 	return nil
 }
+
 func (p PublisherService) publishMetadata(ctx context.Context, source domain.Source, m domain.PublishMetadataEntry) error {
-	_ = ctx
+	if m.SourceID != source.ID {
+		return fmt.Errorf("metadata source %s does not match source %s: %w", m.SourceID, source.ID, domain.ErrConflict)
+	}
 	target, err := safeTarget(source.RootPath, m.LogicalPath)
 	if err != nil {
 		return err
@@ -110,6 +128,27 @@ func (p PublisherService) publishMetadata(ctx context.Context, source domain.Sou
 	if err = rejectSymlinkParents(source.RootPath, target); err != nil {
 		return err
 	}
+
+	if m.Operation == domain.ArtifactDelete {
+		if m.Size != 0 || m.SHA256 != emptySHA256 || m.StagedPath != "" {
+			return fmt.Errorf("invalid metadata tombstone: %w", domain.ErrInvalid)
+		}
+		if err = os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if d, e := os.Open(filepath.Dir(target)); e == nil {
+			_ = d.Sync()
+			_ = d.Close()
+		}
+		return p.Catalog.Delete(ctx, source.ID, m.LogicalPath)
+	}
+	if m.Operation != domain.ArtifactAdd && m.Operation != domain.ArtifactUpdate {
+		return fmt.Errorf("unsupported metadata operation %s: %w", m.Operation, domain.ErrInvalid)
+	}
+	if m.StagedPath == "" {
+		return fmt.Errorf("metadata content missing staging path: %w", domain.ErrInvalid)
+	}
+
 	stagedHash, stagedSize, stageErr := hashFile(m.StagedPath)
 	if stageErr == nil {
 		if stagedHash != m.SHA256 || stagedSize != m.Size {
