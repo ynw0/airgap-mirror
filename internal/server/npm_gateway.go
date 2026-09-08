@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"unicode"
@@ -88,9 +89,7 @@ func (a *API) npmPackument(w http.ResponseWriter, r *http.Request) {
 
 	f, info, err := service.OpenPublishedFile(source.RootPath, logical)
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalid) || errors.Is(err, domain.ErrConflict) {
-			mapError(w, err)
-		} else if errors.Is(err, errors.New("file does not exist")) {
+		if errors.Is(err, os.ErrNotExist) {
 			mapError(w, domain.ErrNotFound)
 		} else {
 			mapError(w, err)
