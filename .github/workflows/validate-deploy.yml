@@ -28,6 +28,13 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/install-agent.sh
+          sudo install -m 0755 /tmp/mirror-agent /usr/local/bin/mirror-agent
+          sudo groupadd --system airgap-mirror
+          sudo useradd --system --gid airgap-mirror --home-dir /var/lib/airgap-mirror --no-create-home --shell /usr/sbin/nologin airgap-mirror
+          sudo install -d -m 0750 -o root -g airgap-mirror /etc/airgap-mirror
+          printf 'AIRGAP_MIRROR_TOKEN=validation-only\n' | sudo tee /etc/airgap-mirror/agent.env >/dev/null
+          sudo chown root:airgap-mirror /etc/airgap-mirror/agent.env
+          sudo chmod 0640 /etc/airgap-mirror/agent.env
           systemd-analyze verify deploy/systemd/airgap-mirror-agent.service
           grep -q '^ProxyRequests Off$' deploy/apache/airgap-mirror.conf
           grep -q '127.0.0.1:8787' deploy/apache/airgap-mirror.conf
@@ -40,3 +47,4 @@ jobs:
           git add -A
           git commit -m 'chore: validate Linux deployment module'
           git push
+# rerun: 2
