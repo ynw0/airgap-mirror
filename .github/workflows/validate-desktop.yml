@@ -68,3 +68,4 @@ jobs:
           git add -A
           git commit -m 'feat: finalize Windows Wails desktop client'
           git push
+# rerun: 2
