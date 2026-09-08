@@ -21,3 +21,24 @@ CREATE INDEX IF NOT EXISTS ix_maintenance_source_created
 CREATE UNIQUE INDEX IF NOT EXISTS ux_maintenance_active_source
   ON maintenance_jobs(source_id)
   WHERE status IN('QUEUED','RUNNING');
+
+-- Maintenance and Epoch mutation are mutually exclusive at the database boundary.
+-- The triggers close the race between an application-level preflight and the final write.
+CREATE TRIGGER IF NOT EXISTS trg_maintenance_reject_active_epoch
+BEFORE INSERT ON maintenance_jobs
+WHEN NEW.status IN('QUEUED','RUNNING')
+ AND COALESCE((SELECT active_epoch_id FROM source_states WHERE source_id=NEW.source_id),'') <> ''
+BEGIN
+  SELECT RAISE(ABORT, 'source has active epoch; maintenance is blocked');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_epoch_reject_active_maintenance
+BEFORE UPDATE OF active_epoch_id ON source_states
+WHEN COALESCE(NEW.active_epoch_id,'') <> ''
+ AND EXISTS(
+   SELECT 1 FROM maintenance_jobs
+   WHERE source_id=NEW.source_id AND status IN('QUEUED','RUNNING')
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'source has active maintenance job; epoch is blocked');
+END;

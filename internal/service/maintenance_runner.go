@@ -16,13 +16,14 @@ type maintenanceRecoveryStore interface {
 }
 
 type MaintenanceRunner struct {
-	root     context.Context
-	Sources  ports.ServerStore
-	Jobs     ports.MaintenanceStore
-	Catalog  ports.CatalogStore
-	Registry ports.AdapterRegistry
-	Factory  ports.CatalogBuildFactory
-	Now      func() time.Time
+	root       context.Context
+	Sources    ports.ServerStore
+	Jobs       ports.MaintenanceStore
+	Catalog    ports.CatalogStore
+	Registry   ports.AdapterRegistry
+	Factory    ports.CatalogBuildFactory
+	Candidates ports.GCCandidateFactory
+	Now        func() time.Time
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
