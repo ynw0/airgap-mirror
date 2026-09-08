@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { app } from '../backend'
+import { MaintenancePanel } from '../components/MaintenancePanel'
 import { errorText, formatBytes, formatCount, formatDate, shortID } from '../format'
 import type { AgentOverview } from '../types'
 
@@ -85,6 +86,8 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
         }) : <tr><td colSpan={8} className="empty">连接 Agent 后显示源状态。</td></tr>}</tbody>
       </table></div>
     </div>
+
+    <MaintenancePanel overview={overview} />
 
     <div className="card export-row">
       <div><h3>导出 State Capsule</h3><p>只包含源状态与 Catalog 快照，不包含制品本体。复制到互联网电脑后用于增量分析。</p></div>

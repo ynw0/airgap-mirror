@@ -66,3 +66,16 @@ export interface DesktopTransferResult {
   workspaceTracked: boolean; local?: WorkspaceTransferResult; standalone?: BundleTransferResult;
 }
 export interface StateExportResult { path: string; export: { capsule: StateCapsule; name: string; download: string } }
+
+
+export type MaintenanceKind = 'INVENTORY' | 'GC'
+export type MaintenanceStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+export interface MaintenanceJob {
+  id: string; sourceId: string; kind: MaintenanceKind; status: MaintenanceStatus; execute: boolean;
+  scannedObjects: number; scannedBytes: number; candidateObjects: number; candidateBytes: number;
+  affectedObjects: number; affectedBytes: number; tempCatalogPath?: string; createdAt: string;
+  startedAt?: string; completedAt?: string; errorText?: string;
+}
+export interface GCCandidate { logicalPath: string; size: number; modTimeUnixNano: number }
+export interface GCStats { objects: number; bytes: number }
+export interface GCCandidatesPage { items: GCCandidate[]; stats: GCStats; next: string }

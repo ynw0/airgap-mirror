@@ -1,7 +1,7 @@
 import type {
   AgentOverview, AnalyzeOptions, BatchBundle, BatchDownloadProgress, Bootstrap, DesktopTransferResult,
   Epoch, EpochView, ImportedCapsule, StateCapsule, StateExportResult, SyncPlan, UpstreamState, ValidatedBundle,
-  TransferProgress,
+  TransferProgress, MaintenanceJob, GCCandidatesPage,
 } from './types'
 
 type AppBridge = {
@@ -26,6 +26,12 @@ type AppBridge = {
   ValidateBatchDirectory(path: string): Promise<ValidatedBundle>
   TransferBatchDirectory(path: string, opts: {chunkSize: number; requestId?: string}): Promise<DesktopTransferResult>
   PauseTransfer(batchID: string): Promise<void>
+  StartInventory(sourceID: string): Promise<MaintenanceJob>
+  StartGC(sourceID: string, execute: boolean): Promise<MaintenanceJob>
+  ListMaintenance(sourceID: string, limit: number): Promise<MaintenanceJob[]>
+  GetMaintenance(jobID: string): Promise<MaintenanceJob>
+  CancelMaintenance(jobID: string): Promise<MaintenanceJob>
+  GCCandidates(jobID: string, after: string, limit: number): Promise<GCCandidatesPage>
 }
 
 declare global {
