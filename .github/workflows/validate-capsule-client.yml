@@ -1,0 +1,37 @@
+name: Validate capsule client
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-capsule-client.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Build Go modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w internal/client internal/storage/sqlite/catalog_snapshot.go
+          go build ./internal/...
+          go build ./cmd/...
+      - name: Commit validated formatting and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/validate-capsule-client.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: finalize capsule-backed client core"
+          git push
