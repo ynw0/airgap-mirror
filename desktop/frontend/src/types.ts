@@ -41,7 +41,7 @@ export interface SyncPlan {
 export interface AnalyzeOptions { maxBatchBytes: number; targetPackBytes: number; pageSize: number }
 export interface EpochView { epoch: Epoch; batches: Batch[] }
 export interface BatchDownloadProgress {
-  batchId: string; status: BatchStatus; totalBytes: number; downloadedBytes: number;
+  batch: Batch; totalBytes: number; downloadedBytes: number;
   totalEntries: number; verifiedEntries: number; failedEntries: number;
 }
 export interface BatchBundle { batch: Batch; descriptor: BatchDescriptor; path: string }
@@ -61,7 +61,7 @@ export interface ImportSession { id: string; requestId: string; sourceId: string
 export interface ImportPack { sessionId: string; packId: string; expectedSize: number; expectedSha256: string; uploadedSize: number; status: string }
 export interface ImportStatus { session: ImportSession; packs: ImportPack[] }
 export interface BundleTransferResult { descriptor: BatchDescriptor; status: ImportStatus }
-export interface WorkspaceTransferResult { descriptor: BatchDescriptor; localBatch: Batch; localEpoch: Epoch; server: BundleTransferResult }
+export interface WorkspaceTransferResult { remote: BundleTransferResult; batch: Batch; epoch: Epoch }
 export interface DesktopTransferResult {
   workspaceTracked: boolean; local?: WorkspaceTransferResult; standalone?: BundleTransferResult;
 }
