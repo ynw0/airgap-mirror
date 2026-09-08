@@ -57,8 +57,8 @@ func (p BatchPlanner) Plan(ctx context.Context, e domain.Epoch) (domain.Epoch, e
 		for _, it := range items {
 			after = it.Ordinal
 			a := it.Artifact
-			if a.Operation == domain.ArtifactDelete {
-				return e, fmt.Errorf("delete requires GC pipeline")
+			if a.Operation == domain.ArtifactDelete && (!a.Metadata || a.Size != 0 || a.SHA256 == "") {
+				return e, fmt.Errorf("only zero-length metadata tombstones may be deleted in sync pipeline: %w", domain.ErrInvalid)
 			}
 			n := int64(pack.RecordHeaderSize+len(a.LogicalPath)) + a.Size
 			if b == nil || b.PlannedBytes > 0 && b.PlannedBytes+n > p.MaxBatchBytes {
@@ -101,6 +101,25 @@ func (p BatchPlanner) Plan(ctx context.Context, e domain.Epoch) (domain.Epoch, e
 	}
 	if x := fb(); x != nil {
 		return e, x
+	}
+	if bs == 0 {
+		batchID, err := domain.NewID()
+		if err != nil {
+			return e, err
+		}
+		packID, err := domain.NewID()
+		if err != nil {
+			return e, err
+		}
+		b := domain.Batch{ID: batchID, EpochID: e.ID, SourceID: e.SourceID, Sequence: 1, Status: domain.BatchPlanned, PackCount: 1, CreatedAt: time.Now()}
+		k := domain.Pack{ID: packID, EpochID: e.ID, BatchID: batchID, Sequence: 1, Status: domain.PackPlanned}
+		if err = p.Transfers.CreateBatch(ctx, b); err != nil {
+			return e, err
+		}
+		if err = p.Transfers.CreatePack(ctx, k); err != nil {
+			return e, err
+		}
+		bs = 1
 	}
 	e.TotalBatches = bs
 	if err := p.Transfers.UpdateEpoch(ctx, e); err != nil {

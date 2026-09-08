@@ -135,7 +135,7 @@ func validateAPIVersion(v string) error {
 	return nil
 }
 
-func streamRootChanges(ctx context.Context, r io.Reader, base int64, ns string, set ports.KeySet) (rootMeta, int64, error) {
+func streamRootChanges(ctx context.Context, r io.Reader, base int64, ns string, set ports.WorksetStore) (rootMeta, int64, error) {
 	var meta rootMeta
 	dec := json.NewDecoder(r)
 	tok, err := dec.Token()

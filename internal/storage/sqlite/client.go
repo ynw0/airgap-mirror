@@ -132,7 +132,7 @@ func (c *ClientStore) Reset(ctx context.Context, ns string) error {
 	return e
 }
 func (c *ClientStore) Add(ctx context.Context, ns, key string) (bool, error) {
-	r, e := c.DB.ExecContext(ctx, `INSERT OR IGNORE INTO workset_keys(namespace,key) VALUES(?,?)`, ns, key)
+	r, e := c.DB.ExecContext(ctx, `INSERT OR IGNORE INTO workset_keys(namespace,key,value) VALUES(?,?,'')`, ns, key)
 	if e != nil {
 		return false, e
 	}
@@ -151,6 +151,28 @@ func (c *ClientStore) Walk(ctx context.Context, ns string, fn func(string) error
 			return e
 		}
 		if e = fn(k); e != nil {
+			return e
+		}
+	}
+	return rows.Err()
+}
+
+func (c *ClientStore) Put(ctx context.Context, ns, key, value string) error {
+	_, e := c.DB.ExecContext(ctx, `INSERT INTO workset_keys(namespace,key,value) VALUES(?,?,?) ON CONFLICT(namespace,key) DO UPDATE SET value=excluded.value`, ns, key, value)
+	return e
+}
+func (c *ClientStore) WalkValues(ctx context.Context, ns string, fn func(string, string) error) error {
+	rows, e := c.DB.QueryContext(ctx, `SELECT key,value FROM workset_keys WHERE namespace=? ORDER BY key`, ns)
+	if e != nil {
+		return e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key, value string
+		if e = rows.Scan(&key, &value); e != nil {
+			return e
+		}
+		if e = fn(key, value); e != nil {
 			return e
 		}
 	}

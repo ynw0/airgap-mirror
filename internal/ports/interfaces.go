@@ -12,7 +12,7 @@ type AnalyzeRequest struct {
 	CapsuleID string
 	Source    domain.Source
 	Base      domain.Cursor
-	Workset   KeySet
+	Workset   WorksetStore
 	Catalog   CatalogStore
 	Generated GeneratedArtifactStore
 }
@@ -52,10 +52,12 @@ type GeneratedArtifactStore interface {
 	Put(context.Context, string, string, []byte) (localPath string, sha256 string, size int64, err error)
 }
 
-type KeySet interface {
+type WorksetStore interface {
 	Reset(context.Context, string) error
 	Add(context.Context, string, string) (bool, error)
 	Walk(context.Context, string, func(string) error) error
+	Put(context.Context, string, string, string) error
+	WalkValues(context.Context, string, func(string, string) error) error
 }
 type CatalogStore interface {
 	Get(context.Context, string, string) (domain.CatalogEntry, error)

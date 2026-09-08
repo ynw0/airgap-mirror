@@ -1,3 +1,46 @@
 package service
-import("context";"fmt";"net/http";"strconv";"strings";"github.com/ynw0/airgap-mirror/internal/ports")
-type HTTPFetcher struct{Client *http.Client};func(f HTTPFetcher)Open(ctx context.Context,r ports.FetchRequest)(ports.FetchResponse,error){var o ports.FetchResponse;c:=f.Client;if c==nil{c=http.DefaultClient};q,e:=http.NewRequestWithContext(ctx,http.MethodGet,r.URL,nil);if e!=nil{return o,e};if r.Offset>0{q.Header.Set("Range",fmt.Sprintf("bytes=%d-",r.Offset));if r.ETag!=""{q.Header.Set("If-Range",r.ETag)}else if r.LastModified!=""{q.Header.Set("If-Range",r.LastModified)}};x,e:=c.Do(q);if e!=nil{return o,e};if r.Offset>0&&x.StatusCode!=http.StatusPartialContent{x.Body.Close();return o,fmt.Errorf("upstream ignored range resume")};o=ports.FetchResponse{Body:x.Body,StatusCode:x.StatusCode,ContentLength:x.ContentLength,ETag:x.Header.Get("ETag"),LastModified:x.Header.Get("Last-Modified"),AcceptRanges:strings.EqualFold(x.Header.Get("Accept-Ranges"),"bytes")||x.StatusCode==206};if cr:=x.Header.Get("Content-Range");cr!=""&&r.Offset>0&&!strings.HasPrefix(cr,"bytes "+strconv.FormatInt(r.Offset,10)+"-"){x.Body.Close();return ports.FetchResponse{},fmt.Errorf("unexpected content-range %q",cr)};return o,nil}
+
+import (
+	"context"
+	"fmt"
+	"github.com/ynw0/airgap-mirror/internal/ports"
+	"net/http"
+	"strconv"
+	"strings"
+)
+
+type HTTPFetcher struct{ Client *http.Client }
+
+func (f HTTPFetcher) Open(ctx context.Context, r ports.FetchRequest) (ports.FetchResponse, error) {
+	var o ports.FetchResponse
+	c := f.Client
+	if c == nil {
+		c = http.DefaultClient
+	}
+	q, e := http.NewRequestWithContext(ctx, http.MethodGet, r.URL, nil)
+	if e != nil {
+		return o, e
+	}
+	if r.Offset > 0 {
+		q.Header.Set("Range", fmt.Sprintf("bytes=%d-", r.Offset))
+		if r.ETag != "" {
+			q.Header.Set("If-Range", r.ETag)
+		} else if r.LastModified != "" {
+			q.Header.Set("If-Range", r.LastModified)
+		}
+	}
+	x, e := c.Do(q)
+	if e != nil {
+		return o, e
+	}
+	if r.Offset > 0 && x.StatusCode != http.StatusPartialContent {
+		x.Body.Close()
+		return o, fmt.Errorf("upstream ignored range resume")
+	}
+	o = ports.FetchResponse{Body: x.Body, StatusCode: x.StatusCode, ContentLength: x.ContentLength, ETag: x.Header.Get("ETag"), LastModified: x.Header.Get("Last-Modified"), AcceptRanges: strings.EqualFold(x.Header.Get("Accept-Ranges"), "bytes") || x.StatusCode == 206}
+	if cr := x.Header.Get("Content-Range"); cr != "" && r.Offset > 0 && !strings.HasPrefix(cr, "bytes "+strconv.FormatInt(r.Offset, 10)+"-") {
+		x.Body.Close()
+		return ports.FetchResponse{}, fmt.Errorf("unexpected content-range %q", cr)
+	}
+	return o, nil
+}

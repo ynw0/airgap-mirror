@@ -1,3 +1,104 @@
 package pack
-import("bytes";"context";"encoding/binary";"encoding/hex";"fmt";"io";"os";"github.com/ynw0/airgap-mirror/internal/domain")
-type Reader struct{f *os.File;h domain.PackHeader;off int64;remaining uint64;own bool;active *io.LimitedReader};func Open(p string)(*Reader,error){f,e:=os.Open(p);if e!=nil{return nil,e};r,e:=NewReaderFile(f);if e!=nil{f.Close();return nil,e};r.own=true;return r,nil};func NewReaderFile(f *os.File)(*Reader,error){b:=make([]byte,PackHeaderSize);if _,e:=io.ReadFull(f,b);e!=nil{return nil,e};if !bytes.Equal(b[:8],packMagic)||binary.LittleEndian.Uint16(b[8:10])!=Version||binary.LittleEndian.Uint32(b[12:16])!=PackHeaderSize{return nil,fmt.Errorf("invalid pack header")};h:=domain.PackHeader{PackID:uuidString(b[16:32]),EpochID:uuidString(b[32:48]),BatchID:uuidString(b[48:64]),RecordCount:binary.LittleEndian.Uint64(b[64:72]),LogicalPayloadBytes:binary.LittleEndian.Uint64(b[72:80]),CreatedUnix:int64(binary.LittleEndian.Uint64(b[80:88]))};return &Reader{f:f,h:h,off:PackHeaderSize,remaining:h.RecordCount},nil};func(r *Reader)Header()domain.PackHeader{return r.h};func(r *Reader)Next(ctx context.Context)(domain.PackRecord,io.Reader,error){var q domain.PackRecord;if r.active!=nil&&r.active.N>0{io.Copy(io.Discard,r.active)};if r.remaining==0{return q,nil,io.EOF};if _,e:=r.f.Seek(r.off,0);e!=nil{return q,nil,e};h:=make([]byte,RecordHeaderSize);if _,e:=io.ReadFull(r.f,h);e!=nil{return q,nil,e};if !bytes.Equal(h[:8],recordMagic){return q,nil,fmt.Errorf("invalid record magic")};n:=int64(binary.LittleEndian.Uint64(h[32:40]));pn:=int(binary.LittleEndian.Uint32(h[40:44]));if pn<=0||pn>1<<20||n<0{return q,nil,fmt.Errorf("invalid record lengths")};pb:=make([]byte,pn);if _,e:=io.ReadFull(r.f,pb);e!=nil{return q,nil,e};if e:=ValidateLogicalPath(string(pb));e!=nil{return q,nil,e};q=domain.PackRecord{EntryID:uuidString(h[16:32]),LogicalPath:string(pb),ContentLength:n,SHA256:hex.EncodeToString(h[48:80]),Offset:r.off,RecordLength:int64(RecordHeaderSize+pn)+n};r.off+=q.RecordLength;r.remaining--;r.active=&io.LimitedReader{R:&ctxReader{ctx:ctx,r:r.f},N:n};return q,r.active,nil};func(r *Reader)Close()error{if r.own{return r.f.Close()};return nil}
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/ynw0/airgap-mirror/internal/domain"
+)
+
+type Reader struct {
+	f         *os.File
+	h         domain.PackHeader
+	off       int64
+	remaining uint64
+	own       bool
+	active    *io.LimitedReader
+}
+
+func Open(p string) (*Reader, error) {
+	f, e := os.Open(p)
+	if e != nil {
+		return nil, e
+	}
+	r, e := NewReaderFile(f)
+	if e != nil {
+		f.Close()
+		return nil, e
+	}
+	r.own = true
+	return r, nil
+}
+func NewReaderFile(f *os.File) (*Reader, error) {
+	b := make([]byte, PackHeaderSize)
+	if _, e := io.ReadFull(f, b); e != nil {
+		return nil, e
+	}
+	if !bytes.Equal(b[:8], packMagic) || binary.LittleEndian.Uint16(b[8:10]) != Version || binary.LittleEndian.Uint32(b[12:16]) != PackHeaderSize {
+		return nil, fmt.Errorf("invalid pack header")
+	}
+	h := domain.PackHeader{PackID: uuidString(b[16:32]), EpochID: uuidString(b[32:48]), BatchID: uuidString(b[48:64]), RecordCount: binary.LittleEndian.Uint64(b[64:72]), LogicalPayloadBytes: binary.LittleEndian.Uint64(b[72:80]), CreatedUnix: int64(binary.LittleEndian.Uint64(b[80:88]))}
+	return &Reader{f: f, h: h, off: PackHeaderSize, remaining: h.RecordCount}, nil
+}
+func (r *Reader) Header() domain.PackHeader { return r.h }
+func (r *Reader) Next(ctx context.Context) (domain.PackRecord, io.Reader, error) {
+	var q domain.PackRecord
+	if r.active != nil && r.active.N > 0 {
+		_, _ = io.Copy(io.Discard, r.active)
+	}
+	if r.remaining == 0 {
+		return q, nil, io.EOF
+	}
+	if _, e := r.f.Seek(r.off, 0); e != nil {
+		return q, nil, e
+	}
+	h := make([]byte, RecordHeaderSize)
+	if _, e := io.ReadFull(r.f, h); e != nil {
+		return q, nil, e
+	}
+	if !bytes.Equal(h[:8], recordMagic) {
+		return q, nil, fmt.Errorf("invalid record magic")
+	}
+	n := int64(binary.LittleEndian.Uint64(h[32:40]))
+	pn := int(binary.LittleEndian.Uint32(h[40:44]))
+	if pn <= 0 || pn > 1<<20 || n < 0 {
+		return q, nil, fmt.Errorf("invalid record lengths")
+	}
+	pb := make([]byte, pn)
+	if _, e := io.ReadFull(r.f, pb); e != nil {
+		return q, nil, e
+	}
+	if e := ValidateLogicalPath(string(pb)); e != nil {
+		return q, nil, e
+	}
+	q = domain.PackRecord{EntryID: uuidString(h[16:32]), LogicalPath: string(pb), ContentLength: n, SHA256: hex.EncodeToString(h[48:80]), Offset: r.off, RecordLength: int64(RecordHeaderSize+pn) + n}
+	r.off += q.RecordLength
+	r.remaining--
+	r.active = &io.LimitedReader{R: &ctxReader{ctx: ctx, r: r.f}, N: n}
+	return q, r.active, nil
+}
+func (r *Reader) Close() error {
+	if r.own {
+		return r.f.Close()
+	}
+	return nil
+}
+
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c *ctxReader) Read(p []byte) (int, error) {
+	select {
+	case <-c.ctx.Done():
+		return 0, c.ctx.Err()
+	default:
+		return c.r.Read(p)
+	}
+}

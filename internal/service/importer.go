@@ -32,15 +32,16 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 	if err != nil {
 		return err
 	}
-	if sess.Status != "MANIFEST_READY" && sess.Status != "IMPORTING" {
-		return fmt.Errorf("manifest is not ready: status=%s: %w", sess.Status, domain.ErrConflict)
-	}
 	ip, err := i.Store.GetImportPack(ctx, sessionID, packID)
 	if err != nil {
 		return err
 	}
+	// Pack commit 必须可幂等重试；即使 Batch 已完成，也直接接受已导入 Pack。
 	if ip.Status == domain.PackImported {
 		return nil
+	}
+	if sess.Status != "MANIFEST_READY" && sess.Status != "IMPORTING" {
+		return fmt.Errorf("manifest is not ready: status=%s: %w", sess.Status, domain.ErrConflict)
 	}
 	if ip.Status != domain.PackUploaded {
 		return fmt.Errorf("pack status %s is not uploaded: %w", ip.Status, domain.ErrConflict)
@@ -88,11 +89,23 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 		if m.PackID != packID || m.EntryID != rec.EntryID || m.PackOffset != rec.Offset || m.RecordLength != rec.RecordLength || m.Artifact.LogicalPath != rec.LogicalPath || m.Artifact.Size != rec.ContentLength || m.Artifact.SHA256 != rec.SHA256 || m.Artifact.SourceID != sess.SourceID || m.Artifact.EpochID != sess.EpochID {
 			return fmt.Errorf("manifest/pack record mismatch entry=%s: %w", m.EntryID, domain.ErrConflict)
 		}
-		if m.Artifact.Operation == domain.ArtifactDelete {
-			return fmt.Errorf("DELETE import is not implemented until GC phase: %w", domain.ErrInvalid)
+		if m.Artifact.Operation == domain.ArtifactDelete && !m.Artifact.Metadata {
+			return fmt.Errorf("physical artifact deletion is reserved for GC: %w", domain.ErrInvalid)
 		}
 		var staged string
-		if m.Artifact.Metadata {
+		switch {
+		case m.Artifact.Metadata && m.Artifact.Operation == domain.ArtifactDelete:
+			if rec.ContentLength != 0 || rec.SHA256 != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+				return fmt.Errorf("invalid metadata tombstone record %s: %w", m.EntryID, domain.ErrInvalid)
+			}
+			n, discardErr := io.Copy(io.Discard, body)
+			if discardErr != nil {
+				return discardErr
+			}
+			if n != 0 {
+				return fmt.Errorf("metadata tombstone contains payload: %w", domain.ErrConflict)
+			}
+		case m.Artifact.Metadata:
 			logical := filepath.ToSlash(filepath.Join(".airgap-staging", sess.EpochID, m.Artifact.PublishUnitID, filepath.FromSlash(m.Artifact.LogicalPath)))
 			staged, e = safeTarget(source.RootPath, logical)
 			if e != nil {
@@ -102,7 +115,7 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 			if e != nil {
 				return e
 			}
-		} else {
+		default:
 			if i.Installer == nil {
 				return fmt.Errorf("artifact installer required")
 			}
@@ -143,6 +156,15 @@ func (i ImportService) CompleteBatch(ctx context.Context, sessionID string) erro
 	sess, err := i.Store.GetImportSession(ctx, sessionID)
 	if err != nil {
 		return err
+	}
+	if sess.Status == "BATCH_IMPORTED" {
+		ep, e := i.Store.GetEpoch(ctx, sess.EpochID)
+		if e != nil {
+			return e
+		}
+		if ep.Status == domain.EpochComplete {
+			return nil
+		}
 	}
 	packs, err := i.Store.ListPacks(ctx, sess.BatchID)
 	if err != nil {
@@ -202,6 +224,13 @@ func (i ImportService) CompleteBatch(ctx context.Context, sessionID string) erro
 			if err = i.Store.TransitionEpoch(ctx, ep.ID, domain.EpochPublished, ""); err != nil {
 				return err
 			}
+		}
+		ep, err = i.Store.GetEpoch(ctx, ep.ID)
+		if err != nil {
+			return err
+		}
+		if ep.Status == domain.EpochComplete {
+			return nil
 		}
 		stats, err := i.Publisher.Catalog.Stats(ctx, ep.SourceID)
 		if err != nil {

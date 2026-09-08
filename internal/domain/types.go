@@ -302,14 +302,15 @@ type ImportPack struct {
 }
 
 type PublishMetadataEntry struct {
-	EntryID       string          `json:"entryId"`
-	PublishUnitID string          `json:"publishUnitId"`
-	SourceID      string          `json:"sourceId"`
-	LogicalPath   string          `json:"logicalPath"`
-	Size          int64           `json:"size"`
-	SHA256        string          `json:"sha256"`
-	StagedPath    string          `json:"stagedPath"`
-	PackageKey    string          `json:"packageKey,omitempty"`
-	Version       string          `json:"version,omitempty"`
-	Attributes    json.RawMessage `json:"attributes,omitempty"`
+	EntryID       string            `json:"entryId"`
+	PublishUnitID string            `json:"publishUnitId"`
+	SourceID      string            `json:"sourceId"`
+	LogicalPath   string            `json:"logicalPath"`
+	Size          int64             `json:"size"`
+	SHA256        string            `json:"sha256"`
+	Operation     ArtifactOperation `json:"operation"`
+	StagedPath    string            `json:"stagedPath"`
+	PackageKey    string            `json:"packageKey,omitempty"`
+	Version       string            `json:"version,omitempty"`
+	Attributes    json.RawMessage   `json:"attributes,omitempty"`
 }

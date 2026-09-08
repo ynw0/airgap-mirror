@@ -153,6 +153,20 @@ func (d Downloader) downloadPack(ctx context.Context, p domain.Pack, out string)
 		if st.Status == domain.DownloadVerified {
 			return fmt.Errorf("database marks artifact %s VERIFIED but pack has no matching record: %w", a.ID, domain.ErrConflict)
 		}
+		if a.Operation == domain.ArtifactDelete {
+			if !a.Metadata || a.Size != 0 || a.SHA256 == "" || a.LocalSourcePath != "" || a.UpstreamURL != "" {
+				return fmt.Errorf("invalid metadata tombstone %s: %w", a.ID, domain.ErrInvalid)
+			}
+			loc, appendErr := w.Append(ctx, domain.PackEntry{Artifact: a}, strings.NewReader(""))
+			if appendErr != nil {
+				return appendErr
+			}
+			if err := d.Plans.SetArtifactPackLocation(ctx, a.ID, loc); err != nil {
+				return err
+			}
+			return d.Progress.MarkEntryState(ctx, domain.DownloadEntryProgress{EntryID: a.ID, Status: domain.DownloadVerified, Downloaded: 0})
+		}
+
 		tmp := pth + "." + a.ID + ".part"
 		sourcePath := tmp
 		removeSource := true
@@ -311,6 +325,8 @@ func verifyFile(p, integrity string) (string, int64, error) {
 		switch strings.ToLower(alg) {
 		case "sha512":
 			x = sha512.New()
+		case "sha384":
+			x = sha512.New384()
 		case "sha256":
 			x = sha256.New()
 		case "sha1":
