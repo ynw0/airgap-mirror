@@ -67,7 +67,7 @@ func main() {
 	publisher := service.PublisherService{Store: store, Catalog: store, Registry: registry}
 	importer := service.ImportService{Store: store, Installer: service.FileInstaller{}, Manifest: service.ManifestReader{Open: func(path string) (*sql.DB, error) { return sql.Open("sqlite", path) }}, Publisher: publisher}
 	capacity := service.FSCapacityInspector{}
-	api := &appserver.API{Store: store, Catalog: store, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token}
+	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token}
 	httpServer := &http.Server{Addr: listen, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, WriteTimeout: 0}
 	errCh := make(chan error, 1)
 	go func() { log.Printf("mirror-agent listening on %s", listen); errCh <- httpServer.ListenAndServe() }()
