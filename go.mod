@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/ulikunitz/xz v0.5.16
+	github.com/wailsapp/wails/v2 v2.15.0
 	modernc.org/sqlite v1.58.0
 )
 
