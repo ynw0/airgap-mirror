@@ -18,16 +18,87 @@ func (c *ClientStore) Begin(ctx context.Context, e domain.Epoch, cid string) err
 	return x
 }
 func (c *ClientStore) PutPublishUnit(ctx context.Context, u domain.PublishUnit) error {
-	_, e := c.DB.ExecContext(ctx, `INSERT INTO planned_publish_units(id,epoch_id,source_id,unit_key,required_count,metadata_path) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET required_count=excluded.required_count,metadata_path=excluded.metadata_path`, u.ID, u.EpochID, u.SourceID, u.Key, u.Required, u.MetadataPath)
-	return e
+	if u.Required < 0 {
+		return fmt.Errorf("publish unit required count cannot be negative: %w", domain.ErrConflict)
+	}
+	tx, e := c.DB.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+
+	var epochID, sourceID, key, metadataPath string
+	var required int64
+	e = tx.QueryRowContext(ctx, `SELECT epoch_id,source_id,unit_key,required_count,metadata_path FROM planned_publish_units WHERE id=?`, u.ID).Scan(&epochID, &sourceID, &key, &required, &metadataPath)
+	switch {
+	case e == sql.ErrNoRows:
+		if _, e = tx.ExecContext(ctx, `INSERT INTO planned_publish_units(id,epoch_id,source_id,unit_key,required_count,metadata_path) VALUES(?,?,?,?,?,?)`, u.ID, u.EpochID, u.SourceID, u.Key, u.Required, u.MetadataPath); e != nil {
+			return e
+		}
+	case e != nil:
+		return e
+	default:
+		if epochID != u.EpochID || sourceID != u.SourceID || key != u.Key || required != u.Required || metadataPath != u.MetadataPath {
+			return fmt.Errorf("publish unit declaration changed for %s: %w", u.ID, domain.ErrConflict)
+		}
+	}
+	return tx.Commit()
 }
 func (c *ClientStore) PutArtifact(ctx context.Context, a domain.Artifact) error {
 	_, e := c.DB.ExecContext(ctx, `INSERT INTO planned_artifacts(id,epoch_id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,local_source_path,operation,publish_unit_id,package_key,version,metadata,attributes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.EpochID, a.SourceID, a.LogicalPath, a.Size, a.SHA256, a.UpstreamURL, a.UpstreamIntegrity, a.LocalSourcePath, a.Operation, a.PublishUnitID, a.PackageKey, a.Version, a.Metadata, []byte(a.Attributes))
 	return e
 }
 func (c *ClientStore) Commit(ctx context.Context, p domain.EpochPlan) error {
-	_, e := c.DB.ExecContext(ctx, `UPDATE download_epochs SET target_cursor_kind=?,target_cursor_value=?,status=?,total_bytes=?,total_objects=?,total_batches=?,publish_unit_count=? WHERE id=?`, p.Epoch.TargetCursor.Kind, p.Epoch.TargetCursor.Value, p.Epoch.Status, p.Epoch.TotalBytes, p.Epoch.TotalObjects, p.Epoch.TotalBatches, p.PublishUnitCount, p.Epoch.ID)
-	return e
+	tx, e := c.DB.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+
+	var artifacts, units, metadata int64
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM planned_artifacts WHERE epoch_id=?`, p.Epoch.ID).Scan(&artifacts); e != nil {
+		return e
+	}
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM planned_publish_units WHERE epoch_id=?`, p.Epoch.ID).Scan(&units); e != nil {
+		return e
+	}
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM planned_artifacts WHERE epoch_id=? AND metadata=1`, p.Epoch.ID).Scan(&metadata); e != nil {
+		return e
+	}
+	if artifacts != p.ArtifactCount || units != p.PublishUnitCount || metadata != p.MetadataCount {
+		return fmt.Errorf("epoch plan summary mismatch: artifacts=%d/%d units=%d/%d metadata=%d/%d: %w", artifacts, p.ArtifactCount, units, p.PublishUnitCount, metadata, p.MetadataCount, domain.ErrConflict)
+	}
+
+	var orphanCount int64
+	if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM planned_artifacts a LEFT JOIN planned_publish_units u ON u.id=a.publish_unit_id AND u.epoch_id=a.epoch_id AND u.source_id=a.source_id WHERE a.epoch_id=? AND (a.publish_unit_id='' OR u.id IS NULL)`, p.Epoch.ID).Scan(&orphanCount); e != nil {
+		return e
+	}
+	if orphanCount != 0 {
+		return fmt.Errorf("epoch %s contains %d artifacts without a matching publish unit: %w", p.Epoch.ID, orphanCount, domain.ErrConflict)
+	}
+
+	var unitID string
+	var required, actual int64
+	e = tx.QueryRowContext(ctx, `SELECT u.id,u.required_count,COUNT(a.id) FROM planned_publish_units u LEFT JOIN planned_artifacts a ON a.epoch_id=u.epoch_id AND a.source_id=u.source_id AND a.publish_unit_id=u.id WHERE u.epoch_id=? GROUP BY u.id,u.required_count HAVING COUNT(a.id)<>u.required_count LIMIT 1`, p.Epoch.ID).Scan(&unitID, &required, &actual)
+	if e != nil && e != sql.ErrNoRows {
+		return e
+	}
+	if e == nil {
+		return fmt.Errorf("publish unit %s required count mismatch: required=%d actual=%d: %w", unitID, required, actual, domain.ErrConflict)
+	}
+
+	r, e := tx.ExecContext(ctx, `UPDATE download_epochs SET target_cursor_kind=?,target_cursor_value=?,status=?,total_bytes=?,total_objects=?,total_batches=?,publish_unit_count=? WHERE id=?`, p.Epoch.TargetCursor.Kind, p.Epoch.TargetCursor.Value, p.Epoch.Status, p.Epoch.TotalBytes, p.Epoch.TotalObjects, p.Epoch.TotalBatches, p.PublishUnitCount, p.Epoch.ID)
+	if e != nil {
+		return e
+	}
+	n, e := r.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return domain.ErrNotFound
+	}
+	return tx.Commit()
 }
 func (c *ClientStore) Abort(ctx context.Context, id string, cause error) error {
 	_, e := c.DB.ExecContext(ctx, `UPDATE download_epochs SET status=?,error_text=? WHERE id=?`, domain.EpochFailed, cause.Error(), id)
