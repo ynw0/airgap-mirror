@@ -28,8 +28,9 @@ type BundleTransferOptions struct {
 }
 
 type BundleTransferResult struct {
-	Descriptor domain.BatchDescriptor `json:"descriptor"`
-	Status     ImportStatus           `json:"status"`
+	Descriptor     domain.BatchDescriptor `json:"descriptor"`
+	Status         ImportStatus           `json:"status"`
+	AlreadyApplied bool                   `json:"alreadyApplied"`
 }
 
 func manifestMeta(ctx context.Context, db *sql.DB, key string) (string, error) {
@@ -227,6 +228,17 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 		return out, err
 	}
 	if !state.LiveCursor.Equal(d.BaseCursor) {
+		if state.LiveCursor.Equal(d.TargetCursor) && state.ActiveEpochID == "" {
+			serverEpoch, epochErr := agent.Epoch(ctx, d.EpochID)
+			if epochErr != nil {
+				return out, epochErr
+			}
+			if serverEpoch.ID != d.EpochID || serverEpoch.SourceID != d.SourceID || !serverEpoch.BaseCursor.Equal(d.BaseCursor) || !serverEpoch.TargetCursor.Equal(d.TargetCursor) || serverEpoch.TotalBytes != d.EpochTotalBytes || serverEpoch.TotalObjects != d.EpochTotalObjects || serverEpoch.TotalBatches != d.EpochTotalBatches || serverEpoch.PublishUnitCount != d.EpochPublishUnitCount || serverEpoch.Status != domain.EpochComplete {
+				return out, fmt.Errorf("server cursor reached target but epoch %s does not match completed bundle epoch: %w", d.EpochID, domain.ErrConflict)
+			}
+			out.AlreadyApplied = true
+			return out, nil
+		}
 		return out, fmt.Errorf("server cursor %v differs from bundle base %v: %w", state.LiveCursor, d.BaseCursor, domain.ErrConflict)
 	}
 	if state.ActiveEpochID != "" && state.ActiveEpochID != d.EpochID {

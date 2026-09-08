@@ -141,9 +141,17 @@ func (w *Workspace) completeLocalEpochIfServerAdvanced(ctx context.Context, agen
 			return epoch, err
 		}
 	}
-	for _, next := range []domain.EpochStatus{domain.EpochPublishable, domain.EpochPublished, domain.EpochComplete} {
-		if epoch.Status == next || epoch.Status == domain.EpochComplete {
-			continue
+	for epoch.Status != domain.EpochComplete {
+		var next domain.EpochStatus
+		switch epoch.Status {
+		case domain.EpochTransferring:
+			next = domain.EpochPublishable
+		case domain.EpochPublishable:
+			next = domain.EpochPublished
+		case domain.EpochPublished:
+			next = domain.EpochComplete
+		default:
+			return epoch, fmt.Errorf("local epoch %s cannot reconcile completion from %s: %w", epoch.ID, epoch.Status, domain.ErrConflict)
 		}
 		if err = domain.ValidateEpochTransition(epoch.Status, next); err != nil {
 			return epoch, err
@@ -161,10 +169,11 @@ func (w *Workspace) TransferLocalBundle(ctx context.Context, agent *AgentClient,
 	if agent == nil {
 		return out, fmt.Errorf("agent client is required: %w", domain.ErrInvalid)
 	}
-	descriptor, err := ReadBatchDescriptor(bundleDir)
+	validated, err := ValidateBatchBundle(ctx, bundleDir)
 	if err != nil {
 		return out, err
 	}
+	descriptor := validated.Descriptor
 	batch, err := w.Store.GetBatch(ctx, descriptor.BatchID)
 	if err != nil {
 		return out, err
