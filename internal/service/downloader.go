@@ -2,16 +2,13 @@ package service
 
 import (
 	"context"
-	"crypto/sha1"
 	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"github.com/ynw0/airgap-mirror/internal/domain"
+	"github.com/ynw0/airgap-mirror/internal/integrity"
 	"github.com/ynw0/airgap-mirror/internal/pack"
 	"github.com/ynw0/airgap-mirror/internal/ports"
-	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -304,57 +301,6 @@ func (d Downloader) downloadArtifact(ctx context.Context, a domain.Artifact, tmp
 	}
 	return sha, written, nil
 }
-func verifyFile(p, integrity string) (string, int64, error) {
-	f, e := os.Open(p)
-	if e != nil {
-		return "", 0, e
-	}
-	defer f.Close()
-	h := sha256.New()
-	var x hash.Hash
-	var want []byte
-	if integrity != "" {
-		alg, val, ok := strings.Cut(integrity, "-")
-		if !ok {
-			return "", 0, fmt.Errorf("invalid integrity")
-		}
-		want, e = base64.StdEncoding.DecodeString(val)
-		if e != nil {
-			return "", 0, e
-		}
-		switch strings.ToLower(alg) {
-		case "sha512":
-			x = sha512.New()
-		case "sha384":
-			x = sha512.New384()
-		case "sha256":
-			x = sha256.New()
-		case "sha1":
-			x = sha1.New()
-		default:
-			return "", 0, fmt.Errorf("unsupported integrity %s", alg)
-		}
-	}
-	ws := []io.Writer{h}
-	if x != nil {
-		ws = append(ws, x)
-	}
-	n, e := io.Copy(io.MultiWriter(ws...), f)
-	if e != nil {
-		return "", n, e
-	}
-	if x != nil && !equalBytes(x.Sum(nil), want) {
-		return "", n, fmt.Errorf("upstream integrity mismatch")
-	}
-	return hex.EncodeToString(h.Sum(nil)), n, nil
-}
-func equalBytes(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var x byte
-	for i := range a {
-		x |= a[i] ^ b[i]
-	}
-	return x == 0
+func verifyFile(path, upstreamIntegrity string) (string, int64, error) {
+	return integrity.VerifyFile(path, upstreamIntegrity)
 }
