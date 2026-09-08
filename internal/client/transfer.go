@@ -2,12 +2,15 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -38,12 +41,21 @@ func (c *AgentClient) uploadOffset(ctx context.Context, requestPath string) (int
 	return parseUploadHeaders(resp)
 }
 
-func (c *AgentClient) uploadFile(ctx context.Context, requestPath, localPath, kind, sessionID, packID string, chunkSize int64, progress ProgressFunc) error {
+func (c *AgentClient) uploadFile(ctx context.Context, requestPath, localPath, kind, sessionID, packID string, chunkSize int64, expectedSHA256 string, progress ProgressFunc) error {
 	if chunkSize <= 0 {
 		chunkSize = DefaultUploadChunk
 	}
 	if chunkSize > 128<<20 {
 		return fmt.Errorf("upload chunk exceeds server maximum: %w", domain.ErrInvalid)
+	}
+	if expectedSHA256 != "" {
+		expectedSHA256 = strings.ToLower(strings.TrimSpace(expectedSHA256))
+		if len(expectedSHA256) != sha256.Size*2 {
+			return fmt.Errorf("invalid expected sha256: %w", domain.ErrInvalid)
+		}
+		if _, err := hex.DecodeString(expectedSHA256); err != nil {
+			return fmt.Errorf("invalid expected sha256: %w", domain.ErrInvalid)
+		}
 	}
 	f, err := os.Open(localPath)
 	if err != nil {
@@ -64,6 +76,16 @@ func (c *AgentClient) uploadFile(ctx context.Context, requestPath, localPath, ki
 	if info.Size() != length {
 		return fmt.Errorf("local file size %d != server declaration %d: %w", info.Size(), length, domain.ErrConflict)
 	}
+
+	var hasher = sha256.New()
+	if expectedSHA256 == "" {
+		hasher = nil
+	} else if offset > 0 {
+		if _, err = io.Copy(hasher, io.NewSectionReader(f, 0, offset)); err != nil {
+			return fmt.Errorf("hash uploaded prefix: %w", err)
+		}
+	}
+
 	if progress != nil {
 		if err = progress(TransferProgress{Kind: kind, SessionID: sessionID, PackID: packID, Path: localPath, Transferred: offset, Total: length}); err != nil {
 			return err
@@ -78,7 +100,11 @@ func (c *AgentClient) uploadFile(ctx context.Context, requestPath, localPath, ki
 			n = left
 		}
 		section := io.NewSectionReader(f, offset, n)
-		req, err := c.newRequest(ctx, http.MethodPatch, requestPath, section)
+		var body io.Reader = section
+		if hasher != nil {
+			body = io.TeeReader(section, hasher)
+		}
+		req, err := c.newRequest(ctx, http.MethodPatch, requestPath, body)
 		if err != nil {
 			return err
 		}
@@ -102,12 +128,22 @@ func (c *AgentClient) uploadFile(ctx context.Context, requestPath, localPath, ki
 			}
 		}
 	}
+	if hasher != nil {
+		if got := hex.EncodeToString(hasher.Sum(nil)); got != expectedSHA256 {
+			return fmt.Errorf("local upload source sha256 %s != expected %s: %w", got, expectedSHA256, domain.ErrConflict)
+		}
+	}
 	return nil
 }
 
 func (c *AgentClient) UploadManifest(ctx context.Context, sessionID, manifestPath string, chunkSize int64, progress ProgressFunc) error {
 	requestPath := "/api/v1/imports/" + url.PathEscape(sessionID) + "/manifest"
-	return c.uploadFile(ctx, requestPath, manifestPath, "manifest", sessionID, "", chunkSize, progress)
+	return c.uploadFile(ctx, requestPath, manifestPath, "manifest", sessionID, "", chunkSize, "", progress)
+}
+
+func (c *AgentClient) UploadManifestVerified(ctx context.Context, sessionID, manifestPath, expectedSHA256 string, chunkSize int64, progress ProgressFunc) error {
+	requestPath := "/api/v1/imports/" + url.PathEscape(sessionID) + "/manifest"
+	return c.uploadFile(ctx, requestPath, manifestPath, "manifest", sessionID, "", chunkSize, expectedSHA256, progress)
 }
 
 func (c *AgentClient) CompleteManifest(ctx context.Context, sessionID string) error {
@@ -116,7 +152,12 @@ func (c *AgentClient) CompleteManifest(ctx context.Context, sessionID string) er
 
 func (c *AgentClient) UploadPack(ctx context.Context, sessionID, packID, packPath string, chunkSize int64, progress ProgressFunc) error {
 	requestPath := "/api/v1/imports/" + url.PathEscape(sessionID) + "/packs/" + url.PathEscape(packID)
-	return c.uploadFile(ctx, requestPath, packPath, "pack", sessionID, packID, chunkSize, progress)
+	return c.uploadFile(ctx, requestPath, packPath, "pack", sessionID, packID, chunkSize, "", progress)
+}
+
+func (c *AgentClient) UploadPackVerified(ctx context.Context, sessionID, packID, packPath, expectedSHA256 string, chunkSize int64, progress ProgressFunc) error {
+	requestPath := "/api/v1/imports/" + url.PathEscape(sessionID) + "/packs/" + url.PathEscape(packID)
+	return c.uploadFile(ctx, requestPath, packPath, "pack", sessionID, packID, chunkSize, expectedSHA256, progress)
 }
 
 func (c *AgentClient) CommitPack(ctx context.Context, sessionID, packID string) error {
