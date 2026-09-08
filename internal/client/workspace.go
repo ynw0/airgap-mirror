@@ -34,9 +34,9 @@ type Workspace struct {
 }
 
 type AnalyzeOptions struct {
-	MaxBatchBytes  int64 `json:"maxBatchBytes"`
+	MaxBatchBytes   int64 `json:"maxBatchBytes"`
 	TargetPackBytes int64 `json:"targetPackBytes"`
-	PageSize       int   `json:"pageSize"`
+	PageSize        int   `json:"pageSize"`
 }
 
 type SyncPlan struct {
