@@ -60,6 +60,19 @@ func (c *ClientStore) ListCapsules(ctx context.Context) ([]domain.StateCapsule, 
 	return out, rows.Err()
 }
 
+func (c *ClientStore) FindOpenEpoch(ctx context.Context, capsuleID, sourceID string) (domain.Epoch, error) {
+	var e domain.Epoch
+	var baseKind, baseValue, targetKind, targetValue, created string
+	err := c.DB.QueryRowContext(ctx, `SELECT id,source_id,base_cursor_kind,base_cursor_value,target_cursor_kind,target_cursor_value,status,total_bytes,total_objects,total_batches,publish_unit_count,created_at,error_text FROM download_epochs WHERE capsule_id=? AND source_id=? AND status NOT IN (?,?,?) ORDER BY created_at DESC LIMIT 1`, capsuleID, sourceID, domain.EpochFailed, domain.EpochCancelled, domain.EpochComplete).Scan(&e.ID, &e.SourceID, &baseKind, &baseValue, &targetKind, &targetValue, &e.Status, &e.TotalBytes, &e.TotalObjects, &e.TotalBatches, &e.PublishUnitCount, &created, &e.ErrorText)
+	if err != nil {
+		return e, mapNotFound(err)
+	}
+	e.BaseCursor = domain.Cursor{Kind: baseKind, Value: baseValue}
+	e.TargetCursor = domain.Cursor{Kind: targetKind, Value: targetValue}
+	e.CreatedAt = parseTime(created)
+	return e, nil
+}
+
 func (c *ClientStore) ListBatches(ctx context.Context, epochID string) ([]domain.Batch, error) {
 	rows, err := c.DB.QueryContext(ctx, `SELECT id,epoch_id,source_id,sequence,status,planned_bytes,object_count,pack_count,created_at FROM download_batches WHERE epoch_id=? ORDER BY sequence`, epochID)
 	if err != nil {
