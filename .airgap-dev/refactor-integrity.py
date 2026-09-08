@@ -4,15 +4,19 @@ path = Path('internal/service/downloader.go')
 source = path.read_text(encoding='utf-8')
 for line in [
     '\t"crypto/sha1"\n',
-    '\t"crypto/sha256"\n',
     '\t"crypto/sha512"\n',
     '\t"encoding/base64"\n',
-    '\t"encoding/hex"\n',
     '\t"hash"\n',
 ]:
     if line not in source:
         raise SystemExit(f'missing downloader import: {line.strip()}')
     source = source.replace(line, '', 1)
+
+# sha256 and encoding/hex remain in downloader.go because Pack resume validation
+# still hashes existing AGP records independently of upstream SRI verification.
+for required in ['\t"crypto/sha256"\n', '\t"encoding/hex"\n']:
+    if required not in source:
+        raise SystemExit(f'missing pack-resume import: {required.strip()}')
 
 marker = '\t"github.com/ynw0/airgap-mirror/internal/domain"\n'
 if marker not in source:
