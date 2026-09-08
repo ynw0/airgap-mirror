@@ -38,3 +38,5 @@ jobs:
           git add -A
           git commit -m "feat: finalize maven adapters and publication semantics"
           git push
+
+# validation retry 2
