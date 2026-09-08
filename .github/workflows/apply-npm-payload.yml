@@ -27,7 +27,8 @@ jobs:
           test -f .airgap-dev/npm.payload.2
           test -f .airgap-dev/npm.payload.3
           test -f .airgap-dev/npm.payload.4
-          cat .airgap-dev/npm.payload.{1,2,3,4} | base64 -d > /tmp/npm-payload.tar.gz
+          cat .airgap-dev/npm.payload.{1,2,3,4} | tr -cd 'A-Za-z0-9+/=' | base64 -d > /tmp/npm-payload.tar.gz
+          echo '041a5d142992547ccfd582c3b480e42ada65a0c42487fa252928ce517e3c4af3  /tmp/npm-payload.tar.gz' | sha256sum -c -
           rm -f internal/storage/sqlite/server_core.go internal/storage/sqlite/server_import.go
           tar -xzf /tmp/npm-payload.tar.gz -C .
           gofmt -w internal/adapters/npm internal/ports internal/service internal/storage/sqlite
