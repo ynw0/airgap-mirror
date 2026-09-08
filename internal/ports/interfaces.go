@@ -14,6 +14,7 @@ type AnalyzeRequest struct {
 	Base      domain.Cursor
 	Workset   KeySet
 	Catalog   CatalogStore
+	Generated GeneratedArtifactStore
 }
 type MetadataRequest struct {
 	Source domain.Source
@@ -45,6 +46,10 @@ type SourceAdapter interface {
 }
 type AdapterRegistry interface {
 	Get(domain.SourceType, string) (SourceAdapter, error)
+}
+
+type GeneratedArtifactStore interface {
+	Put(context.Context, string, string, []byte) (localPath string, sha256 string, size int64, err error)
 }
 
 type KeySet interface {

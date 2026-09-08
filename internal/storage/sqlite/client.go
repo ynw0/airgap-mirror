@@ -22,7 +22,7 @@ func (c *ClientStore) PutPublishUnit(ctx context.Context, u domain.PublishUnit) 
 	return e
 }
 func (c *ClientStore) PutArtifact(ctx context.Context, a domain.Artifact) error {
-	_, e := c.DB.ExecContext(ctx, `INSERT INTO planned_artifacts(id,epoch_id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,operation,publish_unit_id,package_key,version,metadata,attributes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.EpochID, a.SourceID, a.LogicalPath, a.Size, a.SHA256, a.UpstreamURL, a.UpstreamIntegrity, a.Operation, a.PublishUnitID, a.PackageKey, a.Version, a.Metadata, []byte(a.Attributes))
+	_, e := c.DB.ExecContext(ctx, `INSERT INTO planned_artifacts(id,epoch_id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,local_source_path,operation,publish_unit_id,package_key,version,metadata,attributes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.EpochID, a.SourceID, a.LogicalPath, a.Size, a.SHA256, a.UpstreamURL, a.UpstreamIntegrity, a.LocalSourcePath, a.Operation, a.PublishUnitID, a.PackageKey, a.Version, a.Metadata, []byte(a.Attributes))
 	return e
 }
 func (c *ClientStore) Commit(ctx context.Context, p domain.EpochPlan) error {
@@ -34,7 +34,7 @@ func (c *ClientStore) Abort(ctx context.Context, id string, cause error) error {
 	return e
 }
 func (c *ClientStore) ListUnassignedArtifacts(ctx context.Context, eid string, after int64, limit int) ([]ports.PlannedArtifact, error) {
-	rows, e := c.DB.QueryContext(ctx, `SELECT ordinal,id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,operation,publish_unit_id,package_key,version,metadata,attributes,batch_id,pack_id FROM planned_artifacts WHERE epoch_id=? AND batch_id='' AND ordinal>? ORDER BY ordinal LIMIT ?`, eid, after, limit)
+	rows, e := c.DB.QueryContext(ctx, `SELECT ordinal,id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,local_source_path,operation,publish_unit_id,package_key,version,metadata,attributes,batch_id,pack_id FROM planned_artifacts WHERE epoch_id=? AND batch_id='' AND ordinal>? ORDER BY ordinal LIMIT ?`, eid, after, limit)
 	if e != nil {
 		return nil, e
 	}
@@ -45,7 +45,7 @@ func (c *ClientStore) ListUnassignedArtifacts(ctx context.Context, eid string, a
 		var a domain.Artifact
 		var op string
 		var attr []byte
-		if e = rows.Scan(&p.Ordinal, &a.ID, &a.SourceID, &a.LogicalPath, &a.Size, &a.SHA256, &a.UpstreamURL, &a.UpstreamIntegrity, &op, &a.PublishUnitID, &a.PackageKey, &a.Version, &a.Metadata, &attr, &p.BatchID, &p.PackID); e != nil {
+		if e = rows.Scan(&p.Ordinal, &a.ID, &a.SourceID, &a.LogicalPath, &a.Size, &a.SHA256, &a.UpstreamURL, &a.UpstreamIntegrity, &a.LocalSourcePath, &op, &a.PublishUnitID, &a.PackageKey, &a.Version, &a.Metadata, &attr, &p.BatchID, &p.PackID); e != nil {
 			return nil, e
 		}
 		a.EpochID = eid

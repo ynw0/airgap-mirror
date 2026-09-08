@@ -114,6 +114,7 @@ type Artifact struct {
 	SHA256            string            `json:"sha256,omitempty"`
 	UpstreamURL       string            `json:"upstreamUrl,omitempty"`
 	UpstreamIntegrity string            `json:"upstreamIntegrity,omitempty"`
+	LocalSourcePath   string            `json:"-"`
 	Operation         ArtifactOperation `json:"operation"`
 	PublishUnitID     string            `json:"publishUnitId"`
 	PackageKey        string            `json:"packageKey,omitempty"`

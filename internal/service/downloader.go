@@ -124,9 +124,6 @@ func (d Downloader) downloadPack(ctx context.Context, p domain.Pack, out string)
 			} else if readErr != nil {
 				return readErr
 			} else {
-				if st.Status != domain.DownloadVerified {
-					return fmt.Errorf("pack contains entry %s but database status is %s: %w", rec.EntryID, st.Status, domain.ErrConflict)
-				}
 				if rec.EntryID != a.ID || rec.LogicalPath != a.LogicalPath || rec.ContentLength != a.Size || (a.SHA256 != "" && rec.SHA256 != strings.ToLower(a.SHA256)) {
 					return fmt.Errorf("pack/database resume prefix mismatch for artifact %s: %w", a.ID, domain.ErrConflict)
 				}
@@ -138,6 +135,17 @@ func (d Downloader) downloadPack(ctx context.Context, p domain.Pack, out string)
 				if n != rec.ContentLength || hex.EncodeToString(hash.Sum(nil)) != rec.SHA256 {
 					return fmt.Errorf("existing pack record integrity mismatch for artifact %s: %w", a.ID, domain.ErrConflict)
 				}
+				if st.Status != domain.DownloadVerified {
+					if err := d.Plans.FinalizeArtifact(ctx, a.ID, rec.ContentLength, rec.SHA256); err != nil {
+						return err
+					}
+					if err := d.Plans.SetArtifactPackLocation(ctx, a.ID, domain.PackLocation{PackID: p.ID, Offset: rec.Offset, RecordLength: rec.RecordLength}); err != nil {
+						return err
+					}
+					if err := d.Progress.MarkEntryState(ctx, domain.DownloadEntryProgress{EntryID: a.ID, Status: domain.DownloadVerified, Downloaded: rec.ContentLength}); err != nil {
+						return err
+					}
+				}
 				return nil
 			}
 		}
@@ -146,15 +154,34 @@ func (d Downloader) downloadPack(ctx context.Context, p domain.Pack, out string)
 			return fmt.Errorf("database marks artifact %s VERIFIED but pack has no matching record: %w", a.ID, domain.ErrConflict)
 		}
 		tmp := pth + "." + a.ID + ".part"
-		sha, size, downloadErr := d.downloadArtifact(ctx, a, tmp, st)
-		if downloadErr != nil {
-			return downloadErr
+		sourcePath := tmp
+		removeSource := true
+		var sha string
+		var size int64
+		var materializeErr error
+		switch {
+		case a.LocalSourcePath != "" && a.UpstreamURL != "":
+			return fmt.Errorf("artifact %s has both local and upstream sources: %w", a.ID, domain.ErrInvalid)
+		case a.LocalSourcePath != "":
+			sourcePath = a.LocalSourcePath
+			removeSource = false
+			sha, size, materializeErr = verifyFile(sourcePath, a.UpstreamIntegrity)
+			if materializeErr == nil && (size != a.Size || a.SHA256 == "" || sha != strings.ToLower(a.SHA256)) {
+				materializeErr = fmt.Errorf("generated artifact %s integrity mismatch: %w", a.ID, domain.ErrConflict)
+			}
+		case a.UpstreamURL != "":
+			sha, size, materializeErr = d.downloadArtifact(ctx, a, tmp, st)
+		default:
+			return fmt.Errorf("artifact %s has no content source: %w", a.ID, domain.ErrInvalid)
 		}
-		if downloadErr = d.Plans.FinalizeArtifact(ctx, a.ID, size, sha); downloadErr != nil {
-			return downloadErr
+		if materializeErr != nil {
+			return materializeErr
+		}
+		if materializeErr = d.Plans.FinalizeArtifact(ctx, a.ID, size, sha); materializeErr != nil {
+			return materializeErr
 		}
 		a.SHA256 = sha
-		f, openErr := os.Open(tmp)
+		f, openErr := os.Open(sourcePath)
 		if openErr != nil {
 			return openErr
 		}
@@ -169,8 +196,10 @@ func (d Downloader) downloadPack(ctx context.Context, p domain.Pack, out string)
 		if err := d.Plans.SetArtifactPackLocation(ctx, a.ID, loc); err != nil {
 			return err
 		}
-		if err := os.Remove(tmp); err != nil {
-			return err
+		if removeSource {
+			if err := os.Remove(tmp); err != nil {
+				return err
+			}
 		}
 		return d.Progress.MarkEntryState(ctx, domain.DownloadEntryProgress{EntryID: a.ID, Status: domain.DownloadVerified, Downloaded: size})
 	})

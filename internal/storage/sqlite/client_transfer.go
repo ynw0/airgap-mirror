@@ -47,7 +47,7 @@ func (c *ClientStore) ListPacks(ctx context.Context, bid string) ([]domain.Pack,
 	return out, r.Err()
 }
 func (c *ClientStore) WalkPackArtifacts(ctx context.Context, pid string, fn func(domain.Artifact) error) error {
-	r, e := c.DB.QueryContext(ctx, `SELECT id,epoch_id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,operation,publish_unit_id,package_key,version,metadata,attributes FROM planned_artifacts WHERE pack_id=? ORDER BY ordinal`, pid)
+	r, e := c.DB.QueryContext(ctx, `SELECT id,epoch_id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,local_source_path,operation,publish_unit_id,package_key,version,metadata,attributes FROM planned_artifacts WHERE pack_id=? ORDER BY ordinal`, pid)
 	if e != nil {
 		return e
 	}
@@ -56,7 +56,7 @@ func (c *ClientStore) WalkPackArtifacts(ctx context.Context, pid string, fn func
 		var a domain.Artifact
 		var op string
 		var at []byte
-		if e = r.Scan(&a.ID, &a.EpochID, &a.SourceID, &a.LogicalPath, &a.Size, &a.SHA256, &a.UpstreamURL, &a.UpstreamIntegrity, &op, &a.PublishUnitID, &a.PackageKey, &a.Version, &a.Metadata, &at); e != nil {
+		if e = r.Scan(&a.ID, &a.EpochID, &a.SourceID, &a.LogicalPath, &a.Size, &a.SHA256, &a.UpstreamURL, &a.UpstreamIntegrity, &a.LocalSourcePath, &op, &a.PublishUnitID, &a.PackageKey, &a.Version, &a.Metadata, &at); e != nil {
 			return e
 		}
 		a.Operation = domain.ArtifactOperation(op)
@@ -85,7 +85,7 @@ func (c *ClientStore) ListPlannedPublishUnits(ctx context.Context, eid string) (
 	return out, r.Err()
 }
 func (c *ClientStore) WalkBatchManifestEntries(ctx context.Context, bid string, fn func(domain.ManifestEntry) error) error {
-	r, e := c.DB.QueryContext(ctx, `SELECT id,epoch_id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,operation,publish_unit_id,package_key,version,metadata,attributes,pack_id,pack_offset,record_length FROM planned_artifacts WHERE batch_id=? ORDER BY ordinal`, bid)
+	r, e := c.DB.QueryContext(ctx, `SELECT id,epoch_id,source_id,logical_path,size,sha256,upstream_url,upstream_integrity,local_source_path,operation,publish_unit_id,package_key,version,metadata,attributes,pack_id,pack_offset,record_length FROM planned_artifacts WHERE batch_id=? ORDER BY ordinal`, bid)
 	if e != nil {
 		return e
 	}
@@ -96,7 +96,7 @@ func (c *ClientStore) WalkBatchManifestEntries(ctx context.Context, bid string, 
 		var op string
 		var at []byte
 		var o, l sql.NullInt64
-		if e = r.Scan(&a.ID, &a.EpochID, &a.SourceID, &a.LogicalPath, &a.Size, &a.SHA256, &a.UpstreamURL, &a.UpstreamIntegrity, &op, &a.PublishUnitID, &a.PackageKey, &a.Version, &a.Metadata, &at, &m.PackID, &o, &l); e != nil {
+		if e = r.Scan(&a.ID, &a.EpochID, &a.SourceID, &a.LogicalPath, &a.Size, &a.SHA256, &a.UpstreamURL, &a.UpstreamIntegrity, &a.LocalSourcePath, &op, &a.PublishUnitID, &a.PackageKey, &a.Version, &a.Metadata, &at, &m.PackID, &o, &l); e != nil {
 			return e
 		}
 		if !o.Valid || !l.Valid {
