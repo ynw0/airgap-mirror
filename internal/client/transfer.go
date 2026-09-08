@@ -15,12 +15,12 @@ import (
 const DefaultUploadChunk int64 = 64 << 20
 
 type TransferProgress struct {
-	Kind       string `json:"kind"`
-	SessionID  string `json:"sessionId"`
-	PackID     string `json:"packId,omitempty"`
-	Path       string `json:"path"`
-	Transferred int64 `json:"transferred"`
-	Total      int64  `json:"total"`
+	Kind        string `json:"kind"`
+	SessionID   string `json:"sessionId"`
+	PackID      string `json:"packId,omitempty"`
+	Path        string `json:"path"`
+	Transferred int64  `json:"transferred"`
+	Total       int64  `json:"total"`
 }
 
 type ProgressFunc func(TransferProgress) error
