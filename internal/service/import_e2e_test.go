@@ -190,6 +190,9 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 	if _, err = os.Stat(staged); err == nil {
 		t.Fatal("staged metadata should be published away")
 	}
+	if _, err = os.Stat(filepath.Join(root, ".airgap-staging", epochID)); err == nil {
+		t.Fatal("completed epoch staging should be removed")
+	}
 	ep, err := store.GetEpoch(ctx, epochID)
 	if err != nil {
 		t.Fatal(err)

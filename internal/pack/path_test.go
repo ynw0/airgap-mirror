@@ -30,3 +30,18 @@ func TestValidateLogicalPathRejectsTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestIsStagingLogical(t *testing.T) {
+	yes := []string{".airgap-staging", ".airgap-staging/epoch", ".airgap-staging/epoch/unit/file"}
+	for _, p := range yes {
+		if !IsStagingLogical(p) {
+			t.Fatalf("%q should be staging", p)
+		}
+	}
+	no := []string{"pool/main/a.deb", "airgap-staging/file", "dists/.airgap-staging/x"}
+	for _, p := range no {
+		if IsStagingLogical(p) {
+			t.Fatalf("%q should not be staging", p)
+		}
+	}
+}

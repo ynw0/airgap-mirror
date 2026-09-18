@@ -19,3 +19,9 @@ func ValidateLogicalPath(p string) error {
 	}
 	return nil
 }
+
+// IsStagingLogical 判断路径是否落在仓库内的 metadata 暂存树。
+func IsStagingLogical(p string) bool {
+	c := path.Clean(p)
+	return c == ".airgap-staging" || strings.HasPrefix(c, ".airgap-staging/")
+}

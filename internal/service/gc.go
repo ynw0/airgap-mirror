@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
+	"github.com/ynw0/airgap-mirror/internal/pack"
 	"github.com/ynw0/airgap-mirror/internal/ports"
 )
 
@@ -219,6 +220,12 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 			return err
 		}
 		logical := filepath.ToSlash(rel)
+		if pack.IsStagingLogical(logical) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("GC refuses repository symlink %s; remove or materialize it before physical GC: %w", logical, domain.ErrConflict)
 		}

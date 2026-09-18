@@ -166,7 +166,7 @@ func (i ImportService) CompleteBatch(ctx context.Context, sessionID string) erro
 			return e
 		}
 		if ep.Status == domain.EpochComplete {
-			return nil
+			return i.cleanupCompletedEpochStaging(ctx, sess.SourceID)
 		}
 	}
 	packs, err := i.Store.ListPacks(ctx, sess.BatchID)
@@ -233,13 +233,48 @@ func (i ImportService) CompleteBatch(ctx context.Context, sessionID string) erro
 			return err
 		}
 		if ep.Status == domain.EpochComplete {
-			return nil
+			return i.cleanupCompletedEpochStaging(ctx, ep.SourceID)
 		}
 		stats, err := i.Publisher.Catalog.Stats(ctx, ep.SourceID)
 		if err != nil {
 			return err
 		}
 		if err = i.Store.CompleteEpoch(ctx, ep.ID, stats, i.now()); err != nil {
+			return err
+		}
+		return i.cleanupCompletedEpochStaging(ctx, ep.SourceID)
+	}
+	return nil
+}
+
+func (i ImportService) cleanupCompletedEpochStaging(ctx context.Context, sourceID string) error {
+	source, err := i.Store.GetSource(ctx, sourceID)
+	if err != nil {
+		return err
+	}
+	epochs, err := i.Store.ListEpochs(ctx, sourceID)
+	if err != nil {
+		return err
+	}
+	for _, ep := range epochs {
+		if ep.Status != domain.EpochComplete {
+			continue
+		}
+		if err = removeEpochStaging(source.RootPath, ep.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SweepCompletedStaging 清理已完成 Epoch 残留的 metadata 暂存树。
+func (i ImportService) SweepCompletedStaging(ctx context.Context) error {
+	sources, err := i.Store.ListSources(ctx)
+	if err != nil {
+		return err
+	}
+	for _, src := range sources {
+		if err = i.cleanupCompletedEpochStaging(ctx, src.ID); err != nil {
 			return err
 		}
 	}

@@ -68,6 +68,10 @@ func main() {
 		recoverCancel()
 		log.Fatal(err)
 	}
+	if err = importer.SweepCompletedStaging(recoverCtx); err != nil {
+		recoverCancel()
+		log.Fatal(err)
+	}
 	recoverCancel()
 
 	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token}

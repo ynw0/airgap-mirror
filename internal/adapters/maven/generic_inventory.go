@@ -12,6 +12,7 @@ import (
 	"github.com/ynw0/airgap-mirror/internal/adapters/common"
 	"github.com/ynw0/airgap-mirror/internal/domain"
 	"github.com/ynw0/airgap-mirror/internal/integrity"
+	"github.com/ynw0/airgap-mirror/internal/pack"
 	"github.com/ynw0/airgap-mirror/internal/ports"
 )
 
@@ -89,7 +90,7 @@ func (a *GenericAdapter) Inventory(ctx context.Context, req ports.InventoryReque
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if filePath == repo.Root || d.IsDir() {
+		if filePath == repo.Root {
 			return nil
 		}
 		rel, err := filepath.Rel(repo.Root, filePath)
@@ -97,6 +98,15 @@ func (a *GenericAdapter) Inventory(ctx context.Context, req ports.InventoryReque
 			return err
 		}
 		logical := filepath.ToSlash(rel)
+		if pack.IsStagingLogical(logical) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
 		resolved, info, err := repo.Resolve(logical)
 		if err != nil {
 			return fmt.Errorf("Maven generic inventory %s: %w", logical, err)

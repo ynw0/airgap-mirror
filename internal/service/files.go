@@ -186,3 +186,18 @@ func writeVerified(root, target string, size int64, want string, r io.Reader, re
 	}
 	return false, nil
 }
+
+// removeEpochStaging 只删除该 Epoch 的 metadata 暂存树；进行中的 Epoch 不受影响。
+func removeEpochStaging(root, epochID string) error {
+	logical := ".airgap-staging/" + epochID
+	dir, err := safeTarget(root, logical)
+	if err != nil {
+		return err
+	}
+	if err = os.RemoveAll(dir); err != nil {
+		return err
+	}
+	parent := filepath.Dir(dir)
+	_ = os.Remove(parent)
+	return nil
+}

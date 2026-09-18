@@ -26,6 +26,9 @@ func (a *GenericAdapter) ManagedPaths(ctx context.Context, source domain.Source)
 		if err := pack.ValidateLogicalPath(logical); err != nil {
 			return false, err
 		}
+		if pack.IsStagingLogical(logical) {
+			return false, nil
+		}
 		return true, nil
 	}, nil
 }
@@ -37,6 +40,9 @@ func (a *CentralAdapter) ManagedPaths(ctx context.Context, source domain.Source)
 	return func(logical string) (bool, error) {
 		if err := pack.ValidateLogicalPath(logical); err != nil {
 			return false, err
+		}
+		if pack.IsStagingLogical(logical) {
+			return false, nil
 		}
 		parts := strings.Split(logical, "/")
 		return len(parts) >= 4, nil
