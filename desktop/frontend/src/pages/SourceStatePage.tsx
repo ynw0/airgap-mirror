@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { app } from '../backend'
 import { MaintenancePanel } from '../components/MaintenancePanel'
 import { SourceEditor } from '../components/SourceEditor'
 import { errorText, formatBytes, formatCount, formatDate, shortID } from '../format'
-import type { AgentOverview, Source, SourceInput } from '../types'
+import type { AgentOverview, Epoch, Source, SourceInput } from '../types'
 
 type Props = {
   overview: AgentOverview | null
@@ -19,7 +19,37 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [editor, setEditor] = useState<Source | 'create' | null>(null)
+  const [epochSourceID, setEpochSourceID] = useState('')
+  const [epochs, setEpochs] = useState<Epoch[]>([])
   const selectedIDs = useMemo(() => [...selected], [selected])
+
+  const epochSource = useMemo(() => overview?.sources.find(x => x.source.id === epochSourceID), [overview, epochSourceID])
+
+  useEffect(() => {
+    const sources = overview?.sources ?? []
+    if (!sources.length) {
+      setEpochSourceID('')
+      return
+    }
+    if (!sources.some(x => x.source.id === epochSourceID)) {
+      const stuck = sources.find(x => x.state.activeEpochId)
+      setEpochSourceID((stuck ?? sources[0]).source.id)
+    }
+  }, [overview, epochSourceID])
+
+  useEffect(() => {
+    if (!overview || !epochSourceID) {
+      setEpochs([])
+      return
+    }
+    let disposed = false
+    app().ListAgentEpochs(epochSourceID).then(items => {
+      if (!disposed) setEpochs(items ?? [])
+    }).catch(e => {
+      if (!disposed) setMessage(errorText(e))
+    })
+    return () => { disposed = true }
+  }, [overview, epochSourceID])
 
   async function connect() {
     setBusy(true); setMessage('')
@@ -52,6 +82,17 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
   async function chooseDestination() {
     const value = await app().PickStateDestination()
     if (value) setDestination(value)
+  }
+  async function cancelEpoch(epoch: Epoch) {
+    if (epoch.status === 'COMPLETE' || epoch.status === 'CANCELLED') return
+    if (!window.confirm(`取消 Epoch ${shortID(epoch.id)}？`)) return
+    setBusy(true); setMessage('')
+    try {
+      const value = await app().CancelEpoch(epoch.id)
+      onOverview(value)
+      setEpochs(await app().ListAgentEpochs(epochSourceID) ?? [])
+      setMessage(`Epoch 已取消：${shortID(epoch.id)}`)
+    } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
   async function exportCapsule() {
     if (!selectedIDs.length) { setMessage('至少选择一个源。'); return }
@@ -107,6 +148,29 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
     </div>
 
     {overview && editor && <SourceEditor key={editor === 'create' ? 'new' : editor.id} source={editor === 'create' ? null : editor} busy={busy} onCancel={() => setEditor(null)} onSubmit={saveSource} />}
+
+    {overview && <div className="card table-card">
+      <div className="card-title">
+        <span>服务端 Epoch</span>
+        <span>{epochSource?.state.activeEpochId ? `Active ${shortID(epochSource.state.activeEpochId)}` : '无 Active Epoch'}</span>
+      </div>
+      <div className="form-grid">
+        <label>Source<select value={epochSourceID} onChange={e => setEpochSourceID(e.target.value)} disabled={busy}>
+          {(overview.sources ?? []).map(x => <option key={x.source.id} value={x.source.id}>{x.source.name}{x.state.activeEpochId ? ' · active' : ''}</option>)}
+        </select></label>
+      </div>
+      <div className="table-wrap"><table><thead><tr><th>Epoch</th><th>状态</th><th>Base → Target</th><th>数据量</th><th>Batch</th><th>创建时间</th><th></th></tr></thead>
+        <tbody>{epochs.length ? epochs.map(e => <tr key={e.id}>
+          <td><code>{shortID(e.id)}</code></td>
+          <td><span className={`status status-${e.status.toLowerCase()}`}>{e.status}</span></td>
+          <td><small className="mono clip">{e.baseCursor.value || '∅'} → {e.targetCursor.value || '∅'}</small></td>
+          <td>{formatBytes(e.totalBytes)}<small>{formatCount(e.totalObjects)} objects</small></td>
+          <td>{e.totalBatches}</td>
+          <td>{formatDate(e.createdAt)}</td>
+          <td>{e.status !== 'COMPLETE' && e.status !== 'CANCELLED' ? <button className="danger-ghost" disabled={busy} onClick={() => cancelEpoch(e)}>取消</button> : null}</td>
+        </tr>) : <tr><td colSpan={7} className="empty">该源没有 Epoch。</td></tr>}</tbody>
+      </table></div>
+    </div>}
 
     <MaintenancePanel overview={overview} />
 

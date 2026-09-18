@@ -53,6 +53,7 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /api/v1/epochs", secure(a.epochsList))
 	mux.Handle("GET /api/v1/epochs/{id}", secure(a.epochGet))
 	mux.Handle("GET /api/v1/epochs/{id}/batches", secure(a.epochBatches))
+	mux.Handle("POST /api/v1/epochs/{id}/cancel", secure(a.epochCancel))
 	mux.Handle("GET /api/v1/batches/{id}", secure(a.batchGet))
 	mux.Handle("POST /api/v1/state/export", secure(a.stateExport))
 	mux.Handle("GET /api/v1/state/exports/{name}", secure(a.stateDownload))
@@ -240,6 +241,14 @@ func (a *API) epochGet(w http.ResponseWriter, r *http.Request) {
 }
 func (a *API) epochBatches(w http.ResponseWriter, r *http.Request) {
 	v, err := a.Store.ListBatches(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 200, v)
+}
+func (a *API) epochCancel(w http.ResponseWriter, r *http.Request) {
+	v, err := a.Importer.CancelEpoch(r.Context(), r.PathValue("id"))
 	if err != nil {
 		mapError(w, err)
 		return

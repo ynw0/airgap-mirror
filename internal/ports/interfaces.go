@@ -107,6 +107,8 @@ type ServerStore interface {
 	CountImportedBatches(context.Context, string) (int, error)
 	CountPublishedUnits(context.Context, string) (int64, error)
 	CompleteEpoch(context.Context, string, domain.CatalogStats, time.Time) error
+	ListImportSessionsByEpoch(context.Context, string) ([]domain.ImportSession, error)
+	CancelEpoch(context.Context, string, time.Time, string) error
 	WriteAudit(context.Context, domain.AuditEvent) error
 }
 

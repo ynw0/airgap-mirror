@@ -174,6 +174,28 @@ func (c *AgentClient) SourceState(ctx context.Context, sourceID string) (domain.
 	return out, err
 }
 
+func (c *AgentClient) ListEpochs(ctx context.Context, sourceID string) ([]domain.Epoch, error) {
+	path := "/api/v1/epochs"
+	if sourceID != "" {
+		path += "?sourceId=" + url.QueryEscape(sourceID)
+	}
+	var out []domain.Epoch
+	err := c.jsonRequest(ctx, http.MethodGet, path, nil, &out)
+	if out == nil {
+		out = []domain.Epoch{}
+	}
+	return out, err
+}
+
+func (c *AgentClient) CancelEpoch(ctx context.Context, epochID string) (domain.Epoch, error) {
+	if epochID == "" {
+		return domain.Epoch{}, fmt.Errorf("epoch id is required: %w", domain.ErrInvalid)
+	}
+	var out domain.Epoch
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/epochs/"+url.PathEscape(epochID)+"/cancel", nil, &out)
+	return out, err
+}
+
 func (c *AgentClient) Capacity(ctx context.Context, sourceID string) (domain.Capacity, error) {
 	var out domain.Capacity
 	query := url.Values{"sourceId": []string{sourceID}}

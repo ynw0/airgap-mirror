@@ -22,7 +22,7 @@ func main() {
 	flag.Parse()
 	method, path, body, dest, ok := parseCommand(flag.Args())
 	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: mirrorctl [flags] health|sources|sources-get <id>|sources-state <id>|capacity:<id>|sources-create <file.json>|sources-update <id> <file.json>|epochs [source-id]|export [source-id...]|export-get <name> <file>|inventory <id>|gc <id> [execute]|gc-candidates <job-id>|maintenance [source-id]|maintenance-get <job-id>|maintenance-cancel <job-id>")
+		fmt.Fprintln(os.Stderr, "usage: mirrorctl [flags] health|sources|sources-get <id>|sources-state <id>|capacity:<id>|sources-create <file.json>|sources-update <id> <file.json>|epochs [source-id]|epochs-cancel <id>|export [source-id...]|export-get <name> <file>|inventory <id>|gc <id> [execute]|gc-candidates <job-id>|maintenance [source-id]|maintenance-get <job-id>|maintenance-cancel <job-id>")
 		os.Exit(2)
 	}
 	code := request(method, strings.TrimRight(base, "/")+path, token, body, dest)
@@ -53,6 +53,8 @@ func parseCommand(args []string) (method, path string, body []byte, dest string,
 		return http.MethodGet, "/api/v1/epochs", nil, "", true
 	case cmd == "epochs" && len(args) == 2:
 		return http.MethodGet, "/api/v1/epochs?sourceId=" + url.QueryEscape(args[1]), nil, "", true
+	case cmd == "epochs-cancel" && len(args) == 2:
+		return http.MethodPost, "/api/v1/epochs/" + url.PathEscape(args[1]) + "/cancel", nil, "", true
 	case cmd == "export":
 		payload := []byte(`{}`)
 		if len(args) > 1 {

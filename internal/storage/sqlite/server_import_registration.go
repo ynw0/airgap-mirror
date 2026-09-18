@@ -64,6 +64,9 @@ func (s *ServerStore) RegisterImportBundle(ctx context.Context, d domain.BatchDe
 		}
 		e.BaseCursor = domain.Cursor{Kind: bk, Value: bv}
 		e.TargetCursor = domain.Cursor{Kind: tk, Value: tv}
+		if e.Status == domain.EpochCancelled || e.Status == domain.EpochFailed || e.Status == domain.EpochComplete {
+			return domain.ImportSession{}, fmt.Errorf("epoch %s is %s: %w", e.ID, e.Status, domain.ErrConflict)
+		}
 		if !sameEpoch(e, d) {
 			return domain.ImportSession{}, fmt.Errorf("epoch immutable fields mismatch: %w", domain.ErrConflict)
 		}

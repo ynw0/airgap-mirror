@@ -201,3 +201,26 @@ func removeEpochStaging(root, epochID string) error {
 	_ = os.Remove(parent)
 	return nil
 }
+
+func removeStagingDir(path string) error {
+	if path == "" {
+		return nil
+	}
+	clean := filepath.Clean(path)
+	if !filepath.IsAbs(clean) {
+		return fmt.Errorf("staging path must be absolute: %w", domain.ErrInvalid)
+	}
+	if clean == filepath.Dir(clean) {
+		return fmt.Errorf("refusing to remove filesystem root: %w", domain.ErrInvalid)
+	}
+	return os.RemoveAll(clean)
+}
+
+func refuseClosedEpoch(ep domain.Epoch) error {
+	switch ep.Status {
+	case domain.EpochCancelled, domain.EpochFailed, domain.EpochComplete:
+		return fmt.Errorf("epoch %s is %s: %w", ep.ID, ep.Status, domain.ErrConflict)
+	default:
+		return nil
+	}
+}

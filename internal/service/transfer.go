@@ -156,6 +156,14 @@ func appendChunk(path string, offset, total int64, r io.Reader, n int64) (int64,
 	}
 	return offset + written, nil
 }
+func (t TransferService) requireOpenEpoch(ctx context.Context, epochID string) error {
+	ep, err := t.Store.GetEpoch(ctx, epochID)
+	if err != nil {
+		return err
+	}
+	return refuseClosedEpoch(ep)
+}
+
 func (t TransferService) ManifestOffset(ctx context.Context, id string) (int64, error) {
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
@@ -183,6 +191,9 @@ func (t TransferService) AppendManifest(ctx context.Context, id string, offset i
 	if err != nil {
 		return 0, err
 	}
+	if err = t.requireOpenEpoch(ctx, s.EpochID); err != nil {
+		return s.ManifestUploaded, err
+	}
 	if s.Status != "UPLOADING_MANIFEST" {
 		return s.ManifestUploaded, fmt.Errorf("manifest not uploadable in status %s: %w", s.Status, domain.ErrConflict)
 	}
@@ -200,6 +211,9 @@ func (t TransferService) AppendManifest(ctx context.Context, id string, offset i
 func (t TransferService) CompleteManifest(ctx context.Context, id string) error {
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err = t.requireOpenEpoch(ctx, s.EpochID); err != nil {
 		return err
 	}
 	h, n, err := pack.FileSHA256(s.ManifestPath)
@@ -237,6 +251,13 @@ func (t TransferService) PackOffset(ctx context.Context, sid, pid string) (int64
 	return p.UploadedSize, nil
 }
 func (t TransferService) AppendPack(ctx context.Context, sid, pid string, offset int64, r io.Reader, n int64) (int64, error) {
+	s, err := t.Store.GetImportSession(ctx, sid)
+	if err != nil {
+		return 0, err
+	}
+	if err = t.requireOpenEpoch(ctx, s.EpochID); err != nil {
+		return 0, err
+	}
 	p, err := t.Store.GetImportPack(ctx, sid, pid)
 	if err != nil {
 		return 0, err

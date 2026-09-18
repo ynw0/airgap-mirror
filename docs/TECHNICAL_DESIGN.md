@@ -163,6 +163,7 @@ filesystem walk
 - Source CRUD / state
 - State Capsule export/download
 - Epoch/Batch read APIs
+- `POST /api/v1/epochs/{id}/cancel`
 - Import Session：manifest HEAD/PATCH/complete、Pack HEAD/PATCH/commit、Batch complete
 - `POST /api/v1/sources/{id}/inventory`
 - `POST /api/v1/sources/{id}/gc`

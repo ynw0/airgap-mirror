@@ -40,6 +40,13 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 	if ip.Status == domain.PackImported {
 		return nil
 	}
+	ep, err := i.Store.GetEpoch(ctx, sess.EpochID)
+	if err != nil {
+		return err
+	}
+	if err = refuseClosedEpoch(ep); err != nil {
+		return err
+	}
 	if sess.Status != "MANIFEST_READY" && sess.Status != "IMPORTING" {
 		return fmt.Errorf("manifest is not ready: status=%s: %w", sess.Status, domain.ErrConflict)
 	}
@@ -160,14 +167,15 @@ func (i ImportService) CompleteBatch(ctx context.Context, sessionID string) erro
 	if err != nil {
 		return err
 	}
-	if sess.Status == "BATCH_IMPORTED" {
-		ep, e := i.Store.GetEpoch(ctx, sess.EpochID)
-		if e != nil {
-			return e
-		}
-		if ep.Status == domain.EpochComplete {
-			return i.cleanupCompletedEpochStaging(ctx, sess.SourceID)
-		}
+	ep, err := i.Store.GetEpoch(ctx, sess.EpochID)
+	if err != nil {
+		return err
+	}
+	if sess.Status == "BATCH_IMPORTED" && ep.Status == domain.EpochComplete {
+		return i.cleanupCompletedEpochStaging(ctx, sess.SourceID)
+	}
+	if err = refuseClosedEpoch(ep); err != nil {
+		return err
 	}
 	packs, err := i.Store.ListPacks(ctx, sess.BatchID)
 	if err != nil {
@@ -201,8 +209,11 @@ func (i ImportService) CompleteBatch(ctx context.Context, sessionID string) erro
 	if err = i.Publisher.PublishReady(ctx, sess.EpochID); err != nil {
 		return err
 	}
-	ep, err := i.Store.GetEpoch(ctx, sess.EpochID)
+	ep, err = i.Store.GetEpoch(ctx, sess.EpochID)
 	if err != nil {
+		return err
+	}
+	if err = refuseClosedEpoch(ep); err != nil {
 		return err
 	}
 	imported, err := i.Store.CountImportedBatches(ctx, ep.ID)
@@ -279,4 +290,46 @@ func (i ImportService) SweepCompletedStaging(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (i ImportService) CancelEpoch(ctx context.Context, epochID string) (domain.Epoch, error) {
+	var empty domain.Epoch
+	if epochID == "" {
+		return empty, fmt.Errorf("epoch id is required: %w", domain.ErrInvalid)
+	}
+	ep, err := i.Store.GetEpoch(ctx, epochID)
+	if err != nil {
+		return empty, err
+	}
+	source, err := i.Store.GetSource(ctx, ep.SourceID)
+	if err != nil {
+		return empty, err
+	}
+	sessions, err := i.Store.ListImportSessionsByEpoch(ctx, epochID)
+	if err != nil {
+		return empty, err
+	}
+	if err = i.Store.CancelEpoch(ctx, epochID, i.now(), "epoch cancelled"); err != nil {
+		return empty, err
+	}
+	if err = removeEpochStaging(source.RootPath, epochID); err != nil {
+		return empty, err
+	}
+	seen := map[string]struct{}{}
+	for _, sess := range sessions {
+		if _, ok := seen[sess.StagingPath]; ok {
+			continue
+		}
+		seen[sess.StagingPath] = struct{}{}
+		if err = removeStagingDir(sess.StagingPath); err != nil {
+			return empty, err
+		}
+	}
+	ep, err = i.Store.GetEpoch(ctx, epochID)
+	if err != nil {
+		return empty, err
+	}
+	id, _ := domain.NewID()
+	_ = i.Store.WriteAudit(ctx, domain.AuditEvent{ID: id, Kind: "epoch_cancelled", SourceID: ep.SourceID, EpochID: ep.ID, Message: "epoch cancelled", CreatedAt: i.now()})
+	return ep, nil
 }

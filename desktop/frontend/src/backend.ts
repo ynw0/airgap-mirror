@@ -11,6 +11,8 @@ type AppBridge = {
   DisconnectAgent(): Promise<void>
   CreateSource(input: SourceInput): Promise<AgentOverview>
   UpdateSource(input: SourceInput): Promise<AgentOverview>
+  ListAgentEpochs(sourceID: string): Promise<Epoch[]>
+  CancelEpoch(epochID: string): Promise<AgentOverview>
   PickStateDestination(): Promise<string>
   ExportStateCapsule(sourceIDs: string[], destination: string): Promise<StateExportResult>
   PickCapsuleFile(): Promise<string>

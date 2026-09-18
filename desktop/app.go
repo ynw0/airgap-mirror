@@ -155,6 +155,25 @@ func (a *App) RefreshAgent() (AgentOverview, error) {
 	return loadAgentOverview(a.ctx, agent)
 }
 
+func (a *App) ListAgentEpochs(sourceID string) ([]domain.Epoch, error) {
+	agent, err := a.agentRef()
+	if err != nil {
+		return nil, err
+	}
+	return agent.ListEpochs(a.ctx, sourceID)
+}
+
+func (a *App) CancelEpoch(epochID string) (AgentOverview, error) {
+	agent, err := a.agentRef()
+	if err != nil {
+		return AgentOverview{}, err
+	}
+	if _, err = agent.CancelEpoch(a.ctx, epochID); err != nil {
+		return AgentOverview{}, err
+	}
+	return loadAgentOverview(a.ctx, agent)
+}
+
 func (a *App) DisconnectAgent() {
 	a.mu.Lock()
 	a.agent = nil
