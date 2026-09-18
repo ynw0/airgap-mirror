@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -37,6 +38,36 @@ func TestWriteVerifiedRejectsDifferentContent(t *testing.T) {
 	}
 	if string(got) != "old" {
 		t.Fatalf("target overwritten: %q", got)
+	}
+}
+
+func TestWriteVerifiedPublishedFilesAreGroupReadable(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("published file mode is the Linux Apache data-plane contract")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "pkg", "a.jar")
+	skipped, err := writeVerified(root, target, 4, shaHex("same"), bytes.NewReader([]byte("same")), false)
+	if err != nil || skipped {
+		t.Fatalf("write published file err=%v skipped=%v", err, skipped)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0664 {
+		t.Fatalf("published mode=%o want=0664", info.Mode().Perm())
+	}
+	staging := filepath.Join(root, ".airgap-staging", "epoch", "a.jar")
+	if _, err = writeVerified(root, staging, 4, shaHex("same"), bytes.NewReader([]byte("same")), false); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0600 {
+		t.Fatalf("staging mode=%o want=0600", st.Mode().Perm())
 	}
 }
 

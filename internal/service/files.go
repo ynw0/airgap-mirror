@@ -14,6 +14,23 @@ import (
 	"github.com/ynw0/airgap-mirror/internal/pack"
 )
 
+// publishedFileMode 与 DEPLOYMENT 中仓库文件 0664 一致，供 Apache 同组读取。
+const publishedFileMode os.FileMode = 0664
+
+func underStaging(root, path string) bool {
+	staging := filepath.Join(filepath.Clean(root), ".airgap-staging")
+	clean := filepath.Clean(path)
+	sep := string(filepath.Separator)
+	return clean == staging || strings.HasPrefix(clean, staging+sep)
+}
+
+func chmodPublished(root, path string) error {
+	if underStaging(root, path) {
+		return nil
+	}
+	return os.Chmod(path, publishedFileMode)
+}
+
 func safeTarget(root, logical string) (string, error) {
 	if err := pack.ValidateLogicalPath(logical); err != nil {
 		return "", err
@@ -95,6 +112,9 @@ func writeVerified(root, target string, size int64, want string, r io.Reader, re
 			return false, e
 		}
 		if info.Size() == size && n == size && h == want {
+			if err := chmodPublished(root, target); err != nil {
+				return false, err
+			}
 			return true, nil
 		}
 		if !replace {
@@ -137,6 +157,9 @@ func writeVerified(root, target string, size int64, want string, r io.Reader, re
 		return false, err
 	}
 	if err = tmp.Close(); err != nil {
+		return false, err
+	}
+	if err = chmodPublished(root, tmpName); err != nil {
 		return false, err
 	}
 	if replace {

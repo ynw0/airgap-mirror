@@ -258,24 +258,26 @@ Maintenance 是显式控制面操作，不会在正常同步中自动扫描几�
 启动 Inventory：
 
 ```bash
-curl -fsS -X POST "$BASE/api/v1/sources/<source-id>/inventory" \
-  -H "Authorization: Bearer $TOKEN"
+mirrorctl -url "$BASE" -token "$TOKEN" inventory <source-id>
 ```
 
 启动 GC dry-run：
 
 ```bash
-curl -fsS -X POST "$BASE/api/v1/sources/<source-id>/gc" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  --data '{"execute":false}'
+mirrorctl -url "$BASE" -token "$TOKEN" gc <source-id>
+```
+
+物理删除必须显式传入 `execute`：
+
+```bash
+mirrorctl -url "$BASE" -token "$TOKEN" gc <source-id> execute
 ```
 
 查看任务：
 
 ```bash
-curl -fsS "$BASE/api/v1/maintenance?sourceId=<source-id>" \
-  -H "Authorization: Bearer $TOKEN"
+mirrorctl -url "$BASE" -token "$TOKEN" maintenance <source-id>
+mirrorctl -url "$BASE" -token "$TOKEN" maintenance-get <job-id>
 ```
 
 查看完成的 GC 候选：
@@ -285,16 +287,7 @@ curl -fsS "$BASE/api/v1/maintenance/<job-id>/candidates?limit=100" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-物理 GC：
-
-```bash
-curl -fsS -X POST "$BASE/api/v1/sources/<source-id>/gc" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  --data '{"execute":true}'
-```
-
-`execute=true` 会创建一个**新的 GC Job 并重新扫描**，不会直接删除上一次 dry-run 的旧候选。删除前会再次检查 Catalog membership、Source root ownership、regular file、size 和 mtime。
+`gc … execute` 会创建一个**新的 GC Job 并重新扫描**，不会直接删除上一次 dry-run 的旧候选。删除前会再次检查 Catalog membership、Source root ownership、regular file、size 和 mtime。
 
 安全边界：
 

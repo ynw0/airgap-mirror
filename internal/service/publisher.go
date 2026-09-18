@@ -163,6 +163,9 @@ func (p PublisherService) publishMetadata(ctx context.Context, source domain.Sou
 		if err = os.Rename(m.StagedPath, target); err != nil {
 			return err
 		}
+		if err = os.Chmod(target, publishedFileMode); err != nil {
+			return err
+		}
 		if d, e := os.Open(filepath.Dir(target)); e == nil {
 			_ = d.Sync()
 			_ = d.Close()

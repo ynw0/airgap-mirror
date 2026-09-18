@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ func main() {
 	flag.Parse()
 	method, path, body, ok := parseCommand(flag.Args())
 	if !ok {
-		fmt.Fprintln(os.Stderr, "usage: mirrorctl [flags] health|sources|capacity:<source-id>|sources-create <file.json>|sources-update <source-id> <file.json>")
+		fmt.Fprintln(os.Stderr, "usage: mirrorctl [flags] health|sources|sources-get <id>|capacity:<id>|sources-create <file.json>|sources-update <id> <file.json>|inventory <id>|gc <id> [execute]|maintenance [source-id]|maintenance-get <job-id>")
 		os.Exit(2)
 	}
 	code := request(method, strings.TrimRight(base, "/")+path, token, body)
@@ -35,33 +36,48 @@ func parseCommand(args []string) (method, path string, body []byte, ok bool) {
 		return http.MethodGet, "/api/v1/health", nil, true
 	case cmd == "sources" && len(args) == 1:
 		return http.MethodGet, "/api/v1/sources", nil, true
+	case cmd == "sources-get" && len(args) == 2:
+		return http.MethodGet, "/api/v1/sources/" + url.PathEscape(args[1]), nil, true
 	case strings.HasPrefix(cmd, "capacity:") && len(args) == 1:
-		return http.MethodGet, "/api/v1/capacity?sourceId=" + strings.TrimPrefix(cmd, "capacity:"), nil, true
+		return http.MethodGet, "/api/v1/capacity?sourceId=" + url.QueryEscape(strings.TrimPrefix(cmd, "capacity:")), nil, true
 	case cmd == "sources-create" && len(args) == 2:
-		data, err := os.ReadFile(args[1])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		return http.MethodPost, "/api/v1/sources", data, true
+		return http.MethodPost, "/api/v1/sources", mustRead(args[1]), true
 	case cmd == "sources-update" && len(args) == 3:
-		data, err := os.ReadFile(args[2])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		return http.MethodPut, "/api/v1/sources/" + url.PathEscape(args[1]), mustRead(args[2]), true
+	case cmd == "inventory" && len(args) == 2:
+		return http.MethodPost, "/api/v1/sources/" + url.PathEscape(args[1]) + "/inventory", nil, true
+	case cmd == "gc" && (len(args) == 2 || (len(args) == 3 && args[2] == "execute")):
+		execute := "false"
+		if len(args) == 3 {
+			execute = "true"
 		}
-		return http.MethodPut, "/api/v1/sources/" + args[1], data, true
+		return http.MethodPost, "/api/v1/sources/" + url.PathEscape(args[1]) + "/gc", []byte(`{"execute":` + execute + `}`), true
+	case cmd == "maintenance" && len(args) == 1:
+		return http.MethodGet, "/api/v1/maintenance", nil, true
+	case cmd == "maintenance" && len(args) == 2:
+		return http.MethodGet, "/api/v1/maintenance?sourceId=" + url.QueryEscape(args[1]), nil, true
+	case cmd == "maintenance-get" && len(args) == 2:
+		return http.MethodGet, "/api/v1/maintenance/" + url.PathEscape(args[1]), nil, true
 	default:
 		return "", "", nil, false
 	}
 }
 
-func request(method, url, token string, body []byte) int {
+func mustRead(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	return data
+}
+
+func request(method, rawURL, token string, body []byte) int {
 	var r io.Reader
 	if body != nil {
 		r = bytes.NewReader(body)
 	}
-	req, err := http.NewRequest(method, url, r)
+	req, err := http.NewRequest(method, rawURL, r)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
