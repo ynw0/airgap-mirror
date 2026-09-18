@@ -35,6 +35,7 @@ func TestPackWriteReadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer w.Close()
 	body := []byte("artifact-bytes")
 	art := domain.Artifact{
 		ID:          mustID(t),
@@ -121,6 +122,7 @@ func TestPackResumeTruncatesIncompleteTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rw.Close()
 	second := []byte("second")
 	art2 := domain.Artifact{
 		ID:          mustID(t),

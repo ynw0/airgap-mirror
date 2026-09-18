@@ -32,6 +32,12 @@ func Create(p string, h domain.PackHeader) (*Writer, error) {
 		os.Remove(p)
 		return nil, e
 	}
+	// WriteAt 不移动文件指针；必须显式跳过 128 字节头，否则第一条 record 会从 0 覆盖 Pack Header。
+	if _, e = f.Seek(PackHeaderSize, io.SeekStart); e != nil {
+		f.Close()
+		os.Remove(p)
+		return nil, e
+	}
 	return w, nil
 }
 func Resume(p string, x domain.PackHeader) (*Writer, error) {
