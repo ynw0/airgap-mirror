@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { app } from '../backend'
 import { MaintenancePanel } from '../components/MaintenancePanel'
+import { SourceEditor } from '../components/SourceEditor'
 import { errorText, formatBytes, formatCount, formatDate, shortID } from '../format'
-import type { AgentOverview } from '../types'
+import type { AgentOverview, Source, SourceInput } from '../types'
 
 type Props = {
   overview: AgentOverview | null
@@ -17,6 +18,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
   const [destination, setDestination] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [editor, setEditor] = useState<Source | 'create' | null>(null)
   const selectedIDs = useMemo(() => [...selected], [selected])
 
   async function connect() {
@@ -32,7 +34,20 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
     try { onOverview(await app().RefreshAgent()) } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
   async function disconnect() {
-    await app().DisconnectAgent(); onOverview(null); setSelected(new Set())
+    await app().DisconnectAgent(); onOverview(null); setSelected(new Set()); setEditor(null)
+  }
+  async function saveSource(input: SourceInput) {
+    setBusy(true); setMessage('')
+    try {
+      const value = input.id ? await app().UpdateSource(input) : await app().CreateSource(input)
+      onOverview(value)
+      setSelected(prev => {
+        const alive = new Set(value.sources.map(row => row.source.id))
+        return new Set([...prev].filter(id => alive.has(id)))
+      })
+      setEditor(null)
+      setMessage(input.id ? `源已更新：${input.name}` : `源已创建：${input.name}`)
+    } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
   async function chooseDestination() {
     const value = await app().PickStateDestination()
@@ -68,8 +83,11 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
     </div>
 
     <div className="card table-card">
-      <div className="card-title"><span>Mirror Sources</span><span>{overview ? `${overview.sources.length} 个源` : '等待连接'}</span></div>
-      <div className="table-wrap"><table><thead><tr><th></th><th>源</th><th>类型 / Provider</th><th>Live Cursor</th><th>对象 / 数据量</th><th>文件系统容量</th><th>Active Epoch</th><th>更新时间</th></tr></thead>
+      <div className="card-title">
+        <span>Mirror Sources</span>
+        <div className="button-row">{overview ? <><span>{overview.sources.length} 个源</span><button disabled={busy} onClick={() => setEditor('create')}>新建源</button></> : <span>等待连接</span>}</div>
+      </div>
+      <div className="table-wrap"><table><thead><tr><th></th><th>源</th><th>类型 / Provider</th><th>Live Cursor</th><th>对象 / 数据量</th><th>文件系统容量</th><th>Active Epoch</th><th>更新时间</th><th></th></tr></thead>
         <tbody>{overview?.sources.length ? overview.sources.map(row => {
           const used = Math.max(0, row.capacity.totalBytes - row.capacity.freeBytes)
           const pct = row.capacity.totalBytes ? Math.min(100, used / row.capacity.totalBytes * 100) : 0
@@ -82,10 +100,13 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
             <td>{formatBytes(row.capacity.freeBytes)} free<small>{formatBytes(row.capacity.totalBytes)} total · {pct.toFixed(1)}% used</small></td>
             <td>{row.state.activeEpochId ? <code>{shortID(row.state.activeEpochId)}</code> : '—'}</td>
             <td>{formatDate(row.state.updatedAt)}</td>
+            <td><button disabled={busy} onClick={() => setEditor(row.source)}>编辑</button></td>
           </tr>
-        }) : <tr><td colSpan={8} className="empty">连接 Agent 后显示源状态。</td></tr>}</tbody>
+        }) : <tr><td colSpan={9} className="empty">连接 Agent 后显示源状态。</td></tr>}</tbody>
       </table></div>
     </div>
+
+    {overview && editor && <SourceEditor key={editor === 'create' ? 'new' : editor.id} source={editor === 'create' ? null : editor} busy={busy} onCancel={() => setEditor(null)} onSubmit={saveSource} />}
 
     <MaintenancePanel overview={overview} />
 

@@ -22,6 +22,19 @@ type AgentOverview struct {
 	Sources   []AgentSourceView `json:"sources"`
 }
 
+// SourceInput 是桌面建源/改源的表单载荷；Config 由前端对象序列化。
+type SourceInput struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Provider    string `json:"provider"`
+	UpstreamURL string `json:"upstreamUrl"`
+	RootPath    string `json:"rootPath"`
+	PublicURL   string `json:"publicUrl"`
+	Enabled     bool   `json:"enabled"`
+	Config      any    `json:"config"`
+}
+
 type StateExportResult struct {
 	Path   string             `json:"path"`
 	Export client.StateExport `json:"export"`

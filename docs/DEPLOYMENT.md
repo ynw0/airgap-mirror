@@ -126,6 +126,13 @@ TOKEN="$(sudo sed -n 's/^AIRGAP_MIRROR_TOKEN=//p' /etc/airgap-mirror/agent.env)"
 BASE=https://repo.internal/mirror-control
 ```
 
+也可用桌面客户端「源状态」页或 `mirrorctl` 提交同一份 JSON：
+
+```bash
+mirrorctl -url "$BASE" -token "$TOKEN" sources-create ./source.json
+mirrorctl -url "$BASE" -token "$TOKEN" sources-update <source-id> ./source.json
+```
+
 ### APT
 
 一个 Source 对应一个 suite publication set。`releaseMode` 只能是 `inrelease` 或 `detached`。

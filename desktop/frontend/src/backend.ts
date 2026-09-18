@@ -1,6 +1,6 @@
 import type {
   AgentOverview, AnalyzeOptions, BatchBundle, BatchDownloadProgress, Bootstrap, DesktopTransferResult,
-  Epoch, EpochView, ImportedCapsule, StateCapsule, StateExportResult, SyncPlan, UpstreamState, ValidatedBundle,
+  Epoch, EpochView, ImportedCapsule, SourceInput, StateCapsule, StateExportResult, SyncPlan, UpstreamState, ValidatedBundle,
   TransferProgress, MaintenanceJob, GCCandidatesPage,
 } from './types'
 
@@ -9,6 +9,8 @@ type AppBridge = {
   ConnectAgent(baseURL: string, token: string): Promise<AgentOverview>
   RefreshAgent(): Promise<AgentOverview>
   DisconnectAgent(): Promise<void>
+  CreateSource(input: SourceInput): Promise<AgentOverview>
+  UpdateSource(input: SourceInput): Promise<AgentOverview>
   PickStateDestination(): Promise<string>
   ExportStateCapsule(sourceIDs: string[], destination: string): Promise<StateExportResult>
   PickCapsuleFile(): Promise<string>

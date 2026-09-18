@@ -153,6 +153,21 @@ func (c *AgentClient) ListSources(ctx context.Context) ([]domain.Source, error) 
 	return out, err
 }
 
+func (c *AgentClient) CreateSource(ctx context.Context, src domain.Source) (domain.Source, error) {
+	var out domain.Source
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/sources", src, &out)
+	return out, err
+}
+
+func (c *AgentClient) UpdateSource(ctx context.Context, src domain.Source) (domain.Source, error) {
+	if src.ID == "" {
+		return domain.Source{}, fmt.Errorf("source id is required: %w", domain.ErrInvalid)
+	}
+	var out domain.Source
+	err := c.jsonRequest(ctx, http.MethodPut, "/api/v1/sources/"+url.PathEscape(src.ID), src, &out)
+	return out, err
+}
+
 func (c *AgentClient) SourceState(ctx context.Context, sourceID string) (domain.SourceState, error) {
 	var out domain.SourceState
 	err := c.jsonRequest(ctx, http.MethodGet, "/api/v1/sources/"+url.PathEscape(sourceID)+"/state", nil, &out)

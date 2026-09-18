@@ -7,6 +7,10 @@ export interface Source {
   id: string; name: string; type: SourceType; provider: string; upstreamUrl: string;
   rootPath?: string; publicUrl: string; enabled: boolean; config?: unknown;
 }
+export interface SourceInput {
+  id?: string; name: string; type: SourceType; provider: string; upstreamUrl: string;
+  rootPath: string; publicUrl: string; enabled: boolean; config?: unknown;
+}
 export interface SourceState {
   sourceId: string; liveCursor: Cursor; catalogVersion: number; liveBytes: number;
   liveObjects: number; activeEpochId?: string; updatedAt: string;
