@@ -95,3 +95,13 @@ func TestFileInstallerRejectsUnsafePath(t *testing.T) {
 		t.Fatal("path traversal should be rejected")
 	}
 }
+
+func TestFileInstallerRejectsStagingPath(t *testing.T) {
+	root := t.TempDir()
+	_, err := (FileInstaller{}).Install(context.Background(), domain.Source{RootPath: root}, domain.PackRecord{
+		LogicalPath: ".airgap-staging/epoch/a.jar", ContentLength: 1, SHA256: shaHex("x"),
+	}, bytes.NewReader([]byte("x")))
+	if err == nil {
+		t.Fatal("staging artifact path should be rejected")
+	}
+}

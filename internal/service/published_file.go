@@ -5,11 +5,14 @@ import (
 	"os"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
+	"github.com/ynw0/airgap-mirror/internal/pack"
 )
 
-// OpenPublishedFile opens a repository file only after applying the same root
-// containment and symlink-parent checks used by the installer/publisher.
+// OpenPublishedFile 只打开已发布的仓库文件，拒绝 metadata 暂存树。
 func OpenPublishedFile(root, logical string) (*os.File, os.FileInfo, error) {
+	if pack.IsStagingLogical(logical) {
+		return nil, nil, fmt.Errorf("staging path is not published: %w", domain.ErrInvalid)
+	}
 	target, err := safeTarget(root, logical)
 	if err != nil {
 		return nil, nil, err
