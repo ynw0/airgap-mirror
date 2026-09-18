@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS publish_metadata_entries(
   logical_path TEXT NOT NULL,
   size INTEGER NOT NULL,
   sha256 TEXT NOT NULL,
+  operation TEXT NOT NULL,
   staged_path TEXT NOT NULL,
   package_key TEXT NOT NULL DEFAULT '',
   version TEXT NOT NULL DEFAULT '',
