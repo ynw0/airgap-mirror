@@ -139,6 +139,9 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 	if _, _, err = r.Next(ctx); err != io.EOF {
 		return fmt.Errorf("pack contains undeclared trailing record: %w", domain.ErrConflict)
 	}
+	if err = r.Close(); err != nil {
+		return err
+	}
 	if err = i.Store.MarkImportPackCommitted(ctx, sessionID, packID); err != nil {
 		return err
 	}

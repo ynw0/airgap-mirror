@@ -17,6 +17,11 @@ func (s *ServerStore) RegisterManifest(ctx context.Context, sessionID string) er
 	if err != nil {
 		return err
 	}
+	batch, err := s.GetBatch(ctx, sess.BatchID)
+	if err != nil {
+		return err
+	}
+	// 先读完主库再 ATTACH。占用 Conn 后再走连接池会在 MaxOpenConns=1 时死锁。
 	conn, err := s.DB.Conn(ctx)
 	if err != nil {
 		return err
@@ -52,10 +57,6 @@ func (s *ServerStore) RegisterManifest(ctx context.Context, sessionID string) er
 	}
 	if schemaVersion != fmt.Sprint(domain.ManifestSchemaVersion) {
 		return fmt.Errorf("unsupported manifest schema %s: %w", schemaVersion, domain.ErrInvalid)
-	}
-	batch, err := s.GetBatch(ctx, sess.BatchID)
-	if err != nil {
-		return err
 	}
 	var invalid int64
 	checks := []struct {

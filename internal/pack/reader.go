@@ -83,10 +83,15 @@ func (r *Reader) Next(ctx context.Context) (domain.PackRecord, io.Reader, error)
 	return q, r.active, nil
 }
 func (r *Reader) Close() error {
-	if r.own {
-		return r.f.Close()
+	if r.f == nil {
+		return nil
 	}
-	return nil
+	var err error
+	if r.own {
+		err = r.f.Close()
+	}
+	r.f = nil
+	return err
 }
 
 type ctxReader struct {
