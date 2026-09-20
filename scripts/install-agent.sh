@@ -7,8 +7,9 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AGENT_BIN="${1:-${REPO_ROOT}/dist/mirror-agent}"
-CTL_BIN="${2:-${REPO_ROOT}/dist/mirrorctl}"
+# 与 release tarball 的 bin/ 布局一致；解压后无参即可安装。
+AGENT_BIN="${1:-${REPO_ROOT}/bin/mirror-agent}"
+CTL_BIN="${2:-${REPO_ROOT}/bin/mirrorctl}"
 SERVICE_USER=airgap-mirror
 SERVICE_GROUP=airgap-mirror
 ETC_DIR=/etc/airgap-mirror
@@ -16,7 +17,7 @@ STATE_DIR=/var/lib/airgap-mirror
 
 if [[ ! -f "${AGENT_BIN}" ]]; then
   echo "error: mirror-agent binary not found: ${AGENT_BIN}" >&2
-  echo "build it first: go build -o dist/mirror-agent ./cmd/mirror-agent" >&2
+  echo "build it first: go build -o bin/mirror-agent ./cmd/mirror-agent" >&2
   exit 1
 fi
 

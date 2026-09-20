@@ -46,14 +46,14 @@ Wails v2 + React/TypeScript，保持三个一级页面：
 构建：
 
 ```bash
-go build -o dist/mirror-agent ./cmd/mirror-agent
-go build -o dist/mirrorctl ./cmd/mirrorctl
+go build -o bin/mirror-agent ./cmd/mirror-agent
+go build -o bin/mirrorctl ./cmd/mirrorctl
 ```
 
-安装：
+安装（无参时使用包内 `bin/mirror-agent` 与 `bin/mirrorctl`，与 `v*` release tarball 相同）：
 
 ```bash
-sudo ./scripts/install-agent.sh ./dist/mirror-agent ./dist/mirrorctl
+sudo ./scripts/install-agent.sh
 ```
 
 详细部署和 Source 配置见 `docs/DEPLOYMENT.md`。

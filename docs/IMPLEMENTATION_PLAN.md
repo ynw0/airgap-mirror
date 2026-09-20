@@ -15,7 +15,9 @@
 
 ## 实施状态
 
-截至 2026-09-08，P0–P8 的实现代码均已进入 `main`。验证方式是 formatting/module/build/configuration gate；自动化测试仍保持为单独阶段，未混入构建门禁。
+截至 2026-09-20，P0–P8 的实现代码均已进入 `main`。本机相对 `origin/main` 另有操作面与实验室缺陷修复：桌面/CLI 建源与改源、`epochs-cancel`、发布文件 `0664`、staging 不进数据面、Epoch 完成后清理 `.airgap-staging`、安装脚本默认对齐 release `bin/` 布局。验证方式是 formatting/module/build/configuration gate；自动化测试仍保持为单独阶段，未混入构建门禁。
+
+实验室（WSL Ubuntu-2004）已用 Maven Central dependency-set 跑通 Analyze → 中断续传 → Import/Publish → Apache 消费。APT/PyPI/npm 空仓首次 Analyze 会按合同拉取整个上游，需要仓库级磁盘后才能验收。
 
 | 阶段 | 状态 | 主要完成内容 |
 |---|---|---|

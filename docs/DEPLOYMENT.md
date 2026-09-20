@@ -7,8 +7,8 @@
 在与目标 Linux 架构一致的构建环境执行：
 
 ```bash
-go build -o dist/mirror-agent ./cmd/mirror-agent
-go build -o dist/mirrorctl ./cmd/mirrorctl
+go build -o bin/mirror-agent ./cmd/mirror-agent
+go build -o bin/mirrorctl ./cmd/mirrorctl
 ```
 
 Mirror Agent 当前运行参数：
@@ -26,8 +26,10 @@ Bearer Token 优先通过 `AIRGAP_MIRROR_TOKEN` 提供。服务在没有 Token �
 ## 2. 安装 Agent
 
 ```bash
-sudo ./scripts/install-agent.sh ./dist/mirror-agent ./dist/mirrorctl
+sudo ./scripts/install-agent.sh
 ```
+
+安装器默认读取包内 `bin/mirror-agent` 与 `bin/mirrorctl`。`v*` release 的 `airgap-mirror-linux-amd64.tar.gz` 解压后直接执行即可。若二进制在其他路径，把两个文件作为参数传入。
 
 安装器会：
 
@@ -272,6 +274,14 @@ mirrorctl -url "$BASE" -token "$TOKEN" gc <source-id>
 ```bash
 mirrorctl -url "$BASE" -token "$TOKEN" gc <source-id> execute
 ```
+
+取消未完成的 Epoch，清掉 ActiveEpoch，使 Inventory、GC 或下一轮导入可以开始：
+
+```bash
+mirrorctl -url "$BASE" -token "$TOKEN" epochs-cancel <epoch-id>
+```
+
+已 `COMPLETE` 的 Epoch 不能取消。桌面客户端「源状态」页对同一 API 提供相同操作。
 
 查看任务：
 
