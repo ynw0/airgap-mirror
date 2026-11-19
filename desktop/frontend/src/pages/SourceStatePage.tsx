@@ -12,7 +12,7 @@ type Props = {
 }
 
 export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Props) {
-  const [baseURL, setBaseURL] = useState('http://127.0.0.1:8787')
+  const [baseURL, setBaseURL] = useState('')
   const [token, setToken] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [destination, setDestination] = useState('')
@@ -52,6 +52,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
   }, [overview, epochSourceID])
 
   async function connect() {
+    if (!baseURL.trim()) { setMessage('请填写内网服务器地址，例如 http://192.168.21.4:8787'); return }
     setBusy(true); setMessage('')
     try {
       const value = await app().ConnectAgent(baseURL, token)
@@ -113,8 +114,9 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
       <span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? '已连接' : '未连接'}</span>
     </div>
 
+    <p>请填写 Linux 服务器的实际地址和端口，例如 <code>http://192.168.21.4:8787</code>。连接令牌由服务器管理员提供；不清楚地址时，可先在 Linux 上运行配置脚本。</p>
     <div className="card form-grid agent-form">
-      <label>内网服务器地址<input value={baseURL} onChange={e => setBaseURL(e.target.value)} disabled={!!overview} /></label>
+      <label>内网服务器地址<input value={baseURL} onChange={e => setBaseURL(e.target.value)} disabled={!!overview} placeholder="例如 http://192.168.21.4:8787" /></label>
       <label>连接令牌<input type="password" value={token} onChange={e => setToken(e.target.value)} disabled={!!overview} placeholder="服务器管理员提供的连接令牌" /></label>
       <div className="button-row align-end">
         {!overview ? <button className="primary" disabled={busy} onClick={connect}>连接服务器</button> : <>

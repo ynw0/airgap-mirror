@@ -305,6 +305,9 @@ func (w *Workspace) DownloadBatch(ctx context.Context, batchID string, opts Down
 		if descriptor.BatchID != batch.ID || descriptor.EpochID != batch.EpochID {
 			return out, fmt.Errorf("existing bundle identity differs from client database: %w", domain.ErrConflict)
 		}
+		if _, err = ValidateBatchBundle(ctx, bundleDir); err != nil {
+			return out, fmt.Errorf("已下载的文件不完整或已经损坏，请点击“重新下载”: %w", err)
+		}
 		return BatchBundle{Batch: batch, Descriptor: descriptor, Path: bundleDir}, nil
 	}
 	if epoch.Status == domain.EpochPlanned {
@@ -375,21 +378,40 @@ func (w *Workspace) DownloadBatch(ctx context.Context, batchID string, opts Down
 	if err != nil {
 		return out, err
 	}
-	allReady := len(batches) == epoch.TotalBatches && len(batches) > 0
-	for _, item := range batches {
-		if item.Status != domain.BatchReady {
-			allReady = false
-			break
-		}
-	}
-	if allReady && epoch.Status == domain.EpochDownloading {
-		if err = domain.ValidateEpochTransition(epoch.Status, domain.EpochTransferring); err != nil {
-			return out, err
-		}
-		epoch.Status = domain.EpochTransferring
-		if err = w.Store.UpdateEpoch(ctx, epoch); err != nil {
+	if allBatchesTransferReady(batches, epoch.TotalBatches) && epoch.Status == domain.EpochDownloading {
+		if _, err = w.moveEpochToTransferringIfReady(ctx, epoch); err != nil {
 			return out, err
 		}
 	}
 	return BatchBundle{Batch: batch, Descriptor: descriptor, Path: bundleDir}, nil
+}
+
+// RedownloadReadyBatch clears one chosen local batch; other downloaded batches are untouched.
+func (w *Workspace) RedownloadReadyBatch(ctx context.Context, batchID, destination string) error {
+	batch, err := w.Store.GetBatch(ctx, batchID)
+	if err != nil {
+		return err
+	}
+	if batch.Status != domain.BatchReady {
+		return fmt.Errorf("只有未导入的已下载批次可以重新下载: %w", domain.ErrConflict)
+	}
+	dir, err := bundleDirectory(destination, batch)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("批次目录不是普通文件夹，拒绝清理: %w", domain.ErrConflict)
+		}
+		for _, name := range []string{"packs", "batch.json", "manifest.sqlite", "manifest.sqlite-wal", "manifest.sqlite-shm"} {
+			path := filepath.Join(dir, name)
+			if err = os.RemoveAll(path); err != nil {
+				return err
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return w.Store.ResetReadyBatch(ctx, batchID)
 }

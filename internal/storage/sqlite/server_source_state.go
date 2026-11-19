@@ -3,7 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -30,11 +32,12 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 	defer tx.Rollback()
 	var oldType domain.SourceType
 	var oldProvider, oldRoot, oldUpstream, cursorKind, cursorValue string
+	var oldConfig []byte
 	var active sql.NullString
-	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &cursorKind, &cursorValue, &active); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,s.config_json,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &oldConfig, &cursorKind, &cursorValue, &active); err != nil {
 		return mapNotFound(err)
 	}
-	identityChanged := oldType != v.Type || oldProvider != v.Provider || oldRoot != v.RootPath || oldUpstream != v.UpstreamURL
+	identityChanged := oldType != v.Type || oldProvider != v.Provider || oldRoot != v.RootPath || oldUpstream != v.UpstreamURL || !sameSyncConfig(oldConfig, v.ConfigJSON)
 	if active.Valid && active.String != "" && identityChanged {
 		return fmt.Errorf("正在同步，不能修改软件源地址、类型或仓库目录: %w", domain.ErrConflict)
 	}
@@ -110,4 +113,23 @@ func (s *ServerStore) GetState(ctx context.Context, id string) (domain.SourceSta
 func (s *ServerStore) PutState(ctx context.Context, v domain.SourceState) error {
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO source_states(source_id,cursor_kind,cursor_value,catalog_version,live_bytes,live_objects,active_epoch_id,updated_at) VALUES(?,?,?,?,?,?,NULLIF(?,''),?) ON CONFLICT(source_id) DO UPDATE SET cursor_kind=excluded.cursor_kind,cursor_value=excluded.cursor_value,catalog_version=excluded.catalog_version,live_bytes=excluded.live_bytes,live_objects=excluded.live_objects,active_epoch_id=excluded.active_epoch_id,updated_at=excluded.updated_at`, v.SourceID, v.LiveCursor.Kind, v.LiveCursor.Value, v.CatalogVersion, v.LiveBytes, v.LiveObjects, v.ActiveEpochID, timeString(v.UpdatedAt))
 	return err
+}
+
+func sameSyncConfig(oldConfig, newConfig []byte) bool {
+	// 不把清理策略或翻页大小当成新的软件源；其它配置变化仍要求使用新的源。
+	var oldValue, newValue map[string]any
+	if len(oldConfig) == 0 {
+		oldConfig = []byte("{}")
+	}
+	if len(newConfig) == 0 {
+		newConfig = []byte("{}")
+	}
+	if json.Unmarshal(oldConfig, &oldValue) != nil || json.Unmarshal(newConfig, &newValue) != nil {
+		return false
+	}
+	for _, key := range []string{"gcOwnsPool", "changePageSize", "allDocsPageSize", "inventoryMode"} {
+		delete(oldValue, key)
+		delete(newValue, key)
+	}
+	return reflect.DeepEqual(oldValue, newValue)
 }

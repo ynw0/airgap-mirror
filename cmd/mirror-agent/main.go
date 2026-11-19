@@ -22,7 +22,11 @@ import (
 
 func main() {
 	var listen, dbPath, staging, exports, maintenance, token string
-	flag.StringVar(&listen, "listen", "127.0.0.1:8787", "HTTP listen address")
+	listenDefault := os.Getenv("AIRGAP_MIRROR_LISTEN")
+	if listenDefault == "" {
+		listenDefault = "127.0.0.1:8787"
+	}
+	flag.StringVar(&listen, "listen", listenDefault, "HTTP listen address")
 	flag.StringVar(&dbPath, "db", "/var/lib/airgap-mirror/server.db", "server SQLite database")
 	flag.StringVar(&staging, "staging", "/var/lib/airgap-mirror/transfer-staging", "resumable upload staging directory")
 	flag.StringVar(&exports, "exports", "/var/lib/airgap-mirror/state-exports", "State Capsule export directory")
@@ -74,7 +78,8 @@ func main() {
 	}
 	recoverCancel()
 
-	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token}
+	signer := &service.APTSigner{Sources: store, Catalog: store, Jobs: store, GNUPGHOME: os.Getenv("AIRGAP_MIRROR_GNUPGHOME"), KeyID: os.Getenv("AIRGAP_MIRROR_APT_SIGNING_KEY")}
+	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token, Signer: signer}
 	handler := appserver.WithMaintenance(api.Handler(), api, maintenanceRunner, store)
 	httpServer := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, WriteTimeout: 0}
 	errCh := make(chan error, 1)

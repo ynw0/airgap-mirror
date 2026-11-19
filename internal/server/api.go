@@ -28,6 +28,7 @@ type API struct {
 	Capsules    service.CapsuleService
 	Capacity    ports.CapacityInspector
 	BearerToken string
+	Signer      *service.APTSigner
 	Now         func() time.Time
 }
 
@@ -40,6 +41,9 @@ func (a *API) now() time.Time {
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", a.health)
+	mux.HandleFunc("GET /", a.webUI)
+	mux.HandleFunc("GET /downloads/configure-agent.sh", a.downloadAgentConfig)
+	mux.HandleFunc("GET /downloads/configure-apt-signing.sh", a.downloadAPTSigningConfig)
 	// npm metadata is a repository data-plane endpoint; package clients do not use the Agent bearer token.
 	mux.HandleFunc("GET /npm/{sourceID}/-/ping", a.npmPing)
 	mux.HandleFunc("GET /npm/{sourceID}/{package...}", a.npmPackument)

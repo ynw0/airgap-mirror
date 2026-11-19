@@ -315,6 +315,29 @@ func (a *App) DownloadBatch(batchID, destination string, concurrency int) (mirro
 	return bundle, nil
 }
 
+func (a *App) RedownloadBatch(batchID, destination string, concurrency int) (mirrorclient.BatchBundle, error) {
+	workspace, err := a.workspaceRef()
+	if err != nil {
+		return mirrorclient.BatchBundle{}, err
+	}
+	ctx, cleanup, err := a.beginDownload(batchID)
+	if err != nil {
+		return mirrorclient.BatchBundle{}, err
+	}
+	defer cleanup()
+	if err = workspace.RedownloadReadyBatch(ctx, batchID, destination); err != nil {
+		return mirrorclient.BatchBundle{}, err
+	}
+	runtime.EventsEmit(a.ctx, "download-state", map[string]any{"batchId": batchID, "state": "running"})
+	bundle, err := workspace.DownloadBatch(ctx, batchID, mirrorclient.DownloadOptions{DestinationRoot: destination, Concurrency: concurrency})
+	if err != nil {
+		runtime.EventsEmit(a.ctx, "download-state", map[string]any{"batchId": batchID, "state": "stopped", "error": err.Error()})
+		return mirrorclient.BatchBundle{}, err
+	}
+	runtime.EventsEmit(a.ctx, "download-state", map[string]any{"batchId": batchID, "state": "ready", "path": bundle.Path})
+	return bundle, nil
+}
+
 func (a *App) PauseDownload(batchID string) error {
 	a.opsMu.Lock()
 	cancel, ok := a.downloadCancels[batchID]
