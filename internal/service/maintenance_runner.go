@@ -170,6 +170,12 @@ func (r *MaintenanceRunner) Cancel(ctx context.Context, id string) (domain.Maint
 		return job, err
 	}
 	if job.Status == domain.MaintenancePaused {
+		r.mu.Lock()
+		active := r.cancels[id] != nil
+		r.mu.Unlock()
+		if active {
+			return job, fmt.Errorf("正在保存检查点，请刷新后再放弃: %w", domain.ErrConflict)
+		}
 		if err = r.transition(id, domain.MaintenanceCancelled, "cancelled by operator"); err != nil {
 			return job, err
 		}
@@ -227,7 +233,17 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 		r.finishInventoryError(job.ID, resumable, err)
 		return
 	}
-	defer sink.Abort()
+	defer func() {
+		_ = sink.Abort()
+		if resumable {
+			current, getErr := r.Jobs.GetMaintenanceJob(context.Background(), job.ID)
+			if getErr == nil && current.Status == domain.MaintenanceCancelled {
+				if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok {
+					_ = factory.DiscardProjectInventory(job.ID)
+				}
+			}
+		}
+	}()
 	if err = r.persist(func(pctx context.Context) error { return r.Jobs.SetMaintenanceCatalogPath(pctx, job.ID, sink.Path()) }); err != nil {
 		r.finishInventoryError(job.ID, resumable, err)
 		return
@@ -307,11 +323,6 @@ func (r *MaintenanceRunner) finishInventoryError(id string, resumable bool, caus
 	r.mu.Unlock()
 	if intent == "cancel" {
 		r.finishCancelled(id)
-		if resumable {
-			if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok {
-				_ = factory.DiscardProjectInventory(id)
-			}
-		}
 		return
 	}
 	if resumable {
