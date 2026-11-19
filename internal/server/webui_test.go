@@ -2,8 +2,8 @@ package server
 
 import (
 	"net/http"
-	"regexp"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
