@@ -417,10 +417,8 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 			return e
 		}
 		metadataPath := path.Join("simple", project, "index.html")
+		// Plan all project artifacts before declaring its immutable required count.
 		unit := domain.PublishUnit{ID: unitID, EpochID: epochID, SourceID: req.Source.ID, Key: "pypi:" + project, Status: domain.PublishWaiting, MetadataPath: metadataPath}
-		if e = sink.PutPublishUnit(ctx, unit); e != nil {
-			return e
-		}
 		views := make([]fileView, 0, len(pr.Files))
 		var required int64
 		for _, file := range pr.Files {
