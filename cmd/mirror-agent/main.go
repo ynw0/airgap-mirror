@@ -22,7 +22,11 @@ import (
 
 func main() {
 	var listen, dbPath, staging, exports, maintenance, token string
-	flag.StringVar(&listen, "listen", "127.0.0.1:8787", "HTTP listen address")
+	listenDefault := os.Getenv("AIRGAP_MIRROR_LISTEN")
+	if listenDefault == "" {
+		listenDefault = "127.0.0.1:8787"
+	}
+	flag.StringVar(&listen, "listen", listenDefault, "HTTP listen address")
 	flag.StringVar(&dbPath, "db", "/var/lib/airgap-mirror/server.db", "server SQLite database")
 	flag.StringVar(&staging, "staging", "/var/lib/airgap-mirror/transfer-staging", "resumable upload staging directory")
 	flag.StringVar(&exports, "exports", "/var/lib/airgap-mirror/state-exports", "State Capsule export directory")

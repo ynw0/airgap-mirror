@@ -10,7 +10,6 @@ User=airgap-mirror
 Group=airgap-mirror
 EnvironmentFile=/etc/airgap-mirror/agent.env
 ExecStart=/usr/local/bin/mirror-agent \
-  -listen 127.0.0.1:8787 \
   -db /var/lib/airgap-mirror/server.db \
   -staging /var/lib/airgap-mirror/transfer-staging \
   -exports /var/lib/airgap-mirror/state-exports \

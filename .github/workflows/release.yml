@@ -29,6 +29,8 @@ jobs:
           cp -R deploy "$root/deploy"
           mkdir -p "$root/scripts" "$root/docs"
           cp scripts/install-agent.sh "$root/scripts/"
+          cp internal/server/web/configure-agent.sh "$root/scripts/"
+          cp internal/server/web/configure-apt-signing.sh "$root/scripts/"
           cp README.md LICENSE "$root/"
           cp docs/DEPLOYMENT.md "$root/docs/"
           tar -C dist -czf dist/airgap-mirror-linux-amd64.tar.gz airgap-mirror-linux-amd64

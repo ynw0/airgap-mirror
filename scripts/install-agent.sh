@@ -46,7 +46,7 @@ if [[ ! -e "${ENV_FILE}" ]]; then
     exit 1
   fi
   umask 0027
-  printf 'AIRGAP_MIRROR_TOKEN=%s\n' "${token}" > "${ENV_FILE}"
+  printf 'AIRGAP_MIRROR_TOKEN=%s\nAIRGAP_MIRROR_LISTEN=127.0.0.1:8787\n' "${token}" > "${ENV_FILE}"
   chown root:"${SERVICE_GROUP}" "${ENV_FILE}"
   chmod 0640 "${ENV_FILE}"
   echo "generated ${ENV_FILE}"
@@ -64,7 +64,8 @@ echo "Agent files installed."
 echo "Before starting the service:"
 echo "  1. Grant user '${SERVICE_USER}' write permission to every configured repository RootPath."
 echo "  2. Adapt deploy/apache/airgap-mirror.conf to the existing Apache VirtualHost."
-echo "  3. Confirm ${ENV_FILE} and the repository source definitions."
+echo "  3. Configure the Agent listen address with scripts/configure-agent.sh."
+echo "  4. Confirm ${ENV_FILE} and the repository source definitions."
 echo
 echo "Then run:"
 echo "  systemctl start airgap-mirror-agent"
