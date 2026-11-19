@@ -23,7 +23,7 @@ func (f *planFake) PutPublishUnit(context.Context, domain.PublishUnit) error {
 }
 func (f *planFake) PutArtifact(context.Context, domain.Artifact) error { return nil }
 func (f *planFake) Commit(context.Context, domain.EpochPlan) error     { return nil }
-func (f *planFake) Abort(context.Context, string, error) error        { return nil }
+func (f *planFake) Abort(context.Context, string, error) error         { return nil }
 func (f *planFake) SetArtifactPackLocation(context.Context, string, domain.PackLocation) error {
 	return nil
 }
