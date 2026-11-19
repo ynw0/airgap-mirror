@@ -256,23 +256,16 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		if readErr != nil {
 			return stats, readErr
 		}
-		names := sha256.New()
 		var total int64
 		for _, item := range current {
 			if item.IsDir() {
-				_, _ = names.Write([]byte(item.Name() + "\n"))
 				total++
 			}
 		}
 		if total != starting.TotalProjects {
 			return stats, fmt.Errorf("PyPI project list changed during inventory: %w", domain.ErrConflict)
 		}
-		signature := sha256.Sum256([]byte(strings.Join([]string{
-			req.Source.ID, string(req.Source.Type), req.Source.Provider,
-			req.Source.RootPath, req.Source.PublicURL, string(req.Source.ConfigJSON),
-		}, "\x00")))
-		// Check the list fingerprint again through Restore's immutable identity
-		// on the next run as well as this run's original snapshot.
+		// A changed directory must not be silently omitted after a restart.
 		if len(projects) != len(current) {
 			return stats, fmt.Errorf("PyPI project directory changed during inventory: %w", domain.ErrConflict)
 		}
@@ -281,9 +274,7 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 				return stats, fmt.Errorf("PyPI project directory changed during inventory: %w", domain.ErrConflict)
 			}
 		}
-		_ = signature
-		_ = names
-		progress, flushErr := resumable.Flush(ctx)
+ 		progress, flushErr := resumable.Flush(ctx)
 		if flushErr != nil {
 			return stats, flushErr
 		}

@@ -173,16 +173,19 @@ func TestStartupPausesDurablePyPIInventoryButNotLegacyJobs(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if _, err = sink.Restore(ctx, "test-source", "test-directory", 1); err != nil { t.Fatal(err) }
 	if err = sink.Abort(); err != nil { t.Fatal(err) }
-	for _, id := range []string{"crashed-inventory", "old-inventory"} {
-		job := domain.MaintenanceJob{ID: id, SourceID: src.ID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, CreatedAt: time.Now()}
+	other := fixturePyPI(t, store, 1)
+	for _, test := range []struct { id string; sourceID string }{
+		{id: "crashed-inventory", sourceID: src.ID},
+		{id: "old-inventory", sourceID: other.ID},
+	} {
+		job := domain.MaintenanceJob{ID: test.id, SourceID: test.sourceID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, CreatedAt: time.Now()}
 		if err := store.CreateMaintenanceJob(ctx, job); err != nil { t.Fatal(err) }
-		if err := store.TransitionMaintenanceJob(ctx, id, domain.MaintenanceRunning, "", time.Now()); err != nil { t.Fatal(err) }
-		if id == "crashed-inventory" {
-			if err := store.SetMaintenanceCatalogPath(ctx, id, sink.Path()); err != nil { t.Fatal(err) }
+		if err := store.TransitionMaintenanceJob(ctx, test.id, domain.MaintenanceRunning, "", time.Now()); err != nil { t.Fatal(err) }
+		if test.id == "crashed-inventory" {
+			if err := store.SetMaintenanceCatalogPath(ctx, test.id, sink.Path()); err != nil { t.Fatal(err) }
 		}
-		// Only one RUNNING maintenance job per source is allowed. Recover first.
-		if err := store.RecoverInterruptedMaintenanceJobs(ctx, time.Now(), "restart"); err != nil { t.Fatal(err) }
 	}
+	if err := store.RecoverInterruptedMaintenanceJobs(ctx, time.Now(), "restart"); err != nil { t.Fatal(err) }
 	paused, err := store.GetMaintenanceJob(ctx, "crashed-inventory")
 	if err != nil || paused.Status != domain.MaintenancePaused { t.Fatalf("durable checkpoint not paused: %+v %v", paused, err) }
 	failed, err := store.GetMaintenanceJob(ctx, "old-inventory")
