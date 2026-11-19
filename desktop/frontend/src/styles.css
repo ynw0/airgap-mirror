@@ -154,3 +154,7 @@ td small { max-width: 320px; }
   .path-picker input { min-width: 0; flex: 1; }
   .advanced-options .form-grid { grid-template-columns: 1fr; }
 }
+
+.secondary-section { border: 1px solid #27364a; border-radius: 12px; background: #101720; padding: 14px 16px; }
+.secondary-section > summary { cursor: pointer; color: #c5d5ec; font-weight: 600; line-height: 1.6; }
+.secondary-section-body { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }

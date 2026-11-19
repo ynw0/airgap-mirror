@@ -1,96 +1,53 @@
 # AirGap Mirror
 
-AirGap Mirror 是面向物理隔离网络的软件开发制品镜像同步平台。
+AirGap Mirror 用来给**不能直接访问互联网的服务器**更新软件包。内网服务器导出一份状态文件，联网电脑按这份文件下载更新，再用移动硬盘把文件带回内网。
 
-公网 Windows 客户端读取内网导出的 State Capsule，按冻结的 Epoch 计算增量，将 TB 级差异拆分为可搬运 Batch 与 AGP Pack；进入内网后，同一客户端连接 Mirror Agent，断点续传并提交 Batch。Apache2 继续直接发布仓库文件，Mirror Agent 只负责控制面、导入、发布门禁、维护任务和 npm metadata gateway。
+不需要让内网服务器直接上网，也不需要每次都搬运整个软件仓库。
 
-首期支持：APT、PyPI、npm、Maven。
+## 一次更新怎么操作？
 
-## 核心约束
+1. **在内网导出状态。** 在 Windows 客户端打开“连接服务器”，输入 Mirror Agent 地址和令牌。勾选需要更新的软件源，把状态文件（`.mstate`）保存到移动硬盘。
+2. **在联网电脑下载。** 把移动硬盘带到能上网的 Windows 电脑，打开“联网下载”，选择刚才的状态文件和软件源。点击“查看需要下载的更新”，再把各批次下载到移动硬盘。中断后可以继续。
+3. **回到内网导入。** 把下载好的批次文件夹带回内网电脑，在“离线导入”页面检查文件并导入服务器。如果有多个批次，就逐批导入。
 
-- 仓库文件系统是真实数据面；SQLite 是状态、计划与可重建 Catalog。
-- Epoch target cursor 创建后不可改变。
-- 一个 Epoch 可跨多个 Batch、多块移动介质、多天完成，Batch 可乱序导入。
-- Artifact 先导入，mutable metadata 最后发布。
-- 同 logical path 不同 hash 为硬冲突，不静默覆盖。
-- 传输使用 AGP Pack，避免移动介质处理数百万小文件。
-- Maven Central 仅支持明确的 dependency-set，不提供未经授权的全量镜像模式。
-- Inventory 在隔离 Catalog 中重建，完整成功后才原子替换 live Catalog。
-- GC 默认 dry-run；物理删除必须重新扫描并再次验证 Catalog、路径、size 与 mtime。
+两台 Windows 电脑可以不同：导入时可以直接读取移动硬盘中的批次文件，不要求使用原来下载时的电脑。
 
-## 数据流
+## 需要准备什么？
 
-```text
-内网 Mirror Agent
-  └─ 导出 State Capsule
-          ↓ 物理介质
-公网 Windows 客户端
-  └─ Probe / Analyze / Epoch / Batch / Pack 下载
-          ↓ 物理介质
-内网 Windows 客户端
-  └─ Bundle 校验 / resumable upload / commit
-          ↓
-Mirror Agent ── publish gate ──> 原生仓库目录 ──> Apache2
-```
+- **内网 Linux 服务器：** 运行 Mirror Agent，接收更新并管理仓库。Apache 可以继续提供软件包下载服务。
+- **Windows 电脑：** 运行同一套桌面客户端，分别用于联网下载和内网导入。
+- **移动硬盘或 U 盘：** 带出状态文件，带回下载好的文件。注意介质剩余空间及文件系统限制。
 
-## Windows 客户端
+项目包含 APT、PyPI、npm 和 Maven 的适配器。Maven Central 同步的是指定依赖列表，不是整个中央仓库。
 
-Wails v2 + React/TypeScript，保持三个一级页面：
+## 部署 Linux Agent
 
-1. **源状态**：Agent、Cursor、容量、State Capsule，以及 Inventory/GC 维护。
-2. **互联网同步**：导入 State Capsule、Probe/Analyze、Batch 规划、断点下载。
-3. **服务器更新**：Bundle 校验、Pack 续传、commit、发布与状态对账。
-
-## Linux Agent
-
-构建：
+在项目根目录构建：
 
 ```bash
 go build -o bin/mirror-agent ./cmd/mirror-agent
 go build -o bin/mirrorctl ./cmd/mirrorctl
 ```
 
-安装（无参时使用包内 `bin/mirror-agent` 与 `bin/mirrorctl`，与 `v*` release tarball 相同）：
+安装：
 
 ```bash
 sudo ./scripts/install-agent.sh
 ```
 
-详细部署和 Source 配置见 `docs/DEPLOYMENT.md`。
+启动 Agent 需要设置连接令牌 `AIRGAP_MIRROR_TOKEN`，并在服务器上配置软件源及其仓库目录。Apache 和 systemd 的配置示例见 [部署说明](docs/DEPLOYMENT.md)。
 
-## 项目结构
+## 遇到问题时
 
-```text
-cmd/                  Linux Agent / CLI
-desktop/              Wails v2 Windows 客户端
-internal/domain/       领域模型与状态机
-internal/ports/        跨模块接口
-internal/pack/         AGP Pack v1
-internal/storage/      SQLite 状态库
-internal/service/      规划、下载、导入、发布、Inventory/GC
-internal/server/       HTTP 控制面与 npm gateway
-internal/adapters/     APT / PyPI / npm / Maven
-deploy/                systemd / Apache 示例
-docs/                  技术设计、实施计划、部署说明
-.github/workflows/     永久 Build / tagged Release
-```
+- **连不上服务器：** 检查 Agent 是否在运行、地址和端口是否正确，连接令牌是否一致。
+- **下载中断：** 回到原来的下载任务，选择同一个保存位置继续。不要删除未下载完的文件包。
+- **提示软件源正在同步：** 先完成已有任务。已经写入服务器的任务不能随意取消。
+- **想释放服务器空间：** 展开“连接服务器”页面里的维护工具，先预览可能不再需要的文件，再决定是否删除。
 
-## 构建门禁与发布
+## 实现和限制
 
-`main` 和 Pull Request 由 `.github/workflows/ci.yml` 持续执行构建门禁：
+Windows 客户端采用 Wails v2、React 和 TypeScript，Linux Agent 使用 Go；SQLite 保存同步状态，实际文件保存在原生仓库目录中。项目 CI 会运行 Go 测试、Linux 构建和 Windows 桌面端构建。
 
-- Go formatting / module consistency；
-- Linux control-plane build；
-- React production build；
-- Windows Wails executable build；
-- 安装脚本 shell syntax。
+**注意：APT 适配器目前还没有执行上游 Release 文件的 OpenPGP 签名验证。** 文件散列校验不能代替来源认证，不能把当前实现当作已完成供应链签名验证的方案。
 
-不在 CI 中隐式运行测试。测试属于单独阶段。
-
-推送 `v*` tag 时，`.github/workflows/release.yml` 构建并发布：
-
-- `airgap-mirror-linux-amd64.tar.gz`；
-- `airgap-mirror-windows-amd64.zip`；
-- 对应 SHA-256 文件。
-
-详细设计见 `docs/TECHNICAL_DESIGN.md`，实施状态见 `docs/IMPLEMENTATION_PLAN.md`。
+更多部署信息见 [部署说明](docs/DEPLOYMENT.md)。其他设计文档只供参考，实际行为以源码为准。

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { app, onEvent } from '../backend'
-import { errorText, formatBytes, formatCount, shortID } from '../format'
+import { errorText, formatBytes, formatCount, shortID, statusLabel } from '../format'
 import type { AgentOverview, DesktopTransferResult, TransferProgress, ValidatedBundle } from '../types'
 
 type Props = { overview: AgentOverview | null }
@@ -26,7 +26,7 @@ export function ServerUpdatePage({ overview }: Props) {
   async function validate() {
     if (!path) return
     setBusy(true); setMessage(''); setResult(null)
-    try { const value = await app().ValidateBatchDirectory(path); setBundle(value); setMessage('Bundle 本地一致性校验通过。') }
+    try { const value = await app().ValidateBatchDirectory(path); setBundle(value); setMessage('文件清单检查完成，可以开始导入。上传时还会核对文件内容。') }
     catch (e) { setBundle(null); setMessage(errorText(e)) }
     finally { setBusy(false) }
   }
@@ -37,7 +37,7 @@ export function ServerUpdatePage({ overview }: Props) {
     try {
       const value = await app().TransferBatchDirectory(path, { chunkSize: Math.round(chunkMiB * 1024 * 1024), requestId: requestID.trim() || undefined })
       setResult(value)
-      setMessage(value.workspaceTracked ? 'Batch 已导入，Workspace 状态已与服务器对账。' : 'Batch 已以独立介质模式导入服务器。')
+      setMessage(value.workspaceTracked ? '这批文件已导入服务器，本机的下载记录也已更新。' : '这批文件已导入服务器，即使是在另一台电脑下载的，也能正常使用。')
     } catch (e) { setMessage(errorText(e)) }
     finally { setRunning(false) }
   }
@@ -48,30 +48,30 @@ export function ServerUpdatePage({ overview }: Props) {
 
   const d = bundle?.descriptor
   return <section className="page-stack">
-    <div className="page-header"><div><h2>离线导入</h2><p>选择移动硬盘上的下载目录，系统自动校验、续传并更新内网仓库。</p></div><span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? `Agent · ${overview.baseUrl}` : 'Agent 未连接'}</span></div>
+    <div className="page-header"><div><h2>把下载好的文件带回内网</h2><p>接上移动硬盘，选中下载完成的批次文件夹。检查通过后就可以导入服务器；中途断开也能继续。</p></div><span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? `已连接 ${overview.baseUrl}` : '还没有连接服务器'}</span></div>
 
     <div className="card form-grid transfer-form">
-      <label className="span-2">下载批次目录<div className="path-picker"><input value={path} onChange={e => { setPath(e.target.value); setBundle(null) }} placeholder="选择包含 batch.json / manifest.sqlite / packs 的目录" /><button onClick={choose}>浏览</button></div></label>
+      <label className="span-2">要导入的文件夹<div className="path-picker"><input value={path} onChange={e => { setPath(e.target.value); setBundle(null) }} placeholder="选择下载完成的“第 X 批”文件夹" /><button onClick={choose}>浏览</button></div></label>
       <details className="advanced-options span-2"><summary>高级选项（默认无需修改）</summary><div className="form-grid">
         <label>单次上传大小 (MiB)<input type="number" min="1" max="128" value={chunkMiB} onChange={e => setChunkMiB(Number(e.target.value))} /></label>
         <label>请求标识（可选）<input value={requestID} onChange={e => setRequestID(e.target.value)} placeholder="自动生成" /></label>
       </div></details>
-      <div className="button-row align-end"><button disabled={!path || busy || running} onClick={validate}>本地校验</button>{running ? <button onClick={pause}>暂停</button> : <button className="primary" disabled={!bundle || !overview?.connected} onClick={transfer}>导入 / 继续</button>}</div>
+      <div className="button-row align-end"><button disabled={!path || busy || running} onClick={validate}>检查文件</button>{running ? <button onClick={pause}>暂停</button> : <button className="primary" disabled={!bundle || !overview?.connected} onClick={transfer}>导入服务器 / 继续</button>}</div>
     </div>
 
     {d ? <>
       <div className="metrics-grid">
         <div className="metric"><span>批次</span><strong>#{d.batchSequence} / {d.epochTotalBatches}</strong><small>{shortID(d.batchId)}</small></div>
-        <div className="metric"><span>数据量</span><strong>{formatBytes(d.batchBytes)}</strong><small>{formatCount(d.batchObjects)} objects</small></div>
-        <div className="metric"><span>文件包</span><strong>{d.packs.length}</strong><small>manifest {formatBytes(d.manifestSize)}</small></div>
-        <div className="metric"><span>Epoch</span><strong>{shortID(d.epochId)}</strong><small>{d.baseCursor.kind} → {d.targetCursor.kind}</small></div>
+        <div className="metric"><span>数据量</span><strong>{formatBytes(d.batchBytes)}</strong><small>{formatCount(d.batchObjects)} 个文件</small></div>
+        <div className="metric"><span>文件包</span><strong>{d.packs.length}</strong><small>文件清单 {formatBytes(d.manifestSize)}</small></div>
+        <div className="metric"><span>同步任务</span><strong>{shortID(d.epochId)}</strong><small>{d.baseCursor.kind} → {d.targetCursor.kind}</small></div>
       </div>
-      <div className="card table-card"><div className="card-title"><span>文件包清单</span><span>本地 Header / Manifest 已校验</span></div><div className="table-wrap"><table><thead><tr><th>#</th><th>Pack ID</th><th>文件</th><th>大小</th><th>Entries</th><th>SHA-256</th></tr></thead><tbody>{d.packs.map(p => <tr key={p.id}><td>{p.sequence}</td><td><code>{shortID(p.id)}</code></td><td className="mono">{p.file}</td><td>{formatBytes(p.size)}</td><td>{formatCount(p.entryCount)}</td><td><small className="mono clip">{p.sha256}</small></td></tr>)}</tbody></table></div></div>
-    </> : <div className="card empty panel-empty">选择下载目录并点击“本地校验”，然后导入服务器。</div>}
+      <div className="card table-card"><div className="card-title"><span>文件包清单</span><span>内容在上传时核对</span></div><div className="table-wrap"><table><thead><tr><th>#</th><th>文件包编号</th><th>文件</th><th>大小</th><th>文件数</th><th>SHA-256</th></tr></thead><tbody>{d.packs.map(p => <tr key={p.id}><td>{p.sequence}</td><td><code>{shortID(p.id)}</code></td><td className="mono">{p.file}</td><td>{formatBytes(p.size)}</td><td>{formatCount(p.entryCount)}</td><td><small className="mono clip">{p.sha256}</small></td></tr>)}</tbody></table></div></div>
+    </> : <div className="card empty panel-empty">先选好移动硬盘上的批次文件夹，再点击“检查文件”。</div>}
 
     {progress && <div className="card progress-card"><div className="card-title"><span>{progress.kind}</span><span>{progress.packId ? shortID(progress.packId) : 'manifest'}</span></div><div className="progress"><div style={{width: `${pct}%`}} /></div><div className="progress-caption"><span>{formatBytes(progress.transferred)} / {formatBytes(progress.total)}</span><strong>{pct.toFixed(1)}%</strong></div></div>}
 
-    {result && <div className="card success-card"><h3>服务器导入完成</h3><p>{result.workspaceTracked ? '该 Batch 属于当前 Workspace；本地 Batch/Epoch 已按服务器真实状态推进。' : '该 Bundle 未在本机 Workspace 中登记，已按自描述 Bundle 独立导入。'}</p><code>{result.local?.remote.status.session.status ?? result.standalone?.status.session.status ?? 'BATCH_IMPORTED'}</code></div>}
+    {result && <div className="card success-card"><h3>这批文件已经导入服务器</h3><p>{result.workspaceTracked ? '本机的下载记录也已更新。如果还有其他批次，继续选择下一批即可。' : '如果还有其他批次，继续选择下一批即可。'}</p><code>{statusLabel(result.local?.remote.status.session.status ?? result.standalone?.status.session.status ?? 'BATCH_IMPORTED')}</code></div>}
     {message && <div className="notice">{message}</div>}
   </section>
 }

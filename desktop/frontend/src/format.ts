@@ -28,3 +28,16 @@ export function errorText(error: unknown): string {
   if (typeof error === 'string') return error
   try { return JSON.stringify(error) } catch { return String(error) }
 }
+
+const readableStatuses: Record<string, string> = {
+  PLANNED: '等待下载', DOWNLOADING: '下载中', VERIFYING: '正在检查',
+  READY: '可以导入', TRANSFERRING: '传输中', IMPORTING: '正在导入',
+  IMPORTED: '已导入', PUBLISHABLE: '准备发布', PUBLISHED: '已发布',
+  COMPLETE: '已完成', COMPLETED: '已完成', FAILED: '失败',
+  CANCELLED: '已取消', QUEUED: '等待处理', RUNNING: '进行中',
+  BATCH_IMPORTED: '已导入',
+}
+
+export function statusLabel(status: string): string {
+  return readableStatuses[status] ?? status
+}
