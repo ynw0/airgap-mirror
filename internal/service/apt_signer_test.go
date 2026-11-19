@@ -42,7 +42,7 @@ func TestAPTSigningRequiresCompletedInventory(t *testing.T) {
 		ID: sourceID, Name: "debian", Type: domain.SourceAPT, Provider: apt.Provider,
 		UpstreamURL: "https://deb.debian.org/debian", PublicURL: "http://repo.local/debian",
 		RootPath: t.TempDir(), Enabled: true, ConfigJSON: json.RawMessage(`{"suite":"bookworm","releaseMode":"inrelease"}`),
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt:  now, UpdatedAt: now,
 	}
 	if err = store.CreateSource(ctx, src); err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestAPTReSignAfterInventoryProducesVerifiableMetadata(t *testing.T) {
 		RootPath: root, UpstreamURL: "https://deb.example/repo",
 		PublicURL: "http://repo.local/apt", Enabled: true,
 		ConfigJSON: json.RawMessage(`{"suite":"bookworm","releaseMode":"inrelease"}`),
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt:  now, UpdatedAt: now,
 	}
 	if err = store.CreateSource(ctx, src); err != nil {
 		t.Fatal(err)
