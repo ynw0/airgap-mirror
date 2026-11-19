@@ -107,13 +107,15 @@ func TestRunnerPauseAndResumeKeepsLiveCatalogUntilComplete(t *testing.T) {
 	if paused.CompletedProjects !=100 || paused.ScannedObjects !=100 {
 		t.Fatalf("pause lost committed progress: %+v",paused)
 	}
-	runner.mu.Lock()
-	for runner.cancels[job.ID]!=nil {
-		runner.mu.Unlock()
-		time.Sleep(10*time.Millisecond)
+	deadline:=time.Now().Add(8*time.Second)
+	for {
 		runner.mu.Lock()
+		active:=runner.cancels[job.ID]!=nil
+		runner.mu.Unlock()
+		if !active { break }
+		if time.Now().After(deadline) { t.Fatal("paused worker failed to release checkpoint") }
+		time.Sleep(10*time.Millisecond)
 	}
-	runner.mu.Unlock()
 	if _,err=store.Get(ctx,id,"old/untouched");err!=nil{
 		t.Fatalf("live catalog modified before completion: %v",err)
 	}
@@ -123,7 +125,7 @@ func TestRunnerPauseAndResumeKeepsLiveCatalogUntilComplete(t *testing.T) {
 	if _,err=restarted.ResumeInventory(ctx,job.ID);err!=nil{t.Fatal(err)}
 	done:=waitMaintenanceStatus(t,store,job.ID,domain.MaintenanceCompleted)
 	if done.CompletedProjects!=101 || done.ScannedObjects!=101 {t.Fatalf("completion stats not persisted: %+v",done)}
-	if _,err=store.Get(ctx,id,"old/untouched");err!=domain.ErrNotFound {t.Fatalf("old catalog still present: %v",err)}
+	if _,err=store.Get(ctx,id,"old/untouched");!errors.Is(err,domain.ErrNotFound) {t.Fatalf("old catalog still present: %v",err)}
 	stat,err:=store.Stats(ctx,id)
 	if err!=nil||stat.Objects!=101{t.Fatalf("bad published catalog: %+v %v",stat,err)}
 }
