@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -87,6 +89,26 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 			return stats, err
 		}
 		if err = put(sigLogical, int64(len(sig)), shaHex(sig), "", "", sigInfo.ModTime()); err != nil {
+			return stats, err
+		}
+	}
+
+	// 本地重签名会同时生成 Release、Release.gpg 和 InRelease。
+	// 即使当前配置使用其中一种模式，清点时也要把实际存在的签名文件算进账本。
+	optional := []string{"InRelease"}
+	if cfg.ReleaseMode == "inrelease" {
+		optional = []string{"Release", "Release.gpg"}
+	}
+	for _, name := range optional {
+		logical := path.Join(distBase, name)
+		body, info, readErr := repo.ReadFile(logical, 32<<20)
+		if errors.Is(readErr, os.ErrNotExist) {
+			continue
+		}
+		if readErr != nil {
+			return stats, readErr
+		}
+		if err = put(logical, int64(len(body)), shaHex(body), "", "", info.ModTime()); err != nil {
 			return stats, err
 		}
 	}
