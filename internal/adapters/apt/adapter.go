@@ -380,10 +380,9 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 			_ = sink.Abort(context.Background(), epochID, err)
 		}
 	}()
+	// Declare a PublishUnit only once, after its required artifact count is final.
+	// PlanSink implementations must reject mutation of immutable declarations.
 	unit := domain.PublishUnit{ID: unitID, EpochID: epochID, SourceID: req.Source.ID, Key: "apt:" + cfg.Suite, Status: domain.PublishWaiting}
-	if err = sink.PutPublishUnit(ctx, unit); err != nil {
-		return plan, err
-	}
 	ns := "apt:" + epochID + ":paths"
 	if req.Workset == nil || req.Catalog == nil {
 		return plan, fmt.Errorf("apt analyze requires disk workset and catalog: %w", domain.ErrInvalid)
