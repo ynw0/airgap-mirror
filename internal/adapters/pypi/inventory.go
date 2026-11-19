@@ -181,6 +181,10 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		h := sha256.New()
 		z := xhtml.NewTokenizer(io.TeeReader(f, h))
 		for {
+			if err = ctx.Err(); err != nil {
+				f.Close()
+				return stats, err
+			}
 			tt := z.Next()
 			if tt == xhtml.ErrorToken {
 				if z.Err() != io.EOF {
