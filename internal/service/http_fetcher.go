@@ -38,9 +38,17 @@ func (f HTTPFetcher) Open(ctx context.Context, r ports.FetchRequest) (ports.Fetc
 		return o, fmt.Errorf("upstream ignored range resume")
 	}
 	o = ports.FetchResponse{Body: x.Body, StatusCode: x.StatusCode, ContentLength: x.ContentLength, ETag: x.Header.Get("ETag"), LastModified: x.Header.Get("Last-Modified"), AcceptRanges: strings.EqualFold(x.Header.Get("Accept-Ranges"), "bytes") || x.StatusCode == 206}
-	if cr := x.Header.Get("Content-Range"); cr != "" && r.Offset > 0 && !strings.HasPrefix(cr, "bytes "+strconv.FormatInt(r.Offset, 10)+"-") {
-		x.Body.Close()
-		return ports.FetchResponse{}, fmt.Errorf("unexpected content-range %q", cr)
+	if r.Offset > 0 {
+		cr := x.Header.Get("Content-Range")
+		if cr == "" || !strings.HasPrefix(cr, "bytes "+strconv.FormatInt(r.Offset, 10)+"-") {
+			x.Body.Close()
+			return ports.FetchResponse{}, fmt.Errorf("unexpected content-range %q", cr)
+		}
+		// Range responses must still identify the same entity as the checkpoint.
+		if r.ETag != "" && x.Header.Get("ETag") != "" && x.Header.Get("ETag") != r.ETag {
+			x.Body.Close()
+			return ports.FetchResponse{}, fmt.Errorf("upstream etag changed during range resume")
+		}
 	}
 	return o, nil
 }
