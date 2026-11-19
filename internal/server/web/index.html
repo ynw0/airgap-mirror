@@ -98,8 +98,22 @@ async function refresh(){
   article.appendChild(make('p',state.activeEpochId?'有同步任务进行中，请先完成它。':'目前没有进行中的同步任务。','small'));
   article.appendChild(make('p','同步位置：'+(state.liveCursor&&state.liveCursor.value?state.liveCursor.kind+' · '+state.liveCursor.value:'还没有同步记录'),'small'));
   const buttons=make('div','');buttons.className='row';
-  buttons.appendChild(action('重新清点文件',async()=>{if(!confirm('将扫描服务器文件并更新文件账本，确认开始吗？'))return;await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');}));
-  buttons.appendChild(action('查看清点结果',async()=>{const jobs=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];const j=jobs.find(x=>x.kind==='INVENTORY');if(!j){show('还没有清点记录，请先点击“重新清点文件”。');return;}const statuses={QUEUED:'等待开始',RUNNING:'正在检查',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消'};show('“'+s.name+'”最近一次清点：'+(statuses[j.status]||j.status)+'；已扫描 '+j.scannedObjects+' 个文件，约 '+bytes(j.scannedBytes)+(j.errorText?'。错误：'+j.errorText:''));if(j.status==='COMPLETED')await refresh();}));
+  const tasks=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];
+  const running=tasks.find(j=>j.kind==='INVENTORY'&&(j.status==='RUNNING'||j.status==='QUEUED'));
+  const paused=tasks.find(j=>j.kind==='INVENTORY'&&j.status==='PAUSED');
+  if(s.type==='pypi' && (running||paused)){
+    const j=running||paused;
+    article.appendChild(make('p','PyPI 检查进度：'+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；已记录 '+bytes(j.scannedBytes)+'，最近完成：'+(j.lastProject||'尚无检查点'),'small'));
+  }
+  const startButton=action('重新清点文件',async()=>{if(!confirm('将扫描服务器文件并更新文件账本，确认开始吗？'))return;await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');await refresh();});
+  startButton.disabled=!!(running||paused);
+  buttons.appendChild(startButton);
+  if(s.type==='pypi' && running)buttons.appendChild(action('暂停清点',async()=>{await api('/api/v1/maintenance/'+encodeURIComponent(running.id)+'/pause',{method:'POST'});show('已请求暂停。最近一批项目完成后将保留检查点。');await refresh();}));
+  if(s.type==='pypi' && paused){
+    buttons.appendChild(action('继续清点',async()=>{await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/resume',{method:'POST'});show('已请求从上次完成的位置继续清点。');await refresh();}));
+    buttons.appendChild(action('放弃清点',async()=>{if(!confirm('放弃当前清点并删除检查点？旧文件账本不会改变。'))return;await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/cancel',{method:'POST'});show('已放弃本次清点。');await refresh();}));
+  }
+  buttons.appendChild(action('查看清点结果',async()=>{const jobs=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];const j=jobs.find(x=>x.kind==='INVENTORY');if(!j){show('还没有清点记录，请先点击“重新清点文件”。');return;}const statuses={QUEUED:'等待开始',RUNNING:'正在检查',PAUSED:'已暂停，可以继续',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消'};show('“'+s.name+'”最近一次清点：'+(statuses[j.status]||j.status)+'；已检查 '+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；记录 '+j.scannedObjects+' 个文件，约 '+bytes(j.scannedBytes)+(j.errorText?'。错误：'+j.errorText:''));if(j.status==='COMPLETED')await refresh();}));
   buttons.appendChild(action('导出状态文件',()=>exportState([s.id])));
   buttons.appendChild(action('编辑设置',()=>openEditor(s)));
   if(s.type==='apt')buttons.appendChild(action('检查后重新签名',async()=>{if(!confirm('确认已查看清点结果，并且内网 APT 客户端会信任此次使用的专用公钥？'))return;const v=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/sign',{method:'POST'})).json();show('“'+s.name+'”已重新签名（'+v.suite+'）。请确认客户端已安装相应公钥。');await refresh();}));
