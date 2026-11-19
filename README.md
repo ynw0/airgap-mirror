@@ -58,19 +58,19 @@ Windows 客户端采用 Wails v2、React 和 TypeScript，Linux Agent 使用 Go�
 
 ```bash
 sudo bash scripts/install-agent.sh
-sudo bash scripts/configure-agent.sh --listen 192.168.21.4:8787
+sudo bash internal/server/web/configure-agent.sh --listen 192.168.21.4:8787
 ```
 
 如果 Linux 服务器的 IP 是 `192.168.21.4`，可从可信内网浏览器打开 `http://192.168.21.4:8787/`。这是示例地址，更换服务器时请使用对应 IP。页面需要输入 Agent 的连接令牌。配置脚本只设置 Agent 监听地址，不修改 Apache、仓库文件或防火墙规则。
 
-Linux 发布包中的 `scripts/configure-agent.sh`、`scripts/configure-apt-signing.sh` 可以拷到内网服务器离线运行；已安装的 Web 页面也提供脚本下载。
+以上命令适用于从 GitHub 源码仓库克隆并构建的情况。若使用 `v*` Linux 发布包，配置脚本位于 `scripts/configure-agent.sh` 和 `scripts/configure-apt-signing.sh`。两份脚本也可在已安装的 Linux Web 管理页面直接下载，再复制到离线服务器运行。
 
 ### 检查统计后为 APT 仓库重新签名
 
 先从 Linux 管理页面运行“重新清点文件”，等清点任务完成并确认文件数与容量。需要重新签名时，先由管理员运行：
 
 ```bash
-sudo bash scripts/configure-apt-signing.sh
+sudo bash internal/server/web/configure-apt-signing.sh
 ```
 
 此脚本在 `/var/lib/airgap-mirror/gnupg` 为服务用户创建/选定专用密钥，管理员需要明确同意创建；不会偷偷在客户端添加信任。再回到 Web 管理页面点击“检查后重新签名”，重新生成内网 APT 的 `Release`、`Release.gpg` 和 `InRelease`。签完后下载公钥，按客户端仓库配置将其安装为专用受信任密钥（不要将私钥拷走）。
