@@ -29,8 +29,12 @@ func (absentProjectCatalog) Get(context.Context, string, string) (domain.Catalog
 func (absentProjectCatalog) ListByPackage(context.Context, string, string) ([]domain.CatalogEntry, error) {
 	return nil, nil
 }
-func (absentProjectCatalog) Upsert(context.Context, domain.CatalogEntry) error { return nil }
-func (absentProjectCatalog) Delete(context.Context, string, string) error { return nil }
+func (absentProjectCatalog) Upsert(context.Context, domain.CatalogEntry) error {
+	return nil
+}
+func (absentProjectCatalog) Delete(context.Context, string, string) error {
+	return nil
+}
 func (absentProjectCatalog) Stats(context.Context, string) (domain.CatalogStats, error) {
 	return domain.CatalogStats{}, nil
 }
