@@ -28,8 +28,12 @@ func (absentCatalog) Get(context.Context, string, string) (domain.CatalogEntry, 
 func (absentCatalog) ListByPackage(context.Context, string, string) ([]domain.CatalogEntry, error) {
 	return nil, nil
 }
-func (absentCatalog) Upsert(context.Context, domain.CatalogEntry) error { return nil }
-func (absentCatalog) Delete(context.Context, string, string) error { return nil }
+func (absentCatalog) Upsert(context.Context, domain.CatalogEntry) error {
+	return nil
+}
+func (absentCatalog) Delete(context.Context, string, string) error {
+	return nil
+}
 func (absentCatalog) Stats(context.Context, string) (domain.CatalogStats, error) {
 	return domain.CatalogStats{}, nil
 }
@@ -44,16 +48,26 @@ func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 	pkg := []byte(fmt.Sprintf("Package: demo\nVersion: 1\nFilename: pool/main/d/demo.deb\nSize: 3\nSHA256: %s\n\n", testDigest([]byte("deb"))))
 	release := []byte(fmt.Sprintf("SHA256:\n %s %d main/binary-amd64/Packages\n", testDigest(pkg), len(pkg)))
 	mux := http.NewServeMux()
-	mux.HandleFunc("/dists/stable/Release", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(release) })
-	mux.HandleFunc("/dists/stable/Release.gpg", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("sig")) })
-	mux.HandleFunc("/dists/stable/main/binary-amd64/Packages", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(pkg) })
+	mux.HandleFunc("/dists/stable/Release", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(release)
+	})
+	mux.HandleFunc("/dists/stable/Release.gpg", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("sig"))
+	})
+	mux.HandleFunc("/dists/stable/main/binary-amd64/Packages", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(pkg)
+	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "client.db"))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer db.Close()
-	if err := storesqlite.InitClient(ctx, db); err != nil { t.Fatal(err) }
+	if err := storesqlite.InitClient(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := db.ExecContext(ctx, `INSERT INTO state_capsules(id,file_path,exported_at,imported_at,state_json) VALUES(?,?,?,?,?)`, "snapshot", "", now, now, []byte("{}")); err != nil {
 		t.Fatal(err)
@@ -63,7 +77,9 @@ func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 	plan, err := New(server.Client()).Analyze(ctx, ports.AnalyzeRequest{
 		CapsuleID: "snapshot", Source: src, Workset: store, Catalog: absentCatalog{},
 	}, store)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if plan.ArtifactCount != 4 || plan.MetadataCount != 3 || plan.PublishUnitCount != 1 {
 		t.Fatalf("unexpected APT plan: %+v", plan)
 	}
@@ -71,5 +87,7 @@ func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT required_count FROM planned_publish_units WHERE epoch_id=?`, plan.Epoch.ID).Scan(&required); err != nil {
 		t.Fatal(err)
 	}
-	if required != 4 { t.Fatalf("required_count=%d, want 4", required) }
+	if required != 4 {
+		t.Fatalf("required_count=%d, want 4", required)
+	}
 }
