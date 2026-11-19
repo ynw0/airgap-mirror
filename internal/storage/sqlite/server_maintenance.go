@@ -24,6 +24,9 @@ func scanMaintenanceJob(row interface{ Scan(...any) error }) (domain.Maintenance
 		&execute,
 		&job.ScannedObjects,
 		&job.ScannedBytes,
+		&job.CompletedProjects,
+		&job.TotalProjects,
+		&job.LastProject,
 		&job.CandidateObjects,
 		&job.CandidateBytes,
 		&job.AffectedObjects,
@@ -43,7 +46,7 @@ func scanMaintenanceJob(row interface{ Scan(...any) error }) (domain.Maintenance
 	return job, nil
 }
 
-const maintenanceSelect = `SELECT id,source_id,kind,status,execute,scanned_objects,scanned_bytes,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`
+const maintenanceSelect = `SELECT id,source_id,kind,status,execute,scanned_objects,scanned_bytes,completed_projects,total_projects,last_project,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`
 
 func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.MaintenanceJob) error {
 	if job.ID == "" || job.SourceID == "" {
@@ -171,3 +174,21 @@ func (s *ServerStore) SetMaintenanceCatalogPath(ctx context.Context, id, catalog
 }
 
 var _ ports.MaintenanceStore = (*ServerStore)(nil)
+
+func (s *ServerStore) UpdateInventoryCheckpoint(ctx context.Context, id string, p ports.MaintenanceProgress) error {
+	if p.ScannedObjects < 0 || p.ScannedBytes < 0 || p.CompletedProjects < 0 || p.TotalProjects < 0 ||
+		p.CompletedProjects > p.TotalProjects {
+		return fmt.Errorf("invalid PyPI checkpoint counters: %w", domain.ErrInvalid)
+	}
+	res, err := s.DB.ExecContext(ctx, `UPDATE maintenance_jobs
+SET scanned_objects=?,scanned_bytes=?,completed_projects=?,total_projects=?,last_project=?
+WHERE id=? AND kind=? AND status=?`, p.ScannedObjects, p.ScannedBytes,
+		p.CompletedProjects, p.TotalProjects, p.LastProject, id, domain.MaintenanceInventory, domain.MaintenanceRunning)
+	if err != nil {
+		return err
+	}
+	if count, _ := res.RowsAffected(); count != 1 {
+		return fmt.Errorf("PyPI inventory task is not running: %w", domain.ErrConflict)
+	}
+	return nil
+}

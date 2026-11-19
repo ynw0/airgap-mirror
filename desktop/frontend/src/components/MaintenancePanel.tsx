@@ -11,6 +11,7 @@ function statusClass(status: string) {
     case 'FAILED': return 'status status-failed'
     case 'CANCELLED': return 'status status-cancelled'
     case 'RUNNING': return 'status status-transferring'
+    case 'PAUSED': return 'status'
     default: return 'status'
   }
 }
@@ -30,6 +31,7 @@ export function MaintenancePanel({ overview }: Props) {
   const source = useMemo(() => overview?.sources.find(x => x.source.id === sourceID), [overview, sourceID])
   const selectedJob = useMemo(() => jobs.find(x => x.id === selectedJobID), [jobs, selectedJobID])
   const activeJob = useMemo(() => jobs.find(x => x.status === 'QUEUED' || x.status === 'RUNNING'), [jobs])
+  const pausedJob = useMemo(() => jobs.find(x => x.kind === 'INVENTORY' && x.status === 'PAUSED'), [jobs])
 
   useEffect(() => {
     const sources = overview?.sources ?? []
@@ -101,12 +103,36 @@ export function MaintenancePanel({ overview }: Props) {
     finally { setBusy(false) }
   }
 
-  async function cancelJob() {
-    if (!activeJob) return
+  async function resumeJob() {
+    if (!pausedJob) return
     setBusy(true); setMessage('')
     try {
-      await app().CancelMaintenance(activeJob.id)
-      setMessage(`已请求停止任务：${shortID(activeJob.id)}`)
+      await app().ResumeMaintenance(pausedJob.id)
+      setMessage('正在从上次保存的项目继续检查。已完成的检查点会保留。')
+      await refreshJobs()
+    } catch (e) { setMessage(errorText(e)) }
+    finally { setBusy(false) }
+  }
+
+  async function pauseJob() {
+    if (!activeJob || activeJob.kind !== 'INVENTORY') return
+    setBusy(true); setMessage('')
+    try {
+      await app().PauseMaintenance(activeJob.id)
+      setMessage('已请求暂停。正在处理的这批项目可能需要在下次继续时重查。')
+      await refreshJobs()
+    } catch (e) { setMessage(errorText(e)) }
+    finally { setBusy(false) }
+  }
+
+  async function cancelJob() {
+    const target = activeJob ?? pausedJob
+    if (!target) return
+    if (target.status === 'PAUSED' && !window.confirm('放弃这次清点并删除已保存的检查点？正式文件账本不会受影响。')) return
+    setBusy(true); setMessage('')
+    try {
+      await app().CancelMaintenance(target.id)
+      setMessage(`已请求停止任务：${shortID(target.id)}`)
       await refreshJobs()
     } catch (e) { setMessage(errorText(e)) }
     finally { setBusy(false) }
@@ -135,11 +161,13 @@ export function MaintenancePanel({ overview }: Props) {
         <label>软件源<select value={sourceID} onChange={e => setSourceID(e.target.value)} disabled={!overview || busy}>
           {(overview?.sources ?? []).map(x => <option key={x.source.id} value={x.source.id}>{x.source.name} · {x.source.type}/{x.source.provider}</option>)}
         </select></label>
-        <div className="span-2"><p>如果服务器里的文件数量不对，可以先重新清点。需要腾出空间时，先看看哪些文件可能不再使用，再决定是否删除。</p>{source?.source.type === 'apt' && <small>APT 的共享包目录默认不会被清理。只有明确设为该软件源独占时，才允许删除其中的废弃文件。</small>}</div>
+        <div className="span-2"><p>如果服务器里的文件数量不对，可以先重新清点。PyPI 的大型仓库每检查一批项目会保存进度，暂停或 Agent 重启后可继续；整个任务完成前，不会替换原来的文件账本。</p>{source?.source.type === 'apt' && <small>APT 的共享包目录默认不会被清理。只有明确设为该软件源独占时，才允许删除其中的废弃文件。</small>}</div>
         <div className="button-row align-end">
-          <button disabled={!sourceID || !!activeJob || busy} onClick={startInventory}>重新清点</button>
-          <button disabled={!sourceID || !!activeJob || busy} onClick={() => startGC(false)}>查看可清理文件</button>
-          {activeJob && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>取消任务</button>}
+          <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startInventory}>重新清点</button>
+          <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startGC(false)}>查看可清理文件</button>
+          {activeJob?.kind === 'INVENTORY' && source?.source.type === 'pypi' && <button disabled={busy} onClick={pauseJob}>暂停清点</button>}
+          {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>继续上次清点</button>}
+          {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? '放弃清点' : '取消任务'}</button>}
           <button disabled={!sourceID || busy} onClick={refreshJobs}>刷新</button>
         </div>
       </div>
@@ -152,18 +180,18 @@ export function MaintenancePanel({ overview }: Props) {
           <td><code>{shortID(job.id)}</code>{job.errorText && <small className="clip">{job.errorText}</small>}</td>
           <td>{job.kind === 'GC' ? '清理文件' : '重新清点'}{job.kind === 'GC' && <small>{job.execute ? '执行删除' : '仅预览'}</small>}</td>
           <td><span className={statusClass(job.status)}>{statusLabel(job.status)}</span></td>
-          <td>{formatCount(job.scannedObjects)}<small>{formatBytes(job.scannedBytes)}</small></td>
+          <td>{formatCount(job.scannedObjects)}<small>{formatBytes(job.scannedBytes)}</small>{job.kind === 'INVENTORY' && job.totalProjects > 0 && <small>已检查项目 {formatCount(job.completedProjects)}/{formatCount(job.totalProjects)}{job.lastProject ? ` · 到 ${job.lastProject}` : ''}</small>}</td>
           <td>{job.kind === 'GC' ? <>{formatCount(job.candidateObjects)}<small>{formatBytes(job.candidateBytes)}</small></> : '—'}</td>
           <td>{job.kind === 'GC' && job.execute ? <>{formatCount(job.affectedObjects)}<small>{formatBytes(job.affectedBytes)}</small></> : '—'}</td>
           <td>{formatDate(job.createdAt)}<small>{job.completedAt ? `完成 ${formatDate(job.completedAt)}` : job.startedAt ? `开始 ${formatDate(job.startedAt)}` : ''}</small></td>
-          <td><div className="button-row">{job.kind === 'GC' && terminal(job) && job.tempCatalogPath && <button disabled={busy} onClick={() => showCandidates(job)}>查看列表</button>}{job.kind === 'GC' && job.status === 'COMPLETED' && !job.execute && <button className="danger-ghost" disabled={busy || !!activeJob} onClick={() => { setSelectedJobID(job.id); void showCandidates(job).then(() => undefined) }}>选中本次预览</button>}</div></td>
+          <td><div className="button-row">{job.kind === 'GC' && terminal(job) && job.tempCatalogPath && <button disabled={busy} onClick={() => showCandidates(job)}>查看列表</button>}{job.kind === 'GC' && job.status === 'COMPLETED' && !job.execute && <button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => { setSelectedJobID(job.id); void showCandidates(job).then(() => undefined) }}>选中本次预览</button>}</div></td>
         </tr>) : <tr><td colSpan={8} className="empty">选择软件源后，可以查看以前的检查和清理记录。</td></tr>}</tbody>
       </table></div>
     </div>
 
     {selectedJob?.kind === 'GC' && selectedJob.status === 'COMPLETED' && !selectedJob.execute && <div className="card">
       <div className="card-title"><span>确认清理</span><span>{shortID(selectedJob.id)}</span></div>
-      <div className="button-row"><button className="danger-ghost" disabled={busy || !!activeJob} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
+      <div className="button-row"><button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
     </div>}
 
     {candidates && <div className="card table-card">

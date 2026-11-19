@@ -8,12 +8,15 @@ import (
 )
 
 type MaintenanceProgress struct {
-	ScannedObjects   int64
-	ScannedBytes     int64
-	CandidateObjects int64
-	CandidateBytes   int64
-	AffectedObjects  int64
-	AffectedBytes    int64
+	ScannedObjects    int64
+	ScannedBytes      int64
+	CompletedProjects int64
+	TotalProjects     int64
+	LastProject       string
+	CandidateObjects  int64
+	CandidateBytes    int64
+	AffectedObjects   int64
+	AffectedBytes     int64
 }
 
 type MaintenanceStore interface {
@@ -22,6 +25,7 @@ type MaintenanceStore interface {
 	ListMaintenanceJobs(context.Context, string, int) ([]domain.MaintenanceJob, error)
 	TransitionMaintenanceJob(context.Context, string, domain.MaintenanceStatus, string, time.Time) error
 	UpdateMaintenanceProgress(context.Context, string, MaintenanceProgress) error
+	UpdateInventoryCheckpoint(context.Context, string, MaintenanceProgress) error
 	SetMaintenanceCatalogPath(context.Context, string, string) error
 	ReplaceCatalogFromFile(context.Context, string, string, domain.CatalogStats, time.Time) error
 }
