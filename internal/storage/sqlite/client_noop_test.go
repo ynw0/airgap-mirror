@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
 
