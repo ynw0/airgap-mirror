@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -65,7 +66,7 @@ func fixturePyPI(t *testing.T, store *ServerStore, count int) domain.Source {
 	src := domain.Source{
 		ID: id, Name: "large-pypi", Type: domain.SourcePyPI, Provider: pypi.Provider,
 		RootPath: root, PublicURL: "https://repo.example/pypi",
-		UpstreamURL: "https://pypi.org/simple", Enabled: true,
+		UpstreamURL: "https://pypi.org/simple", Enabled: true, ConfigJSON: json.RawMessage("{}"),
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := store.CreateSource(context.Background(), src); err != nil {
