@@ -312,9 +312,10 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 		r.finishInventoryError(job.ID, resumable, err)
 		return
 	}
-	if err = r.persist(func(pctx context.Context) error {
-		return r.Jobs.ReplaceCatalogFromFile(pctx, source.ID, sink.Path(), actual, r.now())
-	}); err != nil {
+	// Replacing millions of Catalog rows can take much longer than the 30s
+	// timeout used for small progress updates. Keep a single atomic SQLite
+	// transaction, but let the worker's context control its lifetime.
+	if err = r.Jobs.ReplaceCatalogFromFile(ctx, source.ID, sink.Path(), actual, r.now()); err != nil {
 		r.finishInventoryError(job.ID, resumable, err)
 		return
 	}
