@@ -397,7 +397,7 @@ func (w *Workspace) DownloadBatch(ctx context.Context, batchID string, opts Down
 	return BatchBundle{Batch: batch, Descriptor: descriptor, Path: bundleDir}, nil
 }
 
- // RedownloadReadyBatch clears one chosen local batch; other downloaded batches are untouched.
+// RedownloadReadyBatch clears one chosen local batch; other downloaded batches are untouched.
 func (w *Workspace) RedownloadReadyBatch(ctx context.Context, batchID, destination string) error {
 	batch, err := w.Store.GetBatch(ctx, batchID)
 	if err != nil {

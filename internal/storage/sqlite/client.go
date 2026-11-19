@@ -292,7 +292,7 @@ func (c *ClientStore) StoreCapsule(ctx context.Context, cap domain.StateCapsule,
 	return tx.Commit()
 }
 
- // ResetReadyBatch restores an explicitly chosen, not-yet-imported batch for downloading again.
+// ResetReadyBatch restores an explicitly chosen, not-yet-imported batch for downloading again.
 func (c *ClientStore) ResetReadyBatch(ctx context.Context, batchID string) error {
 	tx, err := c.DB.BeginTx(ctx, nil)
 	if err != nil {

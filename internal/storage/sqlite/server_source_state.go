@@ -2,10 +2,10 @@ package sqlite
 
 import (
 	"context"
-	"encoding/json"
-	"reflect"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
