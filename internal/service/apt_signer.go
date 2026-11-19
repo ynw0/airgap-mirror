@@ -51,9 +51,11 @@ func (s *APTSigner) configured() error {
 func (s *APTSigner) gpg(ctx context.Context, args ...string) ([]byte, error) {
 	all := append([]string{"--homedir", s.GNUPGHOME, "--batch", "--no-tty"}, args...)
 	cmd := exec.CommandContext(ctx, "gpg", all...)
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("gpg 运行失败: %s: %w", strings.TrimSpace(string(out)), err)
+		return nil, fmt.Errorf("gpg 运行失败: %s: %w", strings.TrimSpace(stderr.String()), err)
 	}
 	return out, nil
 }
@@ -188,6 +190,17 @@ func (s *APTSigner) Sign(ctx context.Context, sourceID string) (APTSignResult, e
 		if entry.Size != index.Size || !strings.EqualFold(entry.SHA256, index.SHA256) {
 			return result, fmt.Errorf("Release 索引 %s 与清点结果不同，拒绝签名: %w", indexPath, domain.ErrConflict)
 		}
+		actualPath, getErr := safeTarget(source.RootPath, indexPath)
+		if getErr != nil {
+			return result, getErr
+		}
+		if getErr = rejectSymlinkParents(source.RootPath, actualPath); getErr != nil {
+			return result, getErr
+		}
+		hash, size, getErr := hashFile(actualPath)
+		if getErr != nil || size != index.Size || !strings.EqualFold(hash, index.SHA256) {
+			return result, fmt.Errorf("文件 %s 已在清点后变化，请重新清点后再签名: %w", indexPath, domain.ErrConflict)
+		}
 	}
 
 	work, err := os.MkdirTemp("", "airgap-sign-*")
@@ -204,7 +217,7 @@ func (s *APTSigner) Sign(ctx context.Context, sourceID string) (APTSignResult, e
 	if _, err = s.gpg(ctx, "--yes", "--pinentry-mode", "loopback", "--local-user", s.KeyID, "--digest-algo", "SHA256", "--armor", "--clearsign", "--output", inReleaseFile, releaseFile); err != nil {
 		return result, err
 	}
-	if _, err = s.gpg(ctx, "--yes", "--pinentry-mode", "loopback", "--local-user", s.KeyID, "--digest-algo", "SHA256", "--armor", "--detach-sign", "--output", sigFile, releaseFile); err != nil {
+	if _, err = s.gpg(ctx, "--yes", "--pinentry-mode", "loopback", "--local-user", s.KeyID, "--digest-algo", "SHA256", "--detach-sign", "--output", sigFile, releaseFile); err != nil {
 		return result, err
 	}
 	if _, err = s.gpg(ctx, "--verify", inReleaseFile); err != nil {

@@ -86,8 +86,12 @@ async function refresh(){
   const article=make('article','');article.className='source';
   const head=make('div','');head.className='row';head.appendChild(make('h3',s.name,'grow'));head.appendChild(make('span',s.type+' · '+s.provider,'tag'));article.appendChild(head);
   const state=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/state')).json();
-  const capacity=await (await api('/api/v1/capacity?sourceId='+encodeURIComponent(s.id))).json();
-  article.appendChild(make('p','文件账本：'+(state.liveObjects||0)+' 个文件，约 '+bytes(state.liveBytes)+'；剩余空间：'+bytes(capacity.freeBytes)));
+  let freeSpace='当前无法读取（请检查仓库目录是否存在、Agent 是否有权限）';
+  try {
+    const capacity=await (await api('/api/v1/capacity?sourceId='+encodeURIComponent(s.id))).json();
+    freeSpace=bytes(capacity.freeBytes);
+  } catch (_) {}
+  article.appendChild(make('p','文件账本：'+(state.liveObjects||0)+' 个文件，约 '+bytes(state.liveBytes)+'；剩余空间：'+freeSpace));
   article.appendChild(make('p',state.activeEpochId?'有同步任务进行中，请先完成它。':'目前没有进行中的同步任务。','small'));
   article.appendChild(make('p','同步位置：'+(state.liveCursor&&state.liveCursor.value?state.liveCursor.kind+' · '+state.liveCursor.value:'还没有同步记录'),'small'));
   const buttons=make('div','');buttons.className='row';

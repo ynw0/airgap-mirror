@@ -378,19 +378,8 @@ func (w *Workspace) DownloadBatch(ctx context.Context, batchID string, opts Down
 	if err != nil {
 		return out, err
 	}
-	allReady := len(batches) == epoch.TotalBatches && len(batches) > 0
-	for _, item := range batches {
-		if item.Status != domain.BatchReady {
-			allReady = false
-			break
-		}
-	}
-	if allReady && epoch.Status == domain.EpochDownloading {
-		if err = domain.ValidateEpochTransition(epoch.Status, domain.EpochTransferring); err != nil {
-			return out, err
-		}
-		epoch.Status = domain.EpochTransferring
-		if err = w.Store.UpdateEpoch(ctx, epoch); err != nil {
+	if allBatchesTransferReady(batches, epoch.TotalBatches) && epoch.Status == domain.EpochDownloading {
+		if _, err = w.moveEpochToTransferringIfReady(ctx, epoch); err != nil {
 			return out, err
 		}
 	}
