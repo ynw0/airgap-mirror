@@ -29,7 +29,7 @@ type InventoryAdapter interface {
 // process termination never leaves an acknowledged half-project.
 type ProjectInventorySink interface {
 	CatalogBuildSink
-	Restore(context.Context, string, string) (InventoryProgress, error)
+	Restore(context.Context, string, string, int64) (InventoryProgress, error)
 	CheckpointProject(context.Context, string, int64, int64) (InventoryProgress, bool, error)
 	Flush(context.Context) (InventoryProgress, error)
 	VerifyPages(context.Context, func(string, int64, int64) error) error
