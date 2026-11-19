@@ -76,9 +76,9 @@ func TestCompleteNoopEpochRejectsWork(t *testing.T) {
 	}
 	store := NewClientStore(db)
 	epoch := domain.Epoch{ID: "epoch", SourceID: "source",
-		BaseCursor: domain.Cursor{Kind: "test", Value: "1"},
+		BaseCursor:   domain.Cursor{Kind: "test", Value: "1"},
 		TargetCursor: domain.Cursor{Kind: "test", Value: "2"},
-		Status: domain.EpochPlanned, CreatedAt: now}
+		Status:       domain.EpochPlanned, CreatedAt: now}
 	if err := store.Begin(ctx, epoch, "capsule"); err != nil {
 		t.Fatal(err)
 	}
