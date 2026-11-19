@@ -299,6 +299,15 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 			return
 		}
 	}
+	if resumable {
+		latest, lookupErr := r.Sources.GetSource(context.Background(), source.ID)
+		if lookupErr != nil || latest.Type != source.Type || latest.Provider != source.Provider ||
+			latest.RootPath != source.RootPath || latest.PublicURL != source.PublicURL ||
+			string(latest.ConfigJSON) != string(source.ConfigJSON) {
+			r.finishInventoryError(job.ID, resumable, fmt.Errorf("清点期间软件源配置被修改，请放弃旧清点并重新开始: %w", domain.ErrConflict))
+			return
+		}
+	}
 	if err = sink.Close(); err != nil {
 		r.finishInventoryError(job.ID, resumable, err)
 		return
@@ -309,7 +318,9 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 		r.finishInventoryError(job.ID, resumable, err)
 		return
 	}
-	_ = r.transition(job.ID, domain.MaintenanceCompleted, "")
+	if err = r.transition(job.ID, domain.MaintenanceCompleted, ""); err != nil {
+		return // keep the checkpoint if the final status write cannot be completed
+	}
 	if resumable {
 		if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok {
 			_ = factory.DiscardProjectInventory(job.ID)
