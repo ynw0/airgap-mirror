@@ -51,3 +51,32 @@ Windows 客户端采用 Wails v2、React 和 TypeScript，Linux Agent 使用 Go�
 **注意：APT 适配器目前还没有执行上游 Release 文件的 OpenPGP 签名验证。** 文件散列校验不能代替来源认证，不能把当前实现当作已完成供应链签名验证的方案。
 
 更多部署信息见 [部署说明](docs/DEPLOYMENT.md)。其他设计文档只供参考，实际行为以源码为准。
+
+## Linux 服务器的浏览器管理界面
+
+更新 Agent 后，在服务器上运行安装脚本，再用配置脚本设置实际监听地址：
+
+```bash
+sudo bash scripts/install-agent.sh
+sudo bash scripts/configure-agent.sh --listen 192.168.21.4:8787
+```
+
+如果 Linux 服务器的 IP 是 `192.168.21.4`，可从可信内网浏览器打开 `http://192.168.21.4:8787/`。这是示例地址，更换服务器时请使用对应 IP。页面需要输入 Agent 的连接令牌。配置脚本只设置 Agent 监听地址，不修改 Apache、仓库文件或防火墙规则。
+
+Linux 发布包中的 `scripts/configure-agent.sh`、`scripts/configure-apt-signing.sh` 可以拷到内网服务器离线运行；已安装的 Web 页面也提供脚本下载。
+
+### 检查统计后为 APT 仓库重新签名
+
+先从 Linux 管理页面运行“重新清点文件”，等清点任务完成并确认文件数与容量。需要重新签名时，先由管理员运行：
+
+```bash
+sudo bash scripts/configure-apt-signing.sh
+```
+
+此脚本在 `/var/lib/airgap-mirror/gnupg` 为服务用户创建/选定专用密钥，管理员需要明确同意创建；不会偷偷在客户端添加信任。再回到 Web 管理页面点击“检查后重新签名”，重新生成内网 APT 的 `Release`、`Release.gpg` 和 `InRelease`。签完后下载公钥，按客户端仓库配置将其安装为专用受信任密钥（不要将私钥拷走）。
+
+**重要：本地重新签名不等于验证公网 APT 上游签名。** 当前系统仍没有对上游 `InRelease` / `Release.gpg` 完成可信公钥验签。请不要把重新签名理解为对上游来源真实性的确认。
+
+### Windows 下载恢复
+
+程序现在会在打开联网下载页面时查找未完成的任务。原来已下载完成的批次可以保留；丢失或损坏的批次可以选择“重新下载这一批”。默认单批约 8 GiB、文件包约 1 GiB，适合更多移动硬盘。对于超过单个文件包大小的制品，仍须使用支持大文件的移动介质。

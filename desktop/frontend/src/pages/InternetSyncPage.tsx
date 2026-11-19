@@ -5,7 +5,6 @@ import type { Batch, BatchDownloadProgress, Epoch, EpochView, StateCapsule, Sync
 
 type Props = { capsules: StateCapsule[]; onCapsules: (items: StateCapsule[]) => void }
 
-const TIB = 1024 ** 4
 const GIB = 1024 ** 3
 
 export function InternetSyncPage({ capsules, onCapsules }: Props) {
@@ -17,8 +16,8 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
   const [epochView, setEpochView] = useState<EpochView | null>(null)
   const [history, setHistory] = useState<Epoch[]>([])
   const [destination, setDestination] = useState('')
-  const [batchTiB, setBatchTiB] = useState(2)
-  const [packGiB, setPackGiB] = useState(32)
+  const [batchGiB, setBatchGiB] = useState(8)
+  const [packGiB, setPackGiB] = useState(1)
   const [concurrency, setConcurrency] = useState(4)
   const [progress, setProgress] = useState<Record<string, BatchDownloadProgress>>({})
   const [running, setRunning] = useState<Set<string>>(new Set())
@@ -33,6 +32,24 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     if (!capsule?.sources.some(x => x.source.id === sourceID)) setSourceID(first)
     setProbe(null); setPlan(null); setEpochView(null); setHistory([])
   }, [capsuleID])
+  useEffect(() => {
+    if (!capsuleID || !sourceID) return
+    let cancelled = false
+    app().ListEpochs(capsuleID, sourceID).then(async items => {
+      if (cancelled) return
+      setHistory(items ?? [])
+      const unfinished = (items ?? []).find(e => !['COMPLETE', 'FAILED', 'CANCELLED'].includes(e.status))
+      if (unfinished) {
+        const view = await app().ResumeEpoch(unfinished.id)
+        if (!cancelled) {
+          setEpochView(view)
+          setMessage('找到了上次没有完成的下载任务。已经下载的批次会保留，您可以直接继续。')
+        }
+      }
+    }).catch(e => { if (!cancelled) setMessage(errorText(e)) })
+    return () => { cancelled = true }
+  }, [capsuleID, sourceID])
+
   useEffect(() => onEvent<{batchId: string; state: string; error?: string}>('download-state', p => {
     if (!p?.batchId) return
     setRunning(prev => { const n = new Set(prev); p.state === 'running' ? n.add(p.batchId) : n.delete(p.batchId); return n })
@@ -58,7 +75,7 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     if (!capsuleID || !sourceID) return
     setBusy(true); setMessage('')
     try {
-      const result = await app().AnalyzeSource(capsuleID, sourceID, { maxBatchBytes: Math.round(batchTiB * TIB), targetPackBytes: Math.round(packGiB * GIB), pageSize: 1000 })
+      const result = await app().AnalyzeSource(capsuleID, sourceID, { maxBatchBytes: Math.round(batchGiB * GIB), targetPackBytes: Math.round(packGiB * GIB), pageSize: 1000 })
       setPlan(result)
       if (!result.noChanges) setEpochView({ epoch: result.plan.epoch, batches: result.batches })
       setHistory(await app().ListEpochs(capsuleID, sourceID))
@@ -81,9 +98,32 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
       setDestination(target)
     }
     setRunning(prev => new Set(prev).add(batch.id)); setMessage('')
-    try { const bundle = await app().DownloadBatch(batch.id, target, concurrency); setMessage(`第 ${batch.sequence} 批已经下载好了，保存在：${bundle.path}。把这个文件夹带回内网，在“离线导入”页面打开。`) }
+    try {
+      const bundle = await app().DownloadBatch(batch.id, target, concurrency)
+      setMessage(`第 ${batch.sequence} 批已经下载好了，保存在：${bundle.path}。把这个文件夹带回内网，在“离线导入”页面打开。`)
+      setEpochView(await app().ResumeEpoch(batch.epochId))
+    }
     catch (e) { setMessage(errorText(e)) }
     finally { setRunning(prev => { const n = new Set(prev); n.delete(batch.id); return n }); await refreshBatchProgress(batch.id) }
+  }
+  async function redownload(batch: Batch) {
+    if (!window.confirm(`确定重新下载第 ${batch.sequence} 批吗？这会清理这批文件原来的下载内容，其它批次不受影响。`)) return
+    let target = destination
+    if (!target) {
+      target = await app().PickDownloadDirectory()
+      if (!target) return
+      setDestination(target)
+    }
+    setRunning(prev => new Set(prev).add(batch.id)); setMessage('')
+    try {
+      const bundle = await app().RedownloadBatch(batch.id, target, concurrency)
+      setMessage(`第 ${batch.sequence} 批已经重新下载，保存到：${bundle.path}`)
+      setEpochView(await app().ResumeEpoch(batch.epochId))
+    } catch (e) { setMessage(errorText(e)) }
+    finally {
+      setRunning(prev => { const n = new Set(prev); n.delete(batch.id); return n })
+      await refreshBatchProgress(batch.id)
+    }
   }
   async function pause(batchID: string) { try { await app().PauseDownload(batchID) } catch (e) { setMessage(errorText(e)) } }
 
@@ -95,10 +135,10 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
       <label>已打开的状态文件<select value={capsuleID} onChange={e => setCapsuleID(e.target.value)}><option value="">先打开状态文件</option>{capsules.map(c => <option key={c.id} value={c.id}>{shortID(c.id)} · {formatDate(c.exportedAt)}</option>)}</select></label>
       <label>软件源<select value={sourceID} onChange={e => { setSourceID(e.target.value); setProbe(null); setPlan(null); setEpochView(null) }}><option value="">选择要更新的软件源</option>{capsule?.sources.map(s => <option key={s.source.id} value={s.source.id}>{s.source.name}（{s.source.type}）{s.source.enabled ? '' : ' · 已停用'}</option>)}</select></label>
       <details className="advanced-options span-2"><summary>高级选项（默认无需修改）</summary><div className="form-grid">
-        <label>单批容量 (TiB)<input type="number" min="0.1" step="0.1" value={batchTiB} onChange={e => setBatchTiB(Number(e.target.value))} /></label>
+        <label>每批最多 (GiB)<input type="number" min="1" step="1" value={batchGiB} onChange={e => setBatchGiB(Number(e.target.value))} /></label>
         <label>单包容量 (GiB)<input type="number" min="1" step="1" value={packGiB} onChange={e => setPackGiB(Number(e.target.value))} /></label>
-      </div></details>
-      <div className="button-row align-end"><button disabled={!sourceID || busy} onClick={probeSource}>查看上游状态</button><button className="primary" disabled={!sourceID || busy} onClick={analyze}>查看需要下载的更新</button></div>
+      </div><p className="small">默认每批约 8 GiB，每个文件包约 1 GiB，更方便使用普通移动硬盘。实际文件包可能因单个大文件而超过设置值。</p></details>
+      <div className="button-row align-end"><button disabled={!sourceID || busy} onClick={probeSource}>查看上游状态</button><button className="primary" disabled={!sourceID || busy || !!(epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status))} onClick={analyze}>查看需要下载的更新</button></div>
     </div>
 
     {(probe || plan) && <div className="metrics-grid">
@@ -108,11 +148,15 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
       <div className="metric"><span>需要更新的软件清单</span><strong>{formatCount(plan?.plan.publishUnitCount ?? 0)}</strong><small>其中 {formatCount(plan?.plan.metadataCount ?? 0)} 份索引文件</small></div>
     </div>}
 
+    {epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status) && <div className="card">
+      <strong>{epochView.epoch.status === 'TRANSFERRING' ? '下载已准备好，可以带回内网导入' : '继续上次的下载任务'}</strong>
+      <p>这次共 {epochView.batches.length} 批。如果有没下载完的批次，直接点击该批次的“下载 / 继续”。不需要重新计算更新。</p>
+    </div>}
     <div className="card">
       <div className="card-title"><span>把文件保存到移动硬盘</span><div className="path-picker compact"><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="选择移动硬盘或其他保存位置" /><button onClick={chooseDestination}>浏览</button><details className="advanced-options compact-options"><summary>高级</summary><label className="inline-label">并发数<input type="number" min="1" max="16" value={concurrency} onChange={e => setConcurrency(Number(e.target.value))} /></label></details></div></div>
       {batches.length ? <div className="batch-grid">{batches.map(batch => {
         const p = progress[batch.id]; const total = p?.totalBytes ?? batch.plannedBytes; const done = p?.downloadedBytes ?? 0; const pct = total ? Math.min(100, done / total * 100) : (batch.status === 'READY' ? 100 : 0); const active = running.has(batch.id)
-        return <article className="batch-card" key={batch.id}><div className="batch-head"><div><strong>第 {batch.sequence} 批</strong><small>{shortID(batch.id)}</small></div><span className={`status status-${batch.status.toLowerCase()}`}>{statusLabel(p?.batch.status ?? batch.status)}</span></div><div className="batch-stats"><span>{formatBytes(batch.plannedBytes)}</span><span>{formatCount(batch.objectCount)} 个文件</span><span>{batch.packCount} 个文件包</span></div><div className="progress"><div style={{width: `${pct}%`}} /></div><small>{formatBytes(done)} / {formatBytes(total)} · {pct.toFixed(1)}%{p ? ` · ${p.verifiedEntries}/${p.totalEntries} 个文件已检查` : ''}</small><div className="button-row"><button onClick={() => refreshBatchProgress(batch.id)}>刷新</button>{active ? <button onClick={() => pause(batch.id)}>暂停</button> : <button className="primary" disabled={active || (p?.batch.status ?? batch.status) === 'READY' || (p?.batch.status ?? batch.status) === 'IMPORTED'} onClick={() => download(batch)}>下载 / 继续</button>}</div></article>
+        return <article className="batch-card" key={batch.id}><div className="batch-head"><div><strong>第 {batch.sequence} 批</strong><small>{shortID(batch.id)}</small></div><span className={`status status-${batch.status.toLowerCase()}`}>{statusLabel(p?.batch.status ?? batch.status)}</span></div><div className="batch-stats"><span>{formatBytes(batch.plannedBytes)}</span><span>{formatCount(batch.objectCount)} 个文件</span><span>{batch.packCount} 个文件包</span></div><div className="progress"><div style={{width: `${pct}%`}} /></div><small>{formatBytes(done)} / {formatBytes(total)} · {pct.toFixed(1)}%{p ? ` · ${p.verifiedEntries}/${p.totalEntries} 个文件已检查` : ''}</small><div className="button-row"><button onClick={() => refreshBatchProgress(batch.id)}>刷新</button>{active ? <button onClick={() => pause(batch.id)}>暂停</button> : (p?.batch.status ?? batch.status) === 'READY' ? <button onClick={() => redownload(batch)}>重新下载这一批</button> : <button className="primary" disabled={(p?.batch.status ?? batch.status) === 'IMPORTED'} onClick={() => download(batch)}>下载 / 继续</button>}</div></article>
       })}</div> : <div className="empty panel-empty">先打开状态文件、选好软件源，再点击“查看需要下载的更新”。</div>}
     </div>
 

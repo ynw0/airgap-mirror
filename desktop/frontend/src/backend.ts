@@ -25,6 +25,7 @@ type AppBridge = {
   ListEpochs(capsuleID: string, sourceID: string): Promise<Epoch[]>
   ResumeEpoch(epochID: string): Promise<EpochView>
   DownloadBatch(batchID: string, destination: string, concurrency: number): Promise<BatchBundle>
+  RedownloadBatch(batchID: string, destination: string, concurrency: number): Promise<BatchBundle>
   PauseDownload(batchID: string): Promise<void>
   BatchProgress(batchID: string): Promise<BatchDownloadProgress>
   ValidateBatchDirectory(path: string): Promise<ValidatedBundle>
