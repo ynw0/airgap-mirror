@@ -36,8 +36,8 @@ func initSchema(ctx context.Context, db *sql.DB, schema string) error {
 	return nil
 }
 
- // migrateMaintenanceSchema upgrades a previously installed Agent in place without
- // touching sources, live Catalog, epochs, or repository trees.
+// migrateMaintenanceSchema upgrades a previously installed Agent in place without
+// touching sources, live Catalog, epochs, or repository trees.
 func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 	var ddl string
 	err := db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='maintenance_jobs'").Scan(&ddl)

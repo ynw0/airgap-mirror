@@ -274,7 +274,7 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 				return stats, fmt.Errorf("PyPI project directory changed during inventory: %w", domain.ErrConflict)
 			}
 		}
- 		progress, flushErr := resumable.Flush(ctx)
+		progress, flushErr := resumable.Flush(ctx)
 		if flushErr != nil {
 			return stats, flushErr
 		}

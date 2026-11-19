@@ -82,12 +82,18 @@ func (h *MaintenanceHTTP) cancel(w http.ResponseWriter, r *http.Request) {
 
 func (h *MaintenanceHTTP) pause(w http.ResponseWriter, r *http.Request) {
 	job, err := h.Runner.PauseInventory(r.Context(), r.PathValue("id"))
-	if err != nil { mapError(w, err); return }
+	if err != nil {
+		mapError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusAccepted, job)
 }
 
 func (h *MaintenanceHTTP) resume(w http.ResponseWriter, r *http.Request) {
 	job, err := h.Runner.ResumeInventory(r.Context(), r.PathValue("id"))
-	if err != nil { mapError(w, err); return }
+	if err != nil {
+		mapError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusAccepted, job)
 }

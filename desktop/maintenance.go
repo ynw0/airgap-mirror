@@ -55,12 +55,16 @@ func (a *App) GCCandidates(jobID, after string, limit int) (mirrorclient.GCCandi
 
 func (a *App) PauseMaintenance(jobID string) (domain.MaintenanceJob, error) {
 	agent, err := a.agentRef()
-	if err != nil { return domain.MaintenanceJob{}, err }
+	if err != nil {
+		return domain.MaintenanceJob{}, err
+	}
 	return agent.PauseMaintenance(a.ctx, jobID)
 }
 
 func (a *App) ResumeMaintenance(jobID string) (domain.MaintenanceJob, error) {
 	agent, err := a.agentRef()
-	if err != nil { return domain.MaintenanceJob{}, err }
+	if err != nil {
+		return domain.MaintenanceJob{}, err
+	}
 	return agent.ResumeMaintenance(a.ctx, jobID)
 }

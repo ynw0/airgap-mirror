@@ -8,15 +8,15 @@ import (
 )
 
 type MaintenanceProgress struct {
-	ScannedObjects   int64
-	ScannedBytes     int64
+	ScannedObjects    int64
+	ScannedBytes      int64
 	CompletedProjects int64
-	TotalProjects int64
-	LastProject string
-	CandidateObjects int64
-	CandidateBytes   int64
-	AffectedObjects  int64
-	AffectedBytes    int64
+	TotalProjects     int64
+	LastProject       string
+	CandidateObjects  int64
+	CandidateBytes    int64
+	AffectedObjects   int64
+	AffectedBytes     int64
 }
 
 type MaintenanceStore interface {

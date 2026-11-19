@@ -96,24 +96,34 @@ func (r *MaintenanceRunner) StartInventory(ctx context.Context, sourceID string)
 // A paused job reserves the source: no new Epoch may start until it completes or is discarded.
 func (r *MaintenanceRunner) ResumeInventory(ctx context.Context, id string) (domain.MaintenanceJob, error) {
 	job, err := r.Jobs.GetMaintenanceJob(ctx, id)
-	if err != nil { return job, err }
+	if err != nil {
+		return job, err
+	}
 	if job.Kind != domain.MaintenanceInventory || job.Status != domain.MaintenancePaused {
 		return job, fmt.Errorf("只有已暂停的文件清点任务可以继续: %w", domain.ErrConflict)
 	}
 	source, err := r.Sources.GetSource(ctx, job.SourceID)
-	if err != nil { return job, err }
+	if err != nil {
+		return job, err
+	}
 	if source.Type != domain.SourcePyPI || source.Provider != "pypi" {
 		return job, fmt.Errorf("断点续检仅支持 PyPI: %w", domain.ErrInvalid)
 	}
 	state, err := r.Sources.GetState(ctx, job.SourceID)
-	if err != nil { return job, err }
+	if err != nil {
+		return job, err
+	}
 	if state.ActiveEpochID != "" {
 		return job, fmt.Errorf("软件源仍有同步任务: %w", domain.ErrConflict)
 	}
 	adapter, err := r.Registry.Get(source.Type, source.Provider)
-	if err != nil { return job, err }
+	if err != nil {
+		return job, err
+	}
 	inventory, ok := adapter.(ports.InventoryAdapter)
-	if !ok { return job, domain.ErrInvalid }
+	if !ok {
+		return job, domain.ErrInvalid
+	}
 	r.mu.Lock()
 	if r.cancels[id] != nil {
 		r.mu.Unlock()
@@ -128,20 +138,28 @@ func (r *MaintenanceRunner) ResumeInventory(ctx context.Context, id string) (dom
 
 func (r *MaintenanceRunner) PauseInventory(ctx context.Context, id string) (domain.MaintenanceJob, error) {
 	job, err := r.Jobs.GetMaintenanceJob(ctx, id)
-	if err != nil { return job, err }
+	if err != nil {
+		return job, err
+	}
 	if job.Kind != domain.MaintenanceInventory || (job.Status != domain.MaintenanceRunning && job.Status != domain.MaintenanceQueued) {
 		return job, fmt.Errorf("只有正在扫描的任务可以暂停: %w", domain.ErrConflict)
 	}
 	source, err := r.Sources.GetSource(ctx, job.SourceID)
-	if err != nil { return job, err }
+	if err != nil {
+		return job, err
+	}
 	if source.Type != domain.SourcePyPI || source.Provider != "pypi" {
 		return job, fmt.Errorf("断点暂停仅支持 PyPI: %w", domain.ErrInvalid)
 	}
 	r.mu.Lock()
 	cancel := r.cancels[id]
-	if cancel != nil { r.intents[id] = "pause" }
+	if cancel != nil {
+		r.intents[id] = "pause"
+	}
 	r.mu.Unlock()
-	if cancel == nil { return job, fmt.Errorf("任务工作线程已停止，请刷新: %w", domain.ErrConflict) }
+	if cancel == nil {
+		return job, fmt.Errorf("任务工作线程已停止，请刷新: %w", domain.ErrConflict)
+	}
 	cancel()
 	return job, nil
 }
@@ -152,7 +170,9 @@ func (r *MaintenanceRunner) Cancel(ctx context.Context, id string) (domain.Maint
 		return job, err
 	}
 	if job.Status == domain.MaintenancePaused {
-		if err = r.transition(id, domain.MaintenanceCancelled, "cancelled by operator"); err != nil { return job, err }
+		if err = r.transition(id, domain.MaintenanceCancelled, "cancelled by operator"); err != nil {
+			return job, err
+		}
 		if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok {
 			_ = factory.DiscardProjectInventory(id)
 		}
@@ -163,7 +183,9 @@ func (r *MaintenanceRunner) Cancel(ctx context.Context, id string) (domain.Maint
 	}
 	r.mu.Lock()
 	cancel := r.cancels[id]
-	if cancel != nil { r.intents[id] = "cancel" }
+	if cancel != nil {
+		r.intents[id] = "cancel"
+	}
 	r.mu.Unlock()
 	if cancel == nil {
 		return job, fmt.Errorf("maintenance job %s has no active worker: %w", id, domain.ErrConflict)
@@ -177,13 +199,17 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 	var projectSink ports.ProjectInventorySink
 	defer func() {
 		r.mu.Lock()
-		if cancel := r.cancels[job.ID]; cancel != nil { cancel() }
+		if cancel := r.cancels[job.ID]; cancel != nil {
+			cancel()
+		}
 		delete(r.cancels, job.ID)
 		delete(r.intents, job.ID)
 		r.mu.Unlock()
 	}()
 
-	if err := r.transition(job.ID, domain.MaintenanceRunning, ""); err != nil { return }
+	if err := r.transition(job.ID, domain.MaintenanceRunning, ""); err != nil {
+		return
+	}
 	var sink ports.CatalogBuildSink
 	var err error
 	if resumable {
@@ -224,9 +250,13 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 				ScannedObjects: p.ScannedObjects, ScannedBytes: p.ScannedBytes,
 				CompletedProjects: p.CompletedProjects, TotalProjects: p.TotalProjects, LastProject: p.LastProject,
 			}
-			if resumable { return r.Jobs.UpdateInventoryCheckpoint(pctx, job.ID, progress) }
+			if resumable {
+				return r.Jobs.UpdateInventoryCheckpoint(pctx, job.ID, progress)
+			}
 			return r.Jobs.UpdateMaintenanceProgress(pctx, job.ID, progress)
-		}); err != nil { return err }
+		}); err != nil {
+			return err
+		}
 		lastPersist = now
 		return ctx.Err()
 	}
@@ -237,7 +267,10 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 		return
 	}
 	actual, err := sink.Stats(ctx)
-	if err != nil { r.finishInventoryError(job.ID, resumable, err); return }
+	if err != nil {
+		r.finishInventoryError(job.ID, resumable, err)
+		return
+	}
 	if actual.SourceID != source.ID || reported.SourceID != source.ID || actual.Objects != reported.Objects || actual.Bytes != reported.Bytes {
 		r.finishInventoryError(job.ID, resumable, fmt.Errorf("inventory scanner/sink stats mismatch: %w", domain.ErrConflict))
 		return
@@ -275,13 +308,17 @@ func (r *MaintenanceRunner) finishInventoryError(id string, resumable bool, caus
 	if intent == "cancel" {
 		r.finishCancelled(id)
 		if resumable {
-			if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok { _ = factory.DiscardProjectInventory(id) }
+			if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok {
+				_ = factory.DiscardProjectInventory(id)
+			}
 		}
 		return
 	}
 	if resumable {
 		reason := cause.Error()
-		if errors.Is(cause, context.Canceled) { reason = "已暂停，已完成的检查点保留，可点击继续" }
+		if errors.Is(cause, context.Canceled) {
+			reason = "已暂停，已完成的检查点保留，可点击继续"
+		}
 		_ = r.transition(id, domain.MaintenancePaused, reason)
 		return
 	}

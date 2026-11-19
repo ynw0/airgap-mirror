@@ -7,10 +7,10 @@ import (
 )
 
 type InventoryProgress struct {
-	ScannedObjects int64 `json:"scannedObjects"`
-	ScannedBytes   int64 `json:"scannedBytes"`
-	CompletedProjects int64 `json:"completedProjects,omitempty"`
-	TotalProjects     int64 `json:"totalProjects,omitempty"`
+	ScannedObjects    int64  `json:"scannedObjects"`
+	ScannedBytes      int64  `json:"scannedBytes"`
+	CompletedProjects int64  `json:"completedProjects,omitempty"`
+	TotalProjects     int64  `json:"totalProjects,omitempty"`
 	LastProject       string `json:"lastProject,omitempty"`
 }
 
