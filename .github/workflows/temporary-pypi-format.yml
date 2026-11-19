@@ -1,0 +1,32 @@
+name: Temporary PyPI checkpoint gofmt
+
+on:
+  push:
+    branches:
+      - 'feat/pypi-resumable-inventory'
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pypi-resumable-inventory
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Format modified Go code and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w internal/domain/maintenance.go internal/ports/inventory.go internal/ports/maintenance.go internal/storage/sqlite/schema.go internal/storage/sqlite/project_inventory.go internal/storage/sqlite/project_inventory_test.go internal/storage/sqlite/server_maintenance.go internal/storage/sqlite/server_maintenance_recovery.go internal/adapters/pypi/inventory.go internal/service/maintenance_runner.go internal/server/maintenance.go internal/client/maintenance.go desktop/maintenance.go
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add internal/domain/maintenance.go internal/ports/inventory.go internal/ports/maintenance.go internal/storage/sqlite/schema.go internal/storage/sqlite/project_inventory.go internal/storage/sqlite/project_inventory_test.go internal/storage/sqlite/server_maintenance.go internal/storage/sqlite/server_maintenance_recovery.go internal/adapters/pypi/inventory.go internal/service/maintenance_runner.go internal/server/maintenance.go internal/client/maintenance.go desktop/maintenance.go
+            git commit -m "style: gofmt resumable PyPI inventory code"
+            git push origin HEAD:feat/pypi-resumable-inventory
+          fi
