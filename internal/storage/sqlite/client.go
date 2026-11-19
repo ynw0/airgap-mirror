@@ -100,6 +100,7 @@ func (c *ClientStore) Commit(ctx context.Context, p domain.EpochPlan) error {
 	}
 	return tx.Commit()
 }
+
 // CompleteNoopEpoch closes a local analysis with no artifacts and no cursor advance.
 // It must never be used to bypass server publication for a non-empty epoch.
 func (c *ClientStore) CompleteNoopEpoch(ctx context.Context, id string) error {
