@@ -27,7 +27,7 @@ summary{cursor:pointer;color:#26599e}code{font:12px Consolas,monospace;overflow-
 <section class="panel" id="login"><h2>连接这台服务器</h2>
 <p>请输入安装 Agent 时生成的连接令牌。令牌只留在本页面的内存中，刷新后需要重新输入。</p>
 <div class="row"><label class="grow">连接令牌<input type="password" id="token" autocomplete="off" placeholder="服务器管理员提供"></label><button id="connect" class="primary">连接</button></div>
-<p class="small">其他内网电脑可以访问例如 <code>http://192.168.21.4:8787/</code> 的地址。HTTP 不加密令牌，请仅在可信内网使用。</p>
+<p class="small">请直接使用服务器管理员提供的地址。通过 Apache 代理访问时，可以使用 <code>https://mirror.example.internal/mirror-control/</code>；不需要改成服务器的 IP。直连 HTTP 不加密令牌，请仅在可信内网使用。</p>
 </section>
 <div id="app" class="hidden">
 <section class="panel"><div class="row"><h2 class="grow">仓库文件和同步状态</h2><button id="refresh">刷新</button></div>
@@ -49,8 +49,8 @@ summary{cursor:pointer;color:#26599e}code{font:12px Consolas,monospace;overflow-
 </section>
 <section class="panel"><h2>Linux 服务器配置与签名</h2>
 <p>下面的脚本可下载到已安装 Agent 的 Linux 服务器运行。第一个脚本设置访问地址，不会修改 Apache 或现有仓库；第二个脚本为本地 APT 仓库准备专用 GPG 密钥。<strong>重新签名前，请先完成文件清点并确认结果。</strong></p>
-<div class="row"><a class="button" href="/downloads/configure-agent.sh" download>下载服务器配置脚本</a><a class="button" href="/downloads/configure-apt-signing.sh" download>下载 APT 签名配置脚本</a></div>
-<p class="small">服务器配置示例：<code>sudo bash configure-agent.sh --listen 192.168.21.4:8787</code>；签名配置：<code>sudo bash configure-apt-signing.sh</code>。</p>
+<div class="row"><a class="button" href="downloads/configure-agent.sh" download>下载服务器配置脚本</a><a class="button" href="downloads/configure-apt-signing.sh" download>下载 APT 签名配置脚本</a></div>
+<p class="small">如果已经通过 Apache 的 <code>/mirror-control/</code> 代理访问，请保留 Agent 默认的 <code>127.0.0.1:8787</code>，无需修改监听地址。只有需要局域网 IP 直连时才运行 <code>configure-agent.sh --listen 您的服务器IP:8787</code>；签名配置执行 <code>sudo bash configure-apt-signing.sh</code>。</p>
 </section></div>
 <p id="message" role="status" aria-live="polite">请先输入连接令牌，以查看服务器状态。</p>
 </main>
@@ -65,11 +65,14 @@ const definitions={
  'maven-generic':{type:'maven',provider:'maven-generic',url:'',config:{indexUrl:'',inventoryMode:'filesystem'}},
  'maven-central':{type:'maven',provider:'maven-central',url:'https://repo.maven.apache.org/maven2',config:{mode:'dependency-set',coordinates:[]}}
 };
+// 当前页面可能位于 /（Agent 直连）或 /mirror-control/（Apache 子路径代理）。
+// 所有 API 请求必须相对于当前管理页面构造；绝对根路径会绕过 Apache 代理。
+const basePath=window.location.pathname.replace(/\/$/,'');
 let token='',sources=[],editing=null;
 function show(message,error){el('message').textContent=message;el('message').className=error?'error':'';}
 async function api(path,opt){
  const options=opt||{};
- const response=await fetch(path,Object.assign({},options,{headers:Object.assign({Authorization:'Bearer '+token},options.headers||{})}));
+ const response=await fetch(basePath+path,Object.assign({},options,{headers:Object.assign({Authorization:'Bearer '+token},options.headers||{})}));
  if(!response.ok){let reason='请求失败（'+response.status+'）';try{reason=(await response.json()).error||reason;}catch(_){}throw Error(reason);}
  return response;
 }
