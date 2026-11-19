@@ -103,6 +103,37 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 	if err != nil {
 		return stats, err
 	}
+	var resumable ports.ProjectInventorySink
+	var starting ports.InventoryProgress
+	if sink, ok := sink.(ports.ProjectInventorySink); ok {
+		resumable = sink
+		names := sha256.New()
+		var total int64
+		for _, entry := range projects {
+			if !entry.IsDir() {
+				continue
+			}
+			project := normalizeProject(entry.Name())
+			if project == "" || project != entry.Name() {
+				return stats, fmt.Errorf("PyPI simple directory %q is not normalized: %w", entry.Name(), domain.ErrConflict)
+			}
+			_, _ = names.Write([]byte(project + "\n"))
+			total++
+		}
+		signature := sha256.Sum256([]byte(strings.Join([]string{
+			req.Source.ID, string(req.Source.Type), req.Source.Provider,
+			req.Source.RootPath, req.Source.PublicURL, string(req.Source.ConfigJSON),
+		}, "\x00")))
+		starting, err = resumable.Restore(ctx, hex.EncodeToString(signature[:]), hex.EncodeToString(names.Sum(nil)), total)
+		if err != nil {
+			return stats, err
+		}
+		if req.Report != nil {
+			if err = req.Report(starting); err != nil {
+				return stats, err
+			}
+		}
+	}
 
 	var scannedObjects, scannedBytes int64
 	report := func(force bool) error {
@@ -114,6 +145,9 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 	put := func(entry domain.CatalogEntry) error {
 		if err := sink.Put(ctx, entry); err != nil {
 			return err
+		}
+		if resumable != nil {
+			return nil // durable counts come from the SQLite project checkpoint
 		}
 		scannedObjects++
 		scannedBytes += entry.Size
@@ -128,6 +162,9 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 			continue
 		}
 		project := normalizeProject(projectEntry.Name())
+		if resumable != nil && project <= starting.LastProject {
+			continue
+		}
 		if project == "" || project != projectEntry.Name() {
 			return stats, fmt.Errorf("PyPI simple directory %q is not normalized: %w", projectEntry.Name(), domain.ErrConflict)
 		}
@@ -200,9 +237,76 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		if err = put(domain.CatalogEntry{SourceID: req.Source.ID, LogicalPath: pageLogical, Size: pageInfo.Size(), SHA256: pageSHA, PackageKey: project, UpdatedAt: pageInfo.ModTime()}); err != nil {
 			return stats, err
 		}
+		if resumable != nil {
+			progress, durable, checkpointErr := resumable.CheckpointProject(ctx, project, pageInfo.Size(), pageInfo.ModTime().UnixNano())
+			if checkpointErr != nil {
+				return stats, checkpointErr
+			}
+			if durable && req.Report != nil {
+				if err = req.Report(progress); err != nil {
+					return stats, err
+				}
+			}
+		}
 	}
-	if err = report(true); err != nil {
-		return stats, err
+	if resumable != nil {
+		// A new directory during the scan invalidates the initial project snapshot.
+		// Do not publish a catalog that silently omits a newly added project.
+		current, readErr := os.ReadDir(simpleDir)
+		if readErr != nil {
+			return stats, readErr
+		}
+		names := sha256.New()
+		var total int64
+		for _, item := range current {
+			if item.IsDir() {
+				_, _ = names.Write([]byte(item.Name() + "\n"))
+				total++
+			}
+		}
+		if total != starting.TotalProjects {
+			return stats, fmt.Errorf("PyPI project list changed during inventory: %w", domain.ErrConflict)
+		}
+		signature := sha256.Sum256([]byte(strings.Join([]string{
+			req.Source.ID, string(req.Source.Type), req.Source.Provider,
+			req.Source.RootPath, req.Source.PublicURL, string(req.Source.ConfigJSON),
+		}, "\x00")))
+		// Check the list fingerprint again through Restore's immutable identity
+		// on the next run as well as this run's original snapshot.
+		if len(projects) != len(current) {
+			return stats, fmt.Errorf("PyPI project directory changed during inventory: %w", domain.ErrConflict)
+		}
+		for i := range projects {
+			if projects[i].Name() != current[i].Name() || projects[i].IsDir() != current[i].IsDir() {
+				return stats, fmt.Errorf("PyPI project directory changed during inventory: %w", domain.ErrConflict)
+			}
+		}
+		_ = signature
+		_ = names
+		progress, flushErr := resumable.Flush(ctx)
+		if flushErr != nil {
+			return stats, flushErr
+		}
+		if req.Report != nil {
+			if err = req.Report(progress); err != nil {
+				return stats, err
+			}
+		}
+		// Catch changes to already checked pages after a restart, even when
+		// they belong to projects before the saved cursor.
+		if err = resumable.VerifyPages(ctx, func(project string, size, mtime int64) error {
+			_, info, statErr := repo.Resolve(path.Join("simple", project, "index.html"))
+			if statErr != nil || info.Size() != size || info.ModTime().UnixNano() != mtime {
+				return fmt.Errorf("PyPI index %s changed after checkpoint; restart inventory: %w", project, domain.ErrConflict)
+			}
+			return nil
+		}); err != nil {
+			return stats, err
+		}
+	} else {
+		if err = report(true); err != nil {
+			return stats, err
+		}
 	}
 	stats, err = sink.Stats(ctx)
 	return stats, err
