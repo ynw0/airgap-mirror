@@ -64,3 +64,15 @@ func (c *AgentClient) GCCandidates(ctx context.Context, jobID, after string, lim
 	err := c.jsonRequest(ctx, http.MethodGet, "/api/v1/maintenance/"+url.PathEscape(jobID)+"/candidates?"+query.Encode(), nil, &out)
 	return out, err
 }
+
+func (c *AgentClient) PauseMaintenance(ctx context.Context, jobID string) (domain.MaintenanceJob, error) {
+	var out domain.MaintenanceJob
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/maintenance/"+url.PathEscape(jobID)+"/pause", nil, &out)
+	return out, err
+}
+
+func (c *AgentClient) ResumeMaintenance(ctx context.Context, jobID string) (domain.MaintenanceJob, error) {
+	var out domain.MaintenanceJob
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/maintenance/"+url.PathEscape(jobID)+"/resume", nil, &out)
+	return out, err
+}

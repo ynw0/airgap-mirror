@@ -29,6 +29,8 @@ func WithMaintenance(base http.Handler, api *API, runner *service.MaintenanceRun
 	mux.Handle("GET /api/v1/maintenance/{id}", secure(h.get))
 	mux.Handle("GET /api/v1/maintenance/{id}/candidates", secure(h.candidates))
 	mux.Handle("POST /api/v1/maintenance/{id}/cancel", secure(h.cancel))
+	mux.Handle("POST /api/v1/maintenance/{id}/pause", secure(h.pause))
+	mux.Handle("POST /api/v1/maintenance/{id}/resume", secure(h.resume))
 	mux.Handle("/", base)
 	return mux
 }
@@ -75,5 +77,17 @@ func (h *MaintenanceHTTP) cancel(w http.ResponseWriter, r *http.Request) {
 		mapError(w, err)
 		return
 	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (h *MaintenanceHTTP) pause(w http.ResponseWriter, r *http.Request) {
+	job, err := h.Runner.PauseInventory(r.Context(), r.PathValue("id"))
+	if err != nil { mapError(w, err); return }
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (h *MaintenanceHTTP) resume(w http.ResponseWriter, r *http.Request) {
+	job, err := h.Runner.ResumeInventory(r.Context(), r.PathValue("id"))
+	if err != nil { mapError(w, err); return }
 	writeJSON(w, http.StatusAccepted, job)
 }

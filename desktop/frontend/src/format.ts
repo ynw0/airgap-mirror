@@ -34,7 +34,7 @@ const readableStatuses: Record<string, string> = {
   READY: '可以导入', TRANSFERRING: '传输中', IMPORTING: '正在导入',
   IMPORTED: '已导入', PUBLISHABLE: '准备发布', PUBLISHED: '已发布',
   COMPLETE: '已完成', COMPLETED: '已完成', FAILED: '失败',
-  CANCELLED: '已取消', QUEUED: '等待处理', RUNNING: '进行中',
+  CANCELLED: '已取消', QUEUED: '等待处理', RUNNING: '进行中', PAUSED: '已暂停（可继续）',
   BATCH_IMPORTED: '已导入',
 }
 

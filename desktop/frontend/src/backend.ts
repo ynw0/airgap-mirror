@@ -36,6 +36,8 @@ type AppBridge = {
   ListMaintenance(sourceID: string, limit: number): Promise<MaintenanceJob[]>
   GetMaintenance(jobID: string): Promise<MaintenanceJob>
   CancelMaintenance(jobID: string): Promise<MaintenanceJob>
+  PauseMaintenance(jobID: string): Promise<MaintenanceJob>
+  ResumeMaintenance(jobID: string): Promise<MaintenanceJob>
   GCCandidates(jobID: string, after: string, limit: number): Promise<GCCandidatesPage>
 }
 
