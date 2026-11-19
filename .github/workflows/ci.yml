@@ -35,6 +35,8 @@ jobs:
           set -euo pipefail
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      - name: Test Go control plane
+        run: go test ./internal/... ./cmd/...
       - name: Build Go control plane
         run: go build ./internal/... ./cmd/...
       - name: Verify deployment scripts
