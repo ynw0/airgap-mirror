@@ -28,22 +28,45 @@ func (r BundleRegistrar) Register(ctx context.Context, requestID string, d domai
 	if r.Store == nil || r.StagingRoot == "" || requestID == "" {
 		return domain.ImportSession{}, fmt.Errorf("registrar is not configured: %w", domain.ErrInvalid)
 	}
-	if d.SchemaVersion != domain.BundleSchemaVersion || d.ManifestSize < 0 || len(d.ManifestSHA256) != 64 {
-		return domain.ImportSession{}, domain.ErrInvalid
+	if d.SchemaVersion != domain.BundleSchemaVersion || d.SourceID == "" || d.EpochID == "" || d.BatchID == "" ||
+		d.ManifestSize < 0 || d.EpochTotalBytes < 0 || d.EpochTotalObjects < 0 || d.EpochTotalBatches <= 0 ||
+		d.EpochPublishUnitCount < 0 || d.BatchSequence <= 0 || d.BatchSequence > d.EpochTotalBatches ||
+		d.BatchBytes < 0 || d.BatchObjects < 0 || len(d.Packs) == 0 || len(d.ManifestSHA256) != 64 {
+		return domain.ImportSession{}, fmt.Errorf("invalid batch descriptor: %w", domain.ErrInvalid)
+	}
+	if _, err := hex.DecodeString(d.ManifestSHA256); err != nil {
+		return domain.ImportSession{}, fmt.Errorf("invalid manifest sha256: %w", domain.ErrInvalid)
 	}
 	seen := map[string]struct{}{}
+	seenSequence := map[int]struct{}{}
 	var maxPack int64
+	var entryCount int64
 	for _, p := range d.Packs {
-		if p.ID == "" || p.Size < 0 || len(p.SHA256) != 64 {
+		if p.ID == "" || p.Size < pack.PackHeaderSize || p.EntryCount < 0 || p.Sequence <= 0 || len(p.SHA256) != 64 ||
+			p.File != filepath.ToSlash(filepath.Join("packs", fmt.Sprintf("%06d.agp", p.Sequence))) {
 			return domain.ImportSession{}, fmt.Errorf("invalid pack declaration: %w", domain.ErrInvalid)
+		}
+		if _, err := hex.DecodeString(p.SHA256); err != nil {
+			return domain.ImportSession{}, fmt.Errorf("invalid pack sha256: %w", domain.ErrInvalid)
 		}
 		if _, ok := seen[p.ID]; ok {
 			return domain.ImportSession{}, fmt.Errorf("duplicate pack %s: %w", p.ID, domain.ErrInvalid)
 		}
+		if _, ok := seenSequence[p.Sequence]; ok {
+			return domain.ImportSession{}, fmt.Errorf("duplicate pack sequence %d: %w", p.Sequence, domain.ErrInvalid)
+		}
 		seen[p.ID] = struct{}{}
+		seenSequence[p.Sequence] = struct{}{}
+		if p.EntryCount > d.BatchObjects-entryCount {
+			return domain.ImportSession{}, fmt.Errorf("pack entry counts exceed batch objects: %w", domain.ErrInvalid)
+		}
+		entryCount += p.EntryCount
 		if p.Size > maxPack {
 			maxPack = p.Size
 		}
+	}
+	if entryCount != d.BatchObjects {
+		return domain.ImportSession{}, fmt.Errorf("pack entry counts differ from batch objects: %w", domain.ErrInvalid)
 	}
 	source, err := r.Store.GetSource(ctx, d.SourceID)
 	if err != nil {
