@@ -28,6 +28,7 @@ type API struct {
 	Capsules    service.CapsuleService
 	Capacity    ports.CapacityInspector
 	BearerToken string
+	Signer      *service.APTSigner
 	Now         func() time.Time
 }
 

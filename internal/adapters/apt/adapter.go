@@ -184,6 +184,11 @@ func clearSignedBody(in []byte) ([]byte, error) {
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
 }
 
+// ExtractClearSignedRelease 提取 InRelease 中的 Release 正文，供内网专用密钥重新签名。
+func ExtractClearSignedRelease(in []byte) ([]byte, error) {
+	return clearSignedBody(in)
+}
+
 func parseRelease(body []byte) (releaseDoc, error) {
 	var out releaseDoc
 	s := bufio.NewScanner(strings.NewReader(string(body)))
