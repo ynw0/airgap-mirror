@@ -291,3 +291,42 @@ func (c *ClientStore) StoreCapsule(ctx context.Context, cap domain.StateCapsule,
 	}
 	return tx.Commit()
 }
+
+ // ResetReadyBatch restores an explicitly chosen, not-yet-imported batch for downloading again.
+func (c *ClientStore) ResetReadyBatch(ctx context.Context, batchID string) error {
+	tx, err := c.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var epochID string
+	var status domain.BatchStatus
+	if err = tx.QueryRowContext(ctx, `SELECT epoch_id,status FROM download_batches WHERE id=?`, batchID).Scan(&epochID, &status); err != nil {
+		return mapNotFound(err)
+	}
+	if status != domain.BatchReady {
+		return fmt.Errorf("只有已下载但尚未导入的批次才能重新下载: %w", domain.ErrConflict)
+	}
+	var epochStatus domain.EpochStatus
+	if err = tx.QueryRowContext(ctx, `SELECT status FROM download_epochs WHERE id=?`, epochID).Scan(&epochStatus); err != nil {
+		return mapNotFound(err)
+	}
+	if epochStatus != domain.EpochDownloading && epochStatus != domain.EpochTransferring {
+		return fmt.Errorf("当前同步任务正在导入或已完成，不能重新下载: %w", domain.ErrConflict)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE download_batches SET status=? WHERE id=?`, domain.BatchPlanned, batchID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE download_packs SET status=?,size=0,sha256='',file_path='' WHERE batch_id=?`, domain.PackPlanned, batchID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE download_entries SET status=?,downloaded=0,etag='',last_modified='',error_text='' WHERE batch_id=?`, domain.DownloadPending, batchID); err != nil {
+		return err
+	}
+	if epochStatus == domain.EpochTransferring {
+		if _, err = tx.ExecContext(ctx, `UPDATE download_epochs SET status=? WHERE id=?`, domain.EpochDownloading, epochID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
