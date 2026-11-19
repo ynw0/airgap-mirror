@@ -105,3 +105,19 @@ func TestFileInstallerRejectsStagingPath(t *testing.T) {
 		t.Fatal("staging artifact path should be rejected")
 	}
 }
+
+func TestWriteVerifiedRejectsSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("same"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "artifact")
+	if err := os.Symlink(outside, target); err != nil {
+		t.Skipf("cannot create symlink: %v", err)
+	}
+	_, err := writeVerified(root, target, 4, shaHex("same"), bytes.NewReader([]byte("same")), false)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("symlink target should be rejected: %v", err)
+	}
+}

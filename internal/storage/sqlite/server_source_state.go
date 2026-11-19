@@ -29,13 +29,23 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 	}
 	defer tx.Rollback()
 	var oldType domain.SourceType
-	var oldProvider, oldRoot string
+	var oldProvider, oldRoot, oldUpstream, cursorKind, cursorValue string
 	var active sql.NullString
-	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &active); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &cursorKind, &cursorValue, &active); err != nil {
 		return mapNotFound(err)
 	}
-	if active.Valid && active.String != "" && (oldType != v.Type || oldProvider != v.Provider || oldRoot != v.RootPath) {
-		return fmt.Errorf("source type/provider/rootPath cannot change during active epoch %s: %w", active.String, domain.ErrConflict)
+	identityChanged := oldType != v.Type || oldProvider != v.Provider || oldRoot != v.RootPath || oldUpstream != v.UpstreamURL
+	if active.Valid && active.String != "" && identityChanged {
+		return fmt.Errorf("正在同步，不能修改软件源地址、类型或仓库目录: %w", domain.ErrConflict)
+	}
+	if identityChanged {
+		var entries int
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM catalog_entries WHERE source_id=? LIMIT 1)`, v.ID).Scan(&entries); err != nil {
+			return err
+		}
+		if cursorKind != "" || cursorValue != "" || entries != 0 {
+			return fmt.Errorf("该软件源已有同步记录，不能直接更换地址、类型或仓库目录；请新建软件源: %w", domain.ErrConflict)
+		}
 	}
 	r, err := tx.ExecContext(ctx, `UPDATE sources SET name=?,type=?,provider=?,upstream_url=?,root_path=?,public_url=?,enabled=?,config_json=?,updated_at=? WHERE id=?`, v.Name, v.Type, v.Provider, v.UpstreamURL, v.RootPath, v.PublicURL, v.Enabled, []byte(v.ConfigJSON), timeString(v.UpdatedAt), v.ID)
 	if err != nil {

@@ -44,6 +44,13 @@ func (s *ServerStore) CancelEpoch(ctx context.Context, epochID string, at time.T
 		if err = domain.ValidateEpochTransition(status, domain.EpochCancelled); err != nil {
 			return fmt.Errorf("%s: %w", err.Error(), domain.ErrConflict)
 		}
+		var imported int
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM imported_entries WHERE epoch_id=? LIMIT 1)`, epochID).Scan(&imported); err != nil {
+			return err
+		}
+		if imported != 0 {
+			return fmt.Errorf("已有文件导入服务器，不能直接取消；请继续完成本次导入: %w", domain.ErrConflict)
+		}
 		_, err = tx.ExecContext(ctx, `UPDATE epochs SET status=?,error_text=? WHERE id=?`, domain.EpochCancelled, message, epochID)
 		if err != nil {
 			return err

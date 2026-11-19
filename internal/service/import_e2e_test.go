@@ -200,6 +200,9 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 	if ep.Status != domain.EpochComplete {
 		t.Fatalf("epoch status=%s", ep.Status)
 	}
+	if _, err := os.Stat(staging); !os.IsNotExist(err) {
+		t.Fatalf("completed import staging should be removed, stat err=%v", err)
+	}
 	state, err := store.GetState(ctx, src.ID)
 	if err != nil {
 		t.Fatal(err)

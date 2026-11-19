@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -28,22 +29,45 @@ func (r BundleRegistrar) Register(ctx context.Context, requestID string, d domai
 	if r.Store == nil || r.StagingRoot == "" || requestID == "" {
 		return domain.ImportSession{}, fmt.Errorf("registrar is not configured: %w", domain.ErrInvalid)
 	}
-	if d.SchemaVersion != domain.BundleSchemaVersion || d.ManifestSize < 0 || len(d.ManifestSHA256) != 64 {
-		return domain.ImportSession{}, domain.ErrInvalid
+	if d.SchemaVersion != domain.BundleSchemaVersion || d.SourceID == "" || d.EpochID == "" || d.BatchID == "" ||
+		d.ManifestSize < 0 || d.EpochTotalBytes < 0 || d.EpochTotalObjects < 0 || d.EpochTotalBatches <= 0 ||
+		d.EpochPublishUnitCount < 0 || d.BatchSequence <= 0 || d.BatchSequence > d.EpochTotalBatches ||
+		d.BatchBytes < 0 || d.BatchObjects < 0 || len(d.Packs) == 0 || len(d.ManifestSHA256) != 64 {
+		return domain.ImportSession{}, fmt.Errorf("invalid batch descriptor: %w", domain.ErrInvalid)
+	}
+	if _, err := hex.DecodeString(d.ManifestSHA256); err != nil {
+		return domain.ImportSession{}, fmt.Errorf("invalid manifest sha256: %w", domain.ErrInvalid)
 	}
 	seen := map[string]struct{}{}
+	seenSequence := map[int]struct{}{}
 	var maxPack int64
+	var entryCount int64
 	for _, p := range d.Packs {
-		if p.ID == "" || p.Size < 0 || len(p.SHA256) != 64 {
+		if p.ID == "" || p.Size < pack.PackHeaderSize || p.EntryCount < 0 || p.Sequence <= 0 || len(p.SHA256) != 64 ||
+			p.File != filepath.ToSlash(filepath.Join("packs", fmt.Sprintf("%06d.agp", p.Sequence))) {
 			return domain.ImportSession{}, fmt.Errorf("invalid pack declaration: %w", domain.ErrInvalid)
+		}
+		if _, err := hex.DecodeString(p.SHA256); err != nil {
+			return domain.ImportSession{}, fmt.Errorf("invalid pack sha256: %w", domain.ErrInvalid)
 		}
 		if _, ok := seen[p.ID]; ok {
 			return domain.ImportSession{}, fmt.Errorf("duplicate pack %s: %w", p.ID, domain.ErrInvalid)
 		}
+		if _, ok := seenSequence[p.Sequence]; ok {
+			return domain.ImportSession{}, fmt.Errorf("duplicate pack sequence %d: %w", p.Sequence, domain.ErrInvalid)
+		}
 		seen[p.ID] = struct{}{}
+		seenSequence[p.Sequence] = struct{}{}
+		if p.EntryCount > d.BatchObjects-entryCount {
+			return domain.ImportSession{}, fmt.Errorf("pack entry counts exceed batch objects: %w", domain.ErrInvalid)
+		}
+		entryCount += p.EntryCount
 		if p.Size > maxPack {
 			maxPack = p.Size
 		}
+	}
+	if entryCount != d.BatchObjects {
+		return domain.ImportSession{}, fmt.Errorf("pack entry counts differ from batch objects: %w", domain.ErrInvalid)
 	}
 	source, err := r.Store.GetSource(ctx, d.SourceID)
 	if err != nil {
@@ -102,11 +126,12 @@ func (r BundleRegistrar) Register(ctx context.Context, requestID string, d domai
 }
 
 type TransferService struct {
-	Store ports.ServerStore
-	Now   func() time.Time
+	Store    ports.ServerStore
+	Now      func() time.Time
+	uploadMu sync.Mutex
 }
 
-func (t TransferService) now() time.Time {
+func (t *TransferService) now() time.Time {
 	if t.Now != nil {
 		return t.Now()
 	}
@@ -156,7 +181,7 @@ func appendChunk(path string, offset, total int64, r io.Reader, n int64) (int64,
 	}
 	return offset + written, nil
 }
-func (t TransferService) requireOpenEpoch(ctx context.Context, epochID string) error {
+func (t *TransferService) requireOpenEpoch(ctx context.Context, epochID string) error {
 	ep, err := t.Store.GetEpoch(ctx, epochID)
 	if err != nil {
 		return err
@@ -164,7 +189,9 @@ func (t TransferService) requireOpenEpoch(ctx context.Context, epochID string) e
 	return refuseClosedEpoch(ep)
 }
 
-func (t TransferService) ManifestOffset(ctx context.Context, id string) (int64, error) {
+func (t *TransferService) ManifestOffset(ctx context.Context, id string) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return 0, err
@@ -186,7 +213,9 @@ func (t TransferService) ManifestOffset(ctx context.Context, id string) (int64, 
 	}
 	return s.ManifestUploaded, nil
 }
-func (t TransferService) AppendManifest(ctx context.Context, id string, offset int64, r io.Reader, n int64) (int64, error) {
+func (t *TransferService) AppendManifest(ctx context.Context, id string, offset int64, r io.Reader, n int64) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return 0, err
@@ -208,7 +237,9 @@ func (t TransferService) AppendManifest(ctx context.Context, id string, offset i
 	}
 	return next, nil
 }
-func (t TransferService) CompleteManifest(ctx context.Context, id string) error {
+func (t *TransferService) CompleteManifest(ctx context.Context, id string) error {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return err
@@ -228,7 +259,9 @@ func (t TransferService) CompleteManifest(ctx context.Context, id string) error 
 	}
 	return nil
 }
-func (t TransferService) PackOffset(ctx context.Context, sid, pid string) (int64, error) {
+func (t *TransferService) PackOffset(ctx context.Context, sid, pid string) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	p, err := t.Store.GetImportPack(ctx, sid, pid)
 	if err != nil {
 		return 0, err
@@ -250,7 +283,9 @@ func (t TransferService) PackOffset(ctx context.Context, sid, pid string) (int64
 	}
 	return p.UploadedSize, nil
 }
-func (t TransferService) AppendPack(ctx context.Context, sid, pid string, offset int64, r io.Reader, n int64) (int64, error) {
+func (t *TransferService) AppendPack(ctx context.Context, sid, pid string, offset int64, r io.Reader, n int64) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, sid)
 	if err != nil {
 		return 0, err

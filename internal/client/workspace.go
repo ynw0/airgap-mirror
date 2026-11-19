@@ -207,6 +207,13 @@ func (w *Workspace) AnalyzeSource(ctx context.Context, capsuleID, sourceID strin
 	}
 	out.Plan = plan
 	if plan.ArtifactCount == 0 && plan.Epoch.TargetCursor.Equal(plan.Epoch.BaseCursor) {
+		// The adapter has already persisted the PLANNED epoch. Close it locally,
+		// otherwise the next analysis of this capsule is blocked indefinitely.
+		if err = w.Store.CompleteNoopEpoch(ctx, plan.Epoch.ID); err != nil {
+			return out, err
+		}
+		plan.Epoch.Status = domain.EpochComplete
+		out.Plan = plan
 		out.NoChanges = true
 		return out, nil
 	}

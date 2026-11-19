@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -61,5 +62,43 @@ func TestCancelEpochClearsActiveAndFreesSource(t *testing.T) {
 	}
 	if err = store.CreateEpoch(ctx, domain.Epoch{ID: eid2, SourceID: src.ID, Status: domain.EpochTransferring, TotalBatches: 1, CreatedAt: now}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCancelEpochRefusesImportedData(t *testing.T) {
+	ctx := context.Background()
+	store := openServerDB(t)
+	src := testSource(t)
+	if err := store.CreateSource(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	eid, _ := domain.NewID()
+	uid, _ := domain.NewID()
+	entry, _ := domain.NewID()
+	now := time.Now().UTC()
+	if err := store.CreateEpoch(ctx, domain.Epoch{ID: eid, SourceID: src.ID, Status: domain.EpochTransferring, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.GetState(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.ActiveEpochID = eid
+	state.UpdatedAt = now
+	if err := store.PutState(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.ExecContext(ctx, `INSERT INTO imported_entries(epoch_id,entry_id,source_id,logical_path,sha256,publish_unit_id,metadata,imported_at) VALUES(?,?,?,?,?,?,0,?)`, eid, entry, src.ID, "pool/a.deb", "sha", uid, timeString(now)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CancelEpoch(ctx, eid, now, "cancel"); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("cancelling imported epoch should conflict: %v", err)
+	}
+	state, err = store.GetState(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ActiveEpochID != eid {
+		t.Fatalf("epoch lock was released: %q", state.ActiveEpochID)
 	}
 }

@@ -24,20 +24,20 @@ export default function App() {
     setCapsules(value ?? [])
   }
 
-  if (fatal) return <main className="fatal-screen"><div className="fatal-card"><h1>Airgap Mirror</h1><p>桌面工作区初始化失败。</p><pre>{fatal}</pre></div></main>
+  if (fatal) return <main className="fatal-screen"><div className="fatal-card"><h1>Airgap Mirror</h1><p>程序没能打开本机工作目录。请检查磁盘空间和目录权限，然后重试。</p><pre>{fatal}</pre></div></main>
 
   return <div className="shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">AM</div><div><strong>Airgap Mirror</strong><small>Offline Package Sync</small></div></div>
+      <div className="brand"><div className="brand-mark">AM</div><div><strong>Airgap Mirror</strong><small>离线软件源更新工具</small></div></div>
       <nav>
-        <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}><span>01</span><div>源状态<small>Agent / State Capsule</small></div></button>
-        <button className={tab === 'sync' ? 'active' : ''} onClick={() => setTab('sync')}><span>02</span><div>互联网同步<small>Analyze / Download</small></div></button>
-        <button className={tab === 'server' ? 'active' : ''} onClick={() => setTab('server')}><span>03</span><div>服务器更新<small>Transfer / Publish</small></div></button>
+        <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}><span>01</span><div>连接服务器<small>把状态文件带出去</small></div></button>
+        <button className={tab === 'sync' ? 'active' : ''} onClick={() => setTab('sync')}><span>02</span><div>联网下载<small>保存到移动硬盘</small></div></button>
+        <button className={tab === 'server' ? 'active' : ''} onClick={() => setTab('server')}><span>03</span><div>离线导入<small>把下载内容带回来</small></div></button>
       </nav>
       <div className="sidebar-status">
-        <div><span className={`dot ${overview?.connected ? 'ok' : ''}`} />{overview?.connected ? 'Mirror Agent online' : 'Mirror Agent offline'}</div>
-        <small>Workspace</small><code>{bootstrap?.workspaceRoot ? shortID(bootstrap.workspaceRoot) : '初始化中…'}</code>
-        <small>{capsules.length} State Capsule</small>
+        <div><span className={`dot ${overview?.connected ? 'ok' : ''}`} />{overview?.connected ? '服务器已连接' : '服务器未连接'}</div>
+        <small>本机工作目录</small><code>{bootstrap?.workspaceRoot ? shortID(bootstrap.workspaceRoot) : '初始化中…'}</code>
+        <small>{capsules.length} 份状态文件</small>
       </div>
     </aside>
     <main className="content">

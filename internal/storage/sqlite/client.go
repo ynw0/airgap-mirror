@@ -100,6 +100,28 @@ func (c *ClientStore) Commit(ctx context.Context, p domain.EpochPlan) error {
 	}
 	return tx.Commit()
 }
+
+// CompleteNoopEpoch closes a local analysis with no artifacts and no cursor advance.
+// It must never be used to bypass server publication for a non-empty epoch.
+func (c *ClientStore) CompleteNoopEpoch(ctx context.Context, id string) error {
+	r, err := c.DB.ExecContext(ctx, `UPDATE download_epochs SET status=?
+		WHERE id=? AND status=? AND total_objects=0 AND total_batches=0
+		AND base_cursor_kind=target_cursor_kind AND base_cursor_value=target_cursor_value
+		AND NOT EXISTS (SELECT 1 FROM planned_artifacts WHERE epoch_id=?)`,
+		domain.EpochComplete, id, domain.EpochPlanned, id)
+	if err != nil {
+		return err
+	}
+	n, err := r.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("epoch %s is not an unchanged local plan: %w", id, domain.ErrConflict)
+	}
+	return nil
+}
+
 func (c *ClientStore) Abort(ctx context.Context, id string, cause error) error {
 	_, e := c.DB.ExecContext(ctx, `UPDATE download_epochs SET status=?,error_text=? WHERE id=?`, domain.EpochFailed, cause.Error(), id)
 	return e

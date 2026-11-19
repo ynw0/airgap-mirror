@@ -241,12 +241,34 @@ func (d Downloader) downloadPack(ctx context.Context, p domain.Pack, out string)
 }
 
 func (d Downloader) downloadArtifact(ctx context.Context, a domain.Artifact, tmp string, st domain.DownloadEntryProgress) (string, int64, error) {
-	var off int64
-	if f, e := os.Stat(tmp); e == nil {
-		off = f.Size()
+	if st.Downloaded < 0 {
+		return "", 0, fmt.Errorf("negative download checkpoint: %w", domain.ErrConflict)
 	}
-	if st.Downloaded != 0 && st.Downloaded != off {
-		return "", 0, fmt.Errorf("download offset mismatch")
+	var off int64
+	if info, statErr := os.Stat(tmp); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return "", 0, fmt.Errorf("partial download is not a regular file: %w", domain.ErrInvalid)
+		}
+		off = info.Size()
+	} else if !os.IsNotExist(statErr) {
+		return "", 0, statErr
+	}
+	// A crash can leave more file bytes than the last persisted checkpoint.
+	// Discard the uncommitted tail; never resume from an unrecorded offset.
+	if off > st.Downloaded {
+		if err := os.Truncate(tmp, st.Downloaded); err != nil {
+			return "", 0, err
+		}
+		off = st.Downloaded
+	} else if off < st.Downloaded {
+		// The checkpoint is ahead of the on-disk file (e.g. power loss).
+		// Restart safely rather than pretending that missing bytes exist.
+		if off > 0 {
+			if err := os.Truncate(tmp, 0); err != nil {
+				return "", 0, err
+			}
+		}
+		off = 0
 	}
 	f, e := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if e != nil {
@@ -276,6 +298,10 @@ func (d Downloader) downloadArtifact(ctx context.Context, a domain.Artifact, tmp
 			}
 			written += int64(n)
 			if written >= next {
+				// Persist the file before claiming that this offset is recoverable.
+				if e = f.Sync(); e != nil {
+					return "", written, e
+				}
 				if e = d.Progress.MarkEntryState(ctx, domain.DownloadEntryProgress{EntryID: a.ID, Status: domain.DownloadDownloading, Downloaded: written, ETag: r.ETag, LastModified: r.LastModified}); e != nil {
 					return "", written, e
 				}

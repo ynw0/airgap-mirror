@@ -134,48 +134,48 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
 
   return <div className="card source-editor">
     <div className="card-title">
-      <span>{editing ? '编辑源' : '新建源'}</span>
-      {source ? <code>{source.id}</code> : <span>提交后由 Agent 分配 ID</span>}
+      <span>{editing ? '修改软件源设置' : '添加软件源'}</span>
+      {source ? <code>{source.id}</code> : <span>创建后会自动生成编号</span>}
     </div>
     <div className="form-grid source-form">
-      <label>名称<input value={name} onChange={e => setName(e.target.value)} /></label>
-      <label>类型
+      <label>软件源名称<input value={name} onChange={e => setName(e.target.value)} /></label>
+      <label>软件类型
         <select value={kind} onChange={e => changeKind(e.target.value as Kind)}>
           {kinds.map(k => <option key={k.id} value={k.id}>{k.label} · {k.provider}</option>)}
         </select>
       </label>
-      <label className="checkbox">启用
+      <label className="checkbox">启用这个软件源
         <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
       </label>
-      <label className="span-2">上游 URL<input value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)} placeholder={
+      <label className="span-2">公网下载地址<input value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)} placeholder={
         kind === 'apt' ? 'https://deb.debian.org/debian' :
         kind === 'pypi' ? 'https://pypi.org/simple' :
         kind === 'npm' ? 'https://registry.npmjs.org' :
         kind === 'maven-central' ? 'https://repo.maven.apache.org/maven2' :
         'https://upstream.example/repository'
       } /></label>
-      <label>仓库 rootPath<input value={rootPath} onChange={e => setRootPath(e.target.value)} placeholder="/srv/mirror/..." /></label>
-      <label className="span-2">内网 publicUrl<input value={publicUrl} onChange={e => setPublicUrl(e.target.value)} placeholder="https://repo.internal/..." /></label>
+      <label>服务器存放目录<input value={rootPath} onChange={e => setRootPath(e.target.value)} placeholder="/srv/mirror/..." /></label>
+      <label className="span-2">内网访问地址<input value={publicUrl} onChange={e => setPublicUrl(e.target.value)} placeholder="https://repo.internal/..." /></label>
       {kind === 'apt' && <>
-        <label>suite<input value={suite} onChange={e => setSuite(e.target.value)} /></label>
-        <label>releaseMode
+        <label>发行版代号（suite）<input value={suite} onChange={e => setSuite(e.target.value)} /></label>
+        <label>Release 签名方式
           <select value={releaseMode} onChange={e => setReleaseMode(e.target.value)}>
             <option value="inrelease">inrelease</option>
             <option value="detached">detached</option>
           </select>
         </label>
-        <label className="checkbox">gcOwnsPool
+        <label className="checkbox">允许清理该软件源独占的包池
           <input type="checkbox" checked={gcOwnsPool} onChange={e => setGcOwnsPool(e.target.checked)} />
         </label>
       </>}
       {kind === 'npm' && <>
-        <label className="span-2">replicationUrl<input value={replicationUrl} onChange={e => setReplicationUrl(e.target.value)} /></label>
-        <label>changePageSize<input type="number" min={1} max={10000} value={changePageSize} onChange={e => setChangePageSize(Number(e.target.value))} /></label>
-        <label>allDocsPageSize<input type="number" min={1} max={10000} value={allDocsPageSize} onChange={e => setAllDocsPageSize(Number(e.target.value))} /></label>
+        <label className="span-2">npm 更新记录地址<input value={replicationUrl} onChange={e => setReplicationUrl(e.target.value)} /></label>
+        <label>每次读取的更新数<input type="number" min={1} max={10000} value={changePageSize} onChange={e => setChangePageSize(Number(e.target.value))} /></label>
+        <label>每次读取的软件包数<input type="number" min={1} max={10000} value={allDocsPageSize} onChange={e => setAllDocsPageSize(Number(e.target.value))} /></label>
       </>}
       {kind === 'maven-generic' && <>
-        <label className="span-2">indexUrl<input value={indexUrl} onChange={e => setIndexUrl(e.target.value)} placeholder="https://upstream.example/mirror-index.ndjson" /></label>
-        <label>inventoryMode
+        <label className="span-2">仓库文件清单地址<input value={indexUrl} onChange={e => setIndexUrl(e.target.value)} placeholder="https://upstream.example/mirror-index.ndjson" /></label>
+        <label>本地扫描方式
           <select value={inventoryMode} onChange={e => setInventoryMode(e.target.value)}>
             <option value="filesystem">filesystem</option>
           </select>
@@ -183,7 +183,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       </>}
     </div>
     {kind === 'maven-central' && <div className="coord-block">
-      <div className="card-title"><span>dependency-set coordinates</span><button type="button" onClick={() => setCoordinates(prev => [...prev, emptyCoordinate()])}>添加坐标</button></div>
+      <div className="card-title"><span>要下载的 Maven 依赖（填写精确版本）</span><button type="button" onClick={() => setCoordinates(prev => [...prev, emptyCoordinate()])}>添加坐标</button></div>
       <div className="table-wrap"><table><thead><tr><th>groupId</th><th>artifactId</th><th>version</th><th>packaging</th><th>classifier</th><th></th></tr></thead>
         <tbody>{coordinates.map((c, i) => <tr key={i}>
           <td><input value={c.groupId} onChange={e => setCoordinates(prev => prev.map((x, n) => n === i ? { ...x, groupId: e.target.value } : x))} /></td>
@@ -196,7 +196,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       </table></div>
     </div>}
     <div className="button-row">
-      <button className="primary" disabled={busy} onClick={() => void submit()}>{editing ? '保存' : '创建'}</button>
+      <button className="primary" disabled={busy} onClick={() => void submit()}>{editing ? '保存修改' : '添加软件源'}</button>
       <button disabled={busy} onClick={onCancel}>取消</button>
     </div>
   </div>

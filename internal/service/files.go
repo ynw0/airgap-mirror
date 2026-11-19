@@ -106,7 +106,10 @@ func writeVerified(root, target string, size int64, want string, r io.Reader, re
 	if err := rejectSymlinkParents(root, target); err != nil {
 		return false, err
 	}
-	if info, err := os.Stat(target); err == nil {
+	if info, err := os.Lstat(target); err == nil {
+		if !info.Mode().IsRegular() {
+			return false, fmt.Errorf("target %s is not a regular file: %w", target, domain.ErrConflict)
+		}
 		h, n, e := hashFile(target)
 		if e != nil {
 			return false, e
