@@ -63,6 +63,9 @@ sudo bash internal/server/web/configure-agent.sh --listen 192.168.21.4:8787
 
 如果 Linux 服务器的 IP 是 `192.168.21.4`，可从可信内网浏览器打开 `http://192.168.21.4:8787/`。这是示例地址，更换服务器时请使用对应 IP。页面需要输入 Agent 的连接令牌。配置脚本只设置 Agent 监听地址，不修改 Apache、仓库文件或防火墙规则。
 
+**已经使用 Apache 反向代理的旧服务器请保留原来的域名。** 例如旧地址是 `https://mirror.costar.com/mirror-control`，新版 Linux WebUI 使用 `https://mirror.costar.com/mirror-control/`（结尾带 `/`），Windows 客户端仍可填写原来的 Agent URL。Agent 应继续只监听 `127.0.0.1:8787`，不需要运行 `--listen 192.168.21.4:8787`。Apache 的 `ProxyPass /mirror-control/ http://127.0.0.1:8787/` 保留不变。建议将无结尾斜杠的 `/mirror-control` 重定向到 `/mirror-control/`，避免浏览器相对路径失效。
+
+
 以上命令适用于从 GitHub 源码仓库克隆并构建的情况。若使用 `v*` Linux 发布包，配置脚本位于 `scripts/configure-agent.sh` 和 `scripts/configure-apt-signing.sh`。两份脚本也可在已安装的 Linux Web 管理页面直接下载，再复制到离线服务器运行。
 
 ### 检查统计后为 APT 仓库重新签名
