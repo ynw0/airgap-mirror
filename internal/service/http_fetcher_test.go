@@ -76,3 +76,36 @@ func TestHTTPFetcherRejectsWrongContentRange(t *testing.T) {
 		t.Fatalf("expected content-range mismatch, got %v", err)
 	}
 }
+
+
+func TestHTTPFetcherRejectsMissingContentRange(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("partial"))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := (HTTPFetcher{Client: srv.Client()}).Open(context.Background(), ports.FetchRequest{
+		URL: srv.URL, Offset: 4,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected content-range") {
+		t.Fatalf("missing Content-Range must fail resume, got %v", err)
+	}
+}
+
+func TestHTTPFetcherRejectsChangedETag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 4-8/9")
+		w.Header().Set("ETag", `"new-version"`)
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("other"))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := (HTTPFetcher{Client: srv.Client()}).Open(context.Background(), ports.FetchRequest{
+		URL: srv.URL, Offset: 4, ETag: `"original-version"`,
+	})
+	if err == nil || !strings.Contains(err.Error(), "etag changed") {
+		t.Fatalf("changed ETag must fail resume, got %v", err)
+	}
+}
