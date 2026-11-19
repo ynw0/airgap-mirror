@@ -274,6 +274,15 @@ func (i ImportService) cleanupCompletedEpochStaging(ctx context.Context, sourceI
 		if err = removeEpochStaging(source.RootPath, ep.ID); err != nil {
 			return err
 		}
+		sessions, err := i.Store.ListImportSessionsByEpoch(ctx, ep.ID)
+		if err != nil {
+			return err
+		}
+		for _, sess := range sessions {
+			if err = removeStagingDir(sess.StagingPath); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

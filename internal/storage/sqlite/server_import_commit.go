@@ -17,6 +17,13 @@ func (s *ServerStore) CommitImportedEntry(ctx context.Context, m domain.Manifest
 		return false, err
 	}
 	defer tx.Rollback()
+	var epochStatus domain.EpochStatus
+	if err = tx.QueryRowContext(ctx, `SELECT status FROM epochs WHERE id=?`, a.EpochID).Scan(&epochStatus); err != nil {
+		return false, mapNotFound(err)
+	}
+	if epochStatus == domain.EpochCancelled || epochStatus == domain.EpochFailed || epochStatus == domain.EpochComplete {
+		return false, fmt.Errorf("epoch %s is %s: %w", a.EpochID, epochStatus, domain.ErrConflict)
+	}
 	var sid, path, sha, unit string
 	var metadata bool
 	err = tx.QueryRowContext(ctx, `SELECT source_id,logical_path,sha256,publish_unit_id,metadata FROM imported_entries WHERE epoch_id=? AND entry_id=?`, a.EpochID, m.EntryID).Scan(&sid, &path, &sha, &unit, &metadata)

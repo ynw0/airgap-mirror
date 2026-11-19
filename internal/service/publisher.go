@@ -66,6 +66,9 @@ func (p PublisherService) PublishReady(ctx context.Context, epochID string) erro
 	if err != nil {
 		return err
 	}
+	if err = refuseClosedEpoch(ep); err != nil {
+		return err
+	}
 	source, err := p.Store.GetSource(ctx, ep.SourceID)
 	if err != nil {
 		return err

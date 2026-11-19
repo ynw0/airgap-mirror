@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -125,11 +126,12 @@ func (r BundleRegistrar) Register(ctx context.Context, requestID string, d domai
 }
 
 type TransferService struct {
-	Store ports.ServerStore
-	Now   func() time.Time
+	Store    ports.ServerStore
+	Now      func() time.Time
+	uploadMu sync.Mutex
 }
 
-func (t TransferService) now() time.Time {
+func (t *TransferService) now() time.Time {
 	if t.Now != nil {
 		return t.Now()
 	}
@@ -179,7 +181,7 @@ func appendChunk(path string, offset, total int64, r io.Reader, n int64) (int64,
 	}
 	return offset + written, nil
 }
-func (t TransferService) requireOpenEpoch(ctx context.Context, epochID string) error {
+func (t *TransferService) requireOpenEpoch(ctx context.Context, epochID string) error {
 	ep, err := t.Store.GetEpoch(ctx, epochID)
 	if err != nil {
 		return err
@@ -187,7 +189,9 @@ func (t TransferService) requireOpenEpoch(ctx context.Context, epochID string) e
 	return refuseClosedEpoch(ep)
 }
 
-func (t TransferService) ManifestOffset(ctx context.Context, id string) (int64, error) {
+func (t *TransferService) ManifestOffset(ctx context.Context, id string) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return 0, err
@@ -209,7 +213,9 @@ func (t TransferService) ManifestOffset(ctx context.Context, id string) (int64, 
 	}
 	return s.ManifestUploaded, nil
 }
-func (t TransferService) AppendManifest(ctx context.Context, id string, offset int64, r io.Reader, n int64) (int64, error) {
+func (t *TransferService) AppendManifest(ctx context.Context, id string, offset int64, r io.Reader, n int64) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return 0, err
@@ -231,7 +237,9 @@ func (t TransferService) AppendManifest(ctx context.Context, id string, offset i
 	}
 	return next, nil
 }
-func (t TransferService) CompleteManifest(ctx context.Context, id string) error {
+func (t *TransferService) CompleteManifest(ctx context.Context, id string) error {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return err
@@ -251,7 +259,9 @@ func (t TransferService) CompleteManifest(ctx context.Context, id string) error 
 	}
 	return nil
 }
-func (t TransferService) PackOffset(ctx context.Context, sid, pid string) (int64, error) {
+func (t *TransferService) PackOffset(ctx context.Context, sid, pid string) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	p, err := t.Store.GetImportPack(ctx, sid, pid)
 	if err != nil {
 		return 0, err
@@ -273,7 +283,9 @@ func (t TransferService) PackOffset(ctx context.Context, sid, pid string) (int64
 	}
 	return p.UploadedSize, nil
 }
-func (t TransferService) AppendPack(ctx context.Context, sid, pid string, offset int64, r io.Reader, n int64) (int64, error) {
+func (t *TransferService) AppendPack(ctx context.Context, sid, pid string, offset int64, r io.Reader, n int64) (int64, error) {
+	t.uploadMu.Lock()
+	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, sid)
 	if err != nil {
 		return 0, err

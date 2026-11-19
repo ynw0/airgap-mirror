@@ -32,7 +32,7 @@ export function ServerUpdatePage({ overview }: Props) {
   }
   async function transfer() {
     if (!bundle) { await validate(); return }
-    if (!overview?.connected) { setMessage('请先在“源状态”页面连接内网 Mirror Agent。'); return }
+    if (!overview?.connected) { setMessage('请先在“连接服务器”页面连接内网服务器。'); return }
     setRunning(true); setMessage(''); setResult(null)
     try {
       const value = await app().TransferBatchDirectory(path, { chunkSize: Math.round(chunkMiB * 1024 * 1024), requestId: requestID.trim() || undefined })
@@ -48,24 +48,26 @@ export function ServerUpdatePage({ overview }: Props) {
 
   const d = bundle?.descriptor
   return <section className="page-stack">
-    <div className="page-header"><div><h2>服务器更新</h2><p>验证移动介质 Batch，断点上传到 Mirror Agent，逐 Pack commit 后触发 Publish。</p></div><span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? `Agent · ${overview.baseUrl}` : 'Agent 未连接'}</span></div>
+    <div className="page-header"><div><h2>离线导入</h2><p>选择移动硬盘上的下载目录，系统自动校验、续传并更新内网仓库。</p></div><span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? `Agent · ${overview.baseUrl}` : 'Agent 未连接'}</span></div>
 
     <div className="card form-grid transfer-form">
-      <label className="span-2">Batch 目录<div className="path-picker"><input value={path} onChange={e => { setPath(e.target.value); setBundle(null) }} placeholder="选择包含 batch.json / manifest.sqlite / packs 的目录" /><button onClick={choose}>浏览</button></div></label>
-      <label>上传 Chunk (MiB)<input type="number" min="1" max="128" value={chunkMiB} onChange={e => setChunkMiB(Number(e.target.value))} /></label>
-      <label>Request ID（可选）<input value={requestID} onChange={e => setRequestID(e.target.value)} placeholder="默认 batch-<id>" /></label>
-      <div className="button-row align-end"><button disabled={!path || busy || running} onClick={validate}>本地校验</button>{running ? <button onClick={pause}>暂停</button> : <button className="primary" disabled={!bundle || !overview?.connected} onClick={transfer}>上传 / 继续</button>}</div>
+      <label className="span-2">下载批次目录<div className="path-picker"><input value={path} onChange={e => { setPath(e.target.value); setBundle(null) }} placeholder="选择包含 batch.json / manifest.sqlite / packs 的目录" /><button onClick={choose}>浏览</button></div></label>
+      <details className="advanced-options span-2"><summary>高级选项（默认无需修改）</summary><div className="form-grid">
+        <label>单次上传大小 (MiB)<input type="number" min="1" max="128" value={chunkMiB} onChange={e => setChunkMiB(Number(e.target.value))} /></label>
+        <label>请求标识（可选）<input value={requestID} onChange={e => setRequestID(e.target.value)} placeholder="自动生成" /></label>
+      </div></details>
+      <div className="button-row align-end"><button disabled={!path || busy || running} onClick={validate}>本地校验</button>{running ? <button onClick={pause}>暂停</button> : <button className="primary" disabled={!bundle || !overview?.connected} onClick={transfer}>导入 / 继续</button>}</div>
     </div>
 
     {d ? <>
       <div className="metrics-grid">
-        <div className="metric"><span>Batch</span><strong>#{d.batchSequence} / {d.epochTotalBatches}</strong><small>{shortID(d.batchId)}</small></div>
+        <div className="metric"><span>批次</span><strong>#{d.batchSequence} / {d.epochTotalBatches}</strong><small>{shortID(d.batchId)}</small></div>
         <div className="metric"><span>数据量</span><strong>{formatBytes(d.batchBytes)}</strong><small>{formatCount(d.batchObjects)} objects</small></div>
-        <div className="metric"><span>Packs</span><strong>{d.packs.length}</strong><small>manifest {formatBytes(d.manifestSize)}</small></div>
+        <div className="metric"><span>文件包</span><strong>{d.packs.length}</strong><small>manifest {formatBytes(d.manifestSize)}</small></div>
         <div className="metric"><span>Epoch</span><strong>{shortID(d.epochId)}</strong><small>{d.baseCursor.kind} → {d.targetCursor.kind}</small></div>
       </div>
-      <div className="card table-card"><div className="card-title"><span>Pack 清单</span><span>本地 Header / Manifest 已校验</span></div><div className="table-wrap"><table><thead><tr><th>#</th><th>Pack ID</th><th>文件</th><th>大小</th><th>Entries</th><th>SHA-256</th></tr></thead><tbody>{d.packs.map(p => <tr key={p.id}><td>{p.sequence}</td><td><code>{shortID(p.id)}</code></td><td className="mono">{p.file}</td><td>{formatBytes(p.size)}</td><td>{formatCount(p.entryCount)}</td><td><small className="mono clip">{p.sha256}</small></td></tr>)}</tbody></table></div></div>
-    </> : <div className="card empty panel-empty">选择 Batch 目录并执行本地校验。</div>}
+      <div className="card table-card"><div className="card-title"><span>文件包清单</span><span>本地 Header / Manifest 已校验</span></div><div className="table-wrap"><table><thead><tr><th>#</th><th>Pack ID</th><th>文件</th><th>大小</th><th>Entries</th><th>SHA-256</th></tr></thead><tbody>{d.packs.map(p => <tr key={p.id}><td>{p.sequence}</td><td><code>{shortID(p.id)}</code></td><td className="mono">{p.file}</td><td>{formatBytes(p.size)}</td><td>{formatCount(p.entryCount)}</td><td><small className="mono clip">{p.sha256}</small></td></tr>)}</tbody></table></div></div>
+    </> : <div className="card empty panel-empty">选择下载目录并点击“本地校验”，然后导入服务器。</div>}
 
     {progress && <div className="card progress-card"><div className="card-title"><span>{progress.kind}</span><span>{progress.packId ? shortID(progress.packId) : 'manifest'}</span></div><div className="progress"><div style={{width: `${pct}%`}} /></div><div className="progress-caption"><span>{formatBytes(progress.transferred)} / {formatBytes(progress.total)}</span><strong>{pct.toFixed(1)}%</strong></div></div>}
 

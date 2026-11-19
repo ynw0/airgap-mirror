@@ -30,14 +30,14 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">AM</div><div><strong>Airgap Mirror</strong><small>Offline Package Sync</small></div></div>
       <nav>
-        <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}><span>01</span><div>源状态<small>Agent / State Capsule</small></div></button>
-        <button className={tab === 'sync' ? 'active' : ''} onClick={() => setTab('sync')}><span>02</span><div>互联网同步<small>Analyze / Download</small></div></button>
-        <button className={tab === 'server' ? 'active' : ''} onClick={() => setTab('server')}><span>03</span><div>服务器更新<small>Transfer / Publish</small></div></button>
+        <button className={tab === 'sources' ? 'active' : ''} onClick={() => setTab('sources')}><span>01</span><div>连接服务器<small>导出同步状态</small></div></button>
+        <button className={tab === 'sync' ? 'active' : ''} onClick={() => setTab('sync')}><span>02</span><div>联网下载<small>检查更新并保存文件</small></div></button>
+        <button className={tab === 'server' ? 'active' : ''} onClick={() => setTab('server')}><span>03</span><div>离线导入<small>上传文件并更新仓库</small></div></button>
       </nav>
       <div className="sidebar-status">
-        <div><span className={`dot ${overview?.connected ? 'ok' : ''}`} />{overview?.connected ? 'Mirror Agent online' : 'Mirror Agent offline'}</div>
+        <div><span className={`dot ${overview?.connected ? 'ok' : ''}`} />{overview?.connected ? '服务器已连接' : '服务器未连接'}</div>
         <small>Workspace</small><code>{bootstrap?.workspaceRoot ? shortID(bootstrap.workspaceRoot) : '初始化中…'}</code>
-        <small>{capsules.length} State Capsule</small>
+        <small>{capsules.length} 份状态文件</small>
       </div>
     </aside>
     <main className="content">

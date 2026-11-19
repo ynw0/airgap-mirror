@@ -62,7 +62,7 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
       setPlan(result)
       if (!result.noChanges) setEpochView({ epoch: result.plan.epoch, batches: result.batches })
       setHistory(await app().ListEpochs(capsuleID, sourceID))
-      setMessage(result.noChanges ? '上游游标未变化，无需下载。' : `已规划 ${result.batches.length} 个 Batch。`)
+      setMessage(result.noChanges ? '软件源没有变化，无需下载。' : `已规划 ${result.batches.length} 个 Batch。`)
     } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
   async function resume(epochID: string) {
@@ -89,14 +89,16 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
 
   const batches = epochView?.batches ?? plan?.batches ?? []
   return <section className="page-stack">
-    <div className="page-header"><div><h2>互联网同步</h2><p>导入内网状态，冻结 Epoch，按移动介质容量规划并断点下载。</p></div><button className="primary" disabled={busy} onClick={importCapsule}>导入 State Capsule</button></div>
+    <div className="page-header"><div><h2>联网下载</h2><p>选择从内网带出的状态文件，检查更新，然后下载到移动硬盘。</p></div><button className="primary" disabled={busy} onClick={importCapsule}>选择状态文件</button></div>
 
     <div className="card form-grid sync-selector">
-      <label>State Capsule<select value={capsuleID} onChange={e => setCapsuleID(e.target.value)}><option value="">请选择</option>{capsules.map(c => <option key={c.id} value={c.id}>{shortID(c.id)} · {formatDate(c.exportedAt)}</option>)}</select></label>
-      <label>Source<select value={sourceID} onChange={e => { setSourceID(e.target.value); setProbe(null); setPlan(null); setEpochView(null) }}><option value="">请选择</option>{capsule?.sources.map(s => <option key={s.source.id} value={s.source.id}>{s.source.name} · {s.source.type}/{s.source.provider}</option>)}</select></label>
-      <label>Batch 上限 (TiB)<input type="number" min="0.1" step="0.1" value={batchTiB} onChange={e => setBatchTiB(Number(e.target.value))} /></label>
-      <label>Pack 目标 (GiB)<input type="number" min="1" step="1" value={packGiB} onChange={e => setPackGiB(Number(e.target.value))} /></label>
-      <div className="button-row align-end"><button disabled={!sourceID || busy} onClick={probeSource}>Probe</button><button className="primary" disabled={!sourceID || busy} onClick={analyze}>Analyze / Plan</button></div>
+      <label>状态文件<select value={capsuleID} onChange={e => setCapsuleID(e.target.value)}><option value="">请选择</option>{capsules.map(c => <option key={c.id} value={c.id}>{shortID(c.id)} · {formatDate(c.exportedAt)}</option>)}</select></label>
+      <label>软件源<select value={sourceID} onChange={e => { setSourceID(e.target.value); setProbe(null); setPlan(null); setEpochView(null) }}><option value="">请选择</option>{capsule?.sources.map(s => <option key={s.source.id} value={s.source.id}>{s.source.name} · {s.source.type}/{s.source.provider}</option>)}</select></label>
+      <details className="advanced-options span-2"><summary>高级选项（默认无需修改）</summary><div className="form-grid">
+        <label>单批容量 (TiB)<input type="number" min="0.1" step="0.1" value={batchTiB} onChange={e => setBatchTiB(Number(e.target.value))} /></label>
+        <label>单包容量 (GiB)<input type="number" min="1" step="1" value={packGiB} onChange={e => setPackGiB(Number(e.target.value))} /></label>
+      </div></details>
+      <div className="button-row align-end"><button disabled={!sourceID || busy} onClick={probeSource}>检查上游</button><button className="primary" disabled={!sourceID || busy} onClick={analyze}>计算更新</button></div>
     </div>
 
     {(probe || plan) && <div className="metrics-grid">
@@ -107,14 +109,14 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     </div>}
 
     <div className="card">
-      <div className="card-title"><span>Batch 下载</span><div className="path-picker compact"><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="移动硬盘 / 下载目录" /><button onClick={chooseDestination}>浏览</button><label className="inline-label">并发<input type="number" min="1" max="16" value={concurrency} onChange={e => setConcurrency(Number(e.target.value))} /></label></div></div>
+      <div className="card-title"><span>下载到移动硬盘</span><div className="path-picker compact"><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="移动硬盘 / 下载目录" /><button onClick={chooseDestination}>浏览</button><details className="advanced-options compact-options"><summary>高级</summary><label className="inline-label">并发数<input type="number" min="1" max="16" value={concurrency} onChange={e => setConcurrency(Number(e.target.value))} /></label></details></div></div>
       {batches.length ? <div className="batch-grid">{batches.map(batch => {
         const p = progress[batch.id]; const total = p?.totalBytes ?? batch.plannedBytes; const done = p?.downloadedBytes ?? 0; const pct = total ? Math.min(100, done / total * 100) : (batch.status === 'READY' ? 100 : 0); const active = running.has(batch.id)
-        return <article className="batch-card" key={batch.id}><div className="batch-head"><div><strong>Batch {batch.sequence}</strong><small>{shortID(batch.id)}</small></div><span className={`status status-${batch.status.toLowerCase()}`}>{p?.batch.status ?? batch.status}</span></div><div className="batch-stats"><span>{formatBytes(batch.plannedBytes)}</span><span>{formatCount(batch.objectCount)} objects</span><span>{batch.packCount} packs</span></div><div className="progress"><div style={{width: `${pct}%`}} /></div><small>{formatBytes(done)} / {formatBytes(total)} · {pct.toFixed(1)}%{p ? ` · ${p.verifiedEntries}/${p.totalEntries} verified` : ''}</small><div className="button-row"><button onClick={() => refreshBatchProgress(batch.id)}>刷新</button>{active ? <button onClick={() => pause(batch.id)}>暂停</button> : <button className="primary" disabled={batch.status === 'READY' || batch.status === 'IMPORTED'} onClick={() => download(batch)}>下载 / 继续</button>}</div></article>
-      })}</div> : <div className="empty panel-empty">Analyze 后显示 Batch。</div>}
+        return <article className="batch-card" key={batch.id}><div className="batch-head"><div><strong>Batch {batch.sequence}</strong><small>{shortID(batch.id)}</small></div><span className={`status status-${batch.status.toLowerCase()}`}>{p?.batch.status ?? batch.status}</span></div><div className="batch-stats"><span>{formatBytes(batch.plannedBytes)}</span><span>{formatCount(batch.objectCount)} objects</span><span>{batch.packCount} packs</span></div><div className="progress"><div style={{width: `${pct}%`}} /></div><small>{formatBytes(done)} / {formatBytes(total)} · {pct.toFixed(1)}%{p ? ` · ${p.verifiedEntries}/${p.totalEntries} verified` : ''}</small><div className="button-row"><button onClick={() => refreshBatchProgress(batch.id)}>刷新</button>{active ? <button onClick={() => pause(batch.id)}>暂停</button> : <button className="primary" disabled={active || (p?.batch.status ?? batch.status) === 'READY' || (p?.batch.status ?? batch.status) === 'IMPORTED'} onClick={() => download(batch)}>下载 / 继续</button>}</div></article>
+      })}</div> : <div className="empty panel-empty">点击“计算更新”后显示需要下载的批次。</div>}
     </div>
 
-    <div className="card table-card"><div className="card-title"><span>本地 Epoch 历史</span><button disabled={!sourceID} onClick={async () => sourceID && setHistory(await app().ListEpochs(capsuleID, sourceID))}>刷新</button></div><div className="table-wrap"><table><thead><tr><th>Epoch</th><th>状态</th><th>Base → Target</th><th>数据量</th><th>Batch</th><th>创建时间</th><th></th></tr></thead><tbody>{history.length ? history.map(e => <tr key={e.id}><td><code>{shortID(e.id)}</code></td><td><span className={`status status-${e.status.toLowerCase()}`}>{e.status}</span></td><td><small className="mono clip">{e.baseCursor.value} → {e.targetCursor.value}</small></td><td>{formatBytes(e.totalBytes)}<small>{formatCount(e.totalObjects)} objects</small></td><td>{e.totalBatches}</td><td>{formatDate(e.createdAt)}</td><td><button onClick={() => resume(e.id)}>打开</button></td></tr>) : <tr><td colSpan={7} className="empty">暂无历史。</td></tr>}</tbody></table></div></div>
+    <div className="card table-card"><div className="card-title"><span>最近的同步记录</span><button disabled={!sourceID} onClick={async () => sourceID && setHistory(await app().ListEpochs(capsuleID, sourceID))}>刷新</button></div><div className="table-wrap"><table><thead><tr><th>Epoch</th><th>状态</th><th>Base → Target</th><th>数据量</th><th>Batch</th><th>创建时间</th><th></th></tr></thead><tbody>{history.length ? history.map(e => <tr key={e.id}><td><code>{shortID(e.id)}</code></td><td><span className={`status status-${e.status.toLowerCase()}`}>{e.status}</span></td><td><small className="mono clip">{e.baseCursor.value} → {e.targetCursor.value}</small></td><td>{formatBytes(e.totalBytes)}<small>{formatCount(e.totalObjects)} objects</small></td><td>{e.totalBatches}</td><td>{formatDate(e.createdAt)}</td><td><button onClick={() => resume(e.id)}>打开</button></td></tr>) : <tr><td colSpan={7} className="empty">暂无历史。</td></tr>}</tbody></table></div></div>
     {message && <div className="notice">{message}</div>}
   </section>
 }

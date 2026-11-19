@@ -6,7 +6,7 @@
   text-rendering: optimizeLegibility;
 }
 * { box-sizing: border-box; }
-html, body, #root { width: 100%; min-width: 1000px; height: 100%; margin: 0; }
+html, body, #root { width: 100%; min-width: 0; height: 100%; margin: 0; }
 body { overflow: hidden; background: radial-gradient(circle at top right, #182232 0, #0c1017 42%); }
 button, input, select { font: inherit; }
 button { border: 1px solid #344154; background: #161e29; color: #dce5f2; border-radius: 8px; padding: 8px 13px; cursor: pointer; transition: .16s ease; }
@@ -126,4 +126,31 @@ td small { max-width: 320px; }
   .agent-form { grid-template-columns: 1fr 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .export-row { grid-template-columns: 1fr; }
+}
+
+.advanced-options { min-width: 0; align-self: end; color: #aab6c6; font-size: 12px; }
+.advanced-options summary { cursor: pointer; padding: 9px 0; user-select: none; }
+.advanced-options .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 0; }
+.compact-options .inline-label { margin: 8px 0; }
+
+@media (max-width: 900px) {
+  .shell { display: flex; flex-direction: column; }
+  .sidebar { flex-direction: row; align-items: center; gap: 12px; padding: 9px 14px; }
+  .brand { padding: 0; flex-shrink: 0; }
+  .brand small, .sidebar-status { display: none; }
+  .sidebar nav { flex-direction: row; flex-wrap: wrap; gap: 3px; }
+  .sidebar nav button { padding: 8px; }
+  .content { flex: 1; min-height: 0; padding: 18px; }
+  .page-header { flex-wrap: wrap; }
+}
+@media (max-width: 620px) {
+  .sidebar { align-items: flex-start; flex-direction: column; }
+  .sidebar nav { width: 100%; justify-content: space-between; }
+  .sidebar nav button { flex: 1; }
+  .form-grid, .sync-selector, .transfer-form, .source-form, .agent-form, .metrics-grid { grid-template-columns: minmax(0, 1fr); }
+  .span-2 { grid-column: auto; }
+  .card-title, .page-header { flex-wrap: wrap; }
+  .path-picker { flex-wrap: wrap; }
+  .path-picker input { min-width: 0; flex: 1; }
+  .advanced-options .form-grid { grid-template-columns: 1fr; }
 }

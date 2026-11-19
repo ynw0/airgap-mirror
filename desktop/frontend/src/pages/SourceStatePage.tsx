@@ -109,13 +109,13 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
 
   return <section className="page-stack">
     <div className="page-header">
-      <div><h2>源状态</h2><p>连接内网 Mirror Agent，查看实时游标、容量并导出 State Capsule。</p></div>
+      <div><h2>连接服务器</h2><p>连接内网服务器，选择软件源并导出状态文件，带到联网电脑使用。</p></div>
       <span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? '已连接' : '未连接'}</span>
     </div>
 
     <div className="card form-grid agent-form">
-      <label>Agent URL<input value={baseURL} onChange={e => setBaseURL(e.target.value)} disabled={!!overview} /></label>
-      <label>Bearer Token<input type="password" value={token} onChange={e => setToken(e.target.value)} disabled={!!overview} placeholder="AIRGAP_MIRROR_TOKEN" /></label>
+      <label>服务器地址<input value={baseURL} onChange={e => setBaseURL(e.target.value)} disabled={!!overview} /></label>
+      <label>连接令牌<input type="password" value={token} onChange={e => setToken(e.target.value)} disabled={!!overview} placeholder="AIRGAP_MIRROR_TOKEN" /></label>
       <div className="button-row align-end">
         {!overview ? <button className="primary" disabled={busy} onClick={connect}>连接</button> : <>
           <button disabled={busy} onClick={refresh}>刷新</button><button className="danger-ghost" onClick={disconnect}>断开</button>
@@ -125,7 +125,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
 
     <div className="card table-card">
       <div className="card-title">
-        <span>Mirror Sources</span>
+        <span>软件源</span>
         <div className="button-row">{overview ? <><span>{overview.sources.length} 个源</span><button disabled={busy} onClick={() => setEditor('create')}>新建源</button></> : <span>等待连接</span>}</div>
       </div>
       <div className="table-wrap"><table><thead><tr><th></th><th>源</th><th>类型 / Provider</th><th>Live Cursor</th><th>对象 / 数据量</th><th>文件系统容量</th><th>Active Epoch</th><th>更新时间</th><th></th></tr></thead>
@@ -151,7 +151,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
 
     {overview && <div className="card table-card">
       <div className="card-title">
-        <span>服务端 Epoch</span>
+        <span>同步任务</span>
         <span>{epochSource?.state.activeEpochId ? `Active ${shortID(epochSource.state.activeEpochId)}` : '无 Active Epoch'}</span>
       </div>
       <div className="form-grid">
@@ -175,7 +175,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
     <MaintenancePanel overview={overview} />
 
     <div className="card export-row">
-      <div><h3>导出 State Capsule</h3><p>只包含源状态与 Catalog 快照，不包含制品本体。复制到互联网电脑后用于增量分析。</p></div>
+      <div><h3>导出状态文件</h3><p>保存到移动硬盘，拿到联网电脑上检查并下载更新；不包含软件安装包。</p></div>
       <div className="path-picker"><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="选择 .mstate 保存位置" /><button onClick={chooseDestination}>浏览</button><button className="primary" disabled={!overview || busy || !selectedIDs.length} onClick={exportCapsule}>导出 {selectedIDs.length ? `(${selectedIDs.length})` : ''}</button></div>
     </div>
     {message && <div className="notice">{message}</div>}
