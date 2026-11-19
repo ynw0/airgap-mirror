@@ -189,6 +189,25 @@ func ExtractClearSignedRelease(in []byte) ([]byte, error) {
 	return clearSignedBody(in)
 }
 
+// ReleaseIndex 是 Release 中声明的一个仓库索引文件及其校验值。
+type ReleaseIndex struct {
+	Path   string
+	Size   int64
+	SHA256 string
+}
+
+func ReleaseIndexes(body []byte) ([]ReleaseIndex, error) {
+	doc, err := parseRelease(body)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReleaseIndex, 0, len(doc.Entries))
+	for _, entry := range doc.Entries {
+		out = append(out, ReleaseIndex{Path: entry.Path, Size: entry.Size, SHA256: entry.SHA256})
+	}
+	return out, nil
+}
+
 func parseRelease(body []byte) (releaseDoc, error) {
 	var out releaseDoc
 	s := bufio.NewScanner(strings.NewReader(string(body)))
@@ -403,6 +422,10 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 			}
 			if !art.Metadata {
 				return "", false, fmt.Errorf("APT immutable path changed %s: %w", art.LogicalPath, domain.ErrConflict)
+			}
+			// 上游 Cursor 未变时，允许内网仓库保留自己的签名；不重复下载同一份 Release 的上游签名。
+			if req.Base.Equal(epoch.TargetCursor) && (art.LogicalPath == path.Join("dists", cfg.Suite, "InRelease") || art.LogicalPath == path.Join("dists", cfg.Suite, "Release.gpg")) {
+				return domain.ArtifactUpdate, false, nil
 			}
 			return domain.ArtifactUpdate, true, nil
 		}

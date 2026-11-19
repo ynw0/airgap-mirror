@@ -170,6 +170,25 @@ func (s *APTSigner) Sign(ctx context.Context, sourceID string) (APTSignResult, e
 	if len(plain) == 0 || len(plain) > 32<<20 {
 		return result, fmt.Errorf("Release 正文大小异常: %w", domain.ErrConflict)
 	}
+	// 重新签名之前，确认 Release 所列的索引都属于刚清点过的仓库文件。
+	// 否则会给不完整的仓库清单签发看似可信的签名。
+	indexes, err := apt.ReleaseIndexes(plain)
+	if err != nil {
+		return result, err
+	}
+	for _, index := range indexes {
+		indexPath := base + "/" + index.Path
+		if _, err = safeTarget(source.RootPath, indexPath); err != nil {
+			return result, err
+		}
+		entry, getErr := s.Catalog.Get(ctx, sourceID, indexPath)
+		if getErr != nil {
+			return result, fmt.Errorf("Release 引用了仓库里没有的索引 %s，请检查或重新同步: %w", indexPath, domain.ErrConflict)
+		}
+		if entry.Size != index.Size || !strings.EqualFold(entry.SHA256, index.SHA256) {
+			return result, fmt.Errorf("Release 索引 %s 与清点结果不同，拒绝签名: %w", indexPath, domain.ErrConflict)
+		}
+	}
 
 	work, err := os.MkdirTemp("", "airgap-sign-*")
 	if err != nil {
