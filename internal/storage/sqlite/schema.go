@@ -102,18 +102,26 @@ func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
- // Migrate only the repair report schema, not the large live catalog. The
- // existing maintenance table gains an additive mode field with default 0.
+// Migrate only the repair report schema, not the large live catalog. The
+// existing maintenance table gains an additive mode field with default 0.
 func migrateIntegritySchema(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer tx.Rollback()
 	var ddl string
-	if err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='maintenance_jobs'").Scan(&ddl); err != nil { return err }
-	if !strings.Contains(ddl, "hash_mib_per_second") {
-		if _, err = tx.ExecContext(ctx, "ALTER TABLE maintenance_jobs ADD COLUMN hash_mib_per_second INTEGER NOT NULL DEFAULT 0 CHECK(hash_mib_per_second BETWEEN 0 AND 1024)"); err != nil { return err }
+	if err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='maintenance_jobs'").Scan(&ddl); err != nil {
+		return err
 	}
-	if err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='repair_issues'").Scan(&ddl); err != nil { return err }
+	if !strings.Contains(ddl, "hash_mib_per_second") {
+		if _, err = tx.ExecContext(ctx, "ALTER TABLE maintenance_jobs ADD COLUMN hash_mib_per_second INTEGER NOT NULL DEFAULT 0 CHECK(hash_mib_per_second BETWEEN 0 AND 1024)"); err != nil {
+			return err
+		}
+	}
+	if err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='repair_issues'").Scan(&ddl); err != nil {
+		return err
+	}
 	if !strings.Contains(ddl, "'HASH_MISMATCH'") {
 		for _, stmt := range []string{
 			`CREATE TABLE repair_issues_next(
@@ -128,7 +136,9 @@ func migrateIntegritySchema(ctx context.Context, db *sql.DB) error {
 			"ALTER TABLE repair_issues_next RENAME TO repair_issues",
 			"CREATE INDEX ix_repair_issue_kind ON repair_issues(job_id,kind,package_key)",
 		} {
-			if _, err = tx.ExecContext(ctx,stmt); err != nil { return fmt.Errorf("migrate repair reports: %w",err) }
+			if _, err = tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate repair reports: %w", err)
+			}
 		}
 	}
 	return tx.Commit()

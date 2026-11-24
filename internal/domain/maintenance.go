@@ -68,12 +68,12 @@ func ValidateMaintenanceTransition(from, to MaintenanceStatus) error {
 }
 
 type RepairIssue struct {
-	LogicalPath string `json:"logicalPath"`
-	PackageKey  string `json:"packageKey"`
-	Size        int64  `json:"size"`
-	SHA256      string `json:"sha256"`
-	Kind        string `json:"kind"`
-	ActualSize  int64  `json:"actualSize"`
+	LogicalPath  string `json:"logicalPath"`
+	PackageKey   string `json:"packageKey"`
+	Size         int64  `json:"size"`
+	SHA256       string `json:"sha256"`
+	Kind         string `json:"kind"`
+	ActualSize   int64  `json:"actualSize"`
 	ActualSHA256 string `json:"actualSha256,omitempty"`
 }
 

@@ -124,8 +124,10 @@ func (a *App) ReclaimCatalogHistory(sourceID string) (domain.CatalogReclaimResul
 	return agent.ReclaimCatalogHistory(a.ctx, sourceID)
 }
 
-func(a *App) StartIntegrity(sourceID string,mibPerSecond int)(domain.MaintenanceJob,error){
-	agent,err:=a.agentRef()
-	if err!=nil{return domain.MaintenanceJob{},err}
-	return agent.StartIntegrity(a.ctx,sourceID,mibPerSecond)
+func (a *App) StartIntegrity(sourceID string, mibPerSecond int) (domain.MaintenanceJob, error) {
+	agent, err := a.agentRef()
+	if err != nil {
+		return domain.MaintenanceJob{}, err
+	}
+	return agent.StartIntegrity(a.ctx, sourceID, mibPerSecond)
 }

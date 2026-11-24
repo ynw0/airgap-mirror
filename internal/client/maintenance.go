@@ -98,8 +98,8 @@ func (c *AgentClient) RepairIssues(ctx context.Context, jobID, after string, lim
 	return out, err
 }
 
-func (c *AgentClient) StartIntegrity(ctx context.Context,sourceID string,mibPerSecond int)(domain.MaintenanceJob,error){
+func (c *AgentClient) StartIntegrity(ctx context.Context, sourceID string, mibPerSecond int) (domain.MaintenanceJob, error) {
 	var out domain.MaintenanceJob
-	err:=c.jsonRequest(ctx,http.MethodPost,"/api/v1/sources/"+url.PathEscape(sourceID)+"/integrity-check",map[string]int{"mibPerSecond":mibPerSecond},&out)
-	return out,err
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/sources/"+url.PathEscape(sourceID)+"/integrity-check", map[string]int{"mibPerSecond": mibPerSecond}, &out)
+	return out, err
 }

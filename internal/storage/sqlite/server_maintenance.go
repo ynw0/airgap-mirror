@@ -57,7 +57,7 @@ func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.Maint
 		return fmt.Errorf("unsupported maintenance kind %q: %w", job.Kind, domain.ErrInvalid)
 	}
 	if job.HashMiBPerSecond < 0 || job.HashMiBPerSecond > 1024 || (job.HashMiBPerSecond > 0 && job.Kind != domain.MaintenanceRepair) {
-		return fmt.Errorf("invalid integrity check speed: %w",domain.ErrInvalid)
+		return fmt.Errorf("invalid integrity check speed: %w", domain.ErrInvalid)
 	}
 	if job.Status != domain.MaintenanceQueued {
 		return fmt.Errorf("new maintenance job must start QUEUED: %w", domain.ErrInvalid)
