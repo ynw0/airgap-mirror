@@ -1,0 +1,28 @@
+name: Temporary integrity format
+on:
+  push:
+    branches: ['feat/pypi-integrity-check']
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pypi-integrity-check
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Format and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git ls-files -z '*.go' | xargs -0 gofmt -w
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -u
+            git commit -m "style: format integrity verification changes"
+            git push origin HEAD:feat/pypi-integrity-check
+          fi
