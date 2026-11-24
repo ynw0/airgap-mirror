@@ -30,6 +30,17 @@ func (c CapsuleService) now() time.Time {
 	return time.Now()
 }
 func (c CapsuleService) Export(ctx context.Context, sourceIDs []string) (domain.StateCapsule, string, error) {
+	return c.export(ctx, sourceIDs, "")
+}
+
+func (c CapsuleService) ExportRepair(ctx context.Context, sourceID, jobID string) (domain.StateCapsule, string, error) {
+	if sourceID == "" || jobID == "" {
+		return domain.StateCapsule{}, "", domain.ErrInvalid
+	}
+	return c.export(ctx, []string{sourceID}, jobID)
+}
+
+func (c CapsuleService) export(ctx context.Context, sourceIDs []string, repairJobID string) (domain.StateCapsule, string, error) {
 	var cap domain.StateCapsule
 	if c.Store == nil || c.Exporter == nil || c.OutputDir == "" {
 		return cap, "", fmt.Errorf("capsule service not configured")
@@ -39,6 +50,9 @@ func (c CapsuleService) Export(ctx context.Context, sourceIDs []string) (domain.
 		return cap, "", err
 	}
 	cap = domain.StateCapsule{SchemaVersion: domain.CapsuleSchemaVersion, ID: id, ExportedAt: c.now()}
+	if repairJobID != "" {
+		cap.SchemaVersion = domain.RepairCapsuleSchemaVersion
+	}
 	if err = os.MkdirAll(c.OutputDir, 0755); err != nil {
 		return cap, "", err
 	}
@@ -68,16 +82,32 @@ func (c CapsuleService) Export(ctx context.Context, sourceIDs []string) (domain.
 		return cap, "", err
 	}
 	for _, s := range sources {
-		state, e := c.Store.GetState(ctx, s.ID)
+		rel := filepath.ToSlash(filepath.Join("catalogs", s.ID+".sqlite"))
+		local := filepath.Join(work, filepath.FromSlash(rel))
+		var state domain.SourceState
+		var e error
+		if repairJobID != "" {
+			repair, ok := c.Exporter.(interface {
+				ExportRepairSnapshot(context.Context, string, string, string) (domain.Source, domain.SourceState, error)
+			})
+			if !ok {
+				return cap, "", domain.ErrInvalid
+			}
+			s, state, e = repair.ExportRepairSnapshot(ctx, s.ID, local, repairJobID)
+		} else if snapshotter, ok := c.Exporter.(interface {
+			ExportSourceSnapshot(context.Context, string, string) (domain.Source, domain.SourceState, error)
+		}); ok {
+			s, state, e = snapshotter.ExportSourceSnapshot(ctx, s.ID, local)
+		} else {
+			state, e = c.Store.GetState(ctx, s.ID)
+			if e == nil {
+				e = c.Exporter.ExportSource(ctx, s.ID, local)
+			}
+		}
 		if e != nil {
 			return cap, "", e
 		}
 		cap.Sources = append(cap.Sources, domain.CapsuleSource{Source: s.Public(), State: state})
-		rel := filepath.ToSlash(filepath.Join("catalogs", s.ID+".sqlite"))
-		local := filepath.Join(work, filepath.FromSlash(rel))
-		if e = c.Exporter.ExportSource(ctx, s.ID, local); e != nil {
-			return cap, "", e
-		}
 		h, n, e := pack.FileSHA256(local)
 		if e != nil {
 			return cap, "", e

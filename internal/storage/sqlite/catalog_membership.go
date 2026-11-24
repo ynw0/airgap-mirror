@@ -10,7 +10,7 @@ import (
 
 func (s *ServerStore) Contains(ctx context.Context, sourceID, logicalPath string) (bool, error) {
 	var one int
-	err := s.DB.QueryRowContext(ctx, `SELECT 1 FROM catalog_entries WHERE source_id=? AND logical_path=?`, sourceID, logicalPath).Scan(&one)
+	err := s.DB.QueryRowContext(ctx, `SELECT 1 FROM live_catalog_entries WHERE source_id=? AND logical_path=?`, sourceID, logicalPath).Scan(&one)
 	if err == nil {
 		return true, nil
 	}

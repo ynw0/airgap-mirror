@@ -99,6 +99,9 @@ func (r *MaintenanceRunner) ResumeInventory(ctx context.Context, id string) (dom
 	if err != nil {
 		return job, err
 	}
+	if job.Kind == domain.MaintenanceRepair {
+		return r.resumeRepair(ctx, job)
+	}
 	if job.Kind != domain.MaintenanceInventory || job.Status != domain.MaintenancePaused {
 		return job, fmt.Errorf("只有已暂停的文件清点任务可以继续: %w", domain.ErrConflict)
 	}
@@ -141,7 +144,7 @@ func (r *MaintenanceRunner) PauseInventory(ctx context.Context, id string) (doma
 	if err != nil {
 		return job, err
 	}
-	if job.Kind != domain.MaintenanceInventory || (job.Status != domain.MaintenanceRunning && job.Status != domain.MaintenanceQueued) {
+	if (job.Kind != domain.MaintenanceInventory && job.Kind != domain.MaintenanceRepair) || (job.Status != domain.MaintenanceRunning && job.Status != domain.MaintenanceQueued) {
 		return job, fmt.Errorf("只有正在扫描的任务可以暂停: %w", domain.ErrConflict)
 	}
 	source, err := r.Sources.GetSource(ctx, job.SourceID)
@@ -315,12 +318,19 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 	// Replacing millions of Catalog rows can take much longer than the 30s
 	// timeout used for small progress updates. Keep a single atomic SQLite
 	// transaction, but let the worker's context control its lifetime.
-	if err = r.Jobs.ReplaceCatalogFromFile(ctx, source.ID, sink.Path(), actual, r.now()); err != nil {
+	if generations, ok := r.Jobs.(interface {
+		PublishInventoryCatalog(context.Context, string, string, string, domain.CatalogStats, time.Time) error
+	}); ok {
+		err = generations.PublishInventoryCatalog(ctx, job.ID, source.ID, sink.Path(), actual, r.now())
+	} else {
+		err = r.Jobs.ReplaceCatalogFromFile(ctx, source.ID, sink.Path(), actual, r.now())
+		if err == nil {
+			err = r.transition(job.ID, domain.MaintenanceCompleted, "")
+		}
+	}
+	if err != nil {
 		r.finishInventoryError(job.ID, resumable, err)
 		return
-	}
-	if err = r.transition(job.ID, domain.MaintenanceCompleted, ""); err != nil {
-		return // keep the checkpoint if the final status write cannot be completed
 	}
 	if resumable {
 		if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok {

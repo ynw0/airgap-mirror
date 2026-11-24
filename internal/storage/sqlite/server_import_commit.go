@@ -49,14 +49,14 @@ func (s *ServerStore) CommitImportedEntry(ctx context.Context, m domain.Manifest
 		// 同路径不同 hash 是硬冲突，Catalog 不得覆盖。
 		var existSHA string
 		var existSize int64
-		err = tx.QueryRowContext(ctx, `SELECT sha256,size FROM catalog_entries WHERE source_id=? AND logical_path=?`, c.SourceID, c.LogicalPath).Scan(&existSHA, &existSize)
+		err = tx.QueryRowContext(ctx, `SELECT sha256,size FROM live_catalog_entries WHERE source_id=? AND logical_path=?`, c.SourceID, c.LogicalPath).Scan(&existSHA, &existSize)
 		if err == nil && (existSHA != a.SHA256 || existSize != a.Size) {
 			return false, fmt.Errorf("catalog path %s already has different content: %w", a.LogicalPath, domain.ErrConflict)
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return false, err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO catalog_entries(source_id,logical_path,size,sha256,package_key,version,attributes,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source_id,logical_path) DO UPDATE SET size=excluded.size,sha256=excluded.sha256,package_key=excluded.package_key,version=excluded.version,attributes=excluded.attributes,updated_at=excluded.updated_at`, c.SourceID, c.LogicalPath, c.Size, c.SHA256, c.PackageKey, c.Version, []byte(c.Attributes), timeString(c.UpdatedAt))
+		err = upsertLiveCatalog(ctx, tx, c)
 		if err != nil {
 			return false, err
 		}

@@ -52,7 +52,7 @@ func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.Maint
 	if job.ID == "" || job.SourceID == "" {
 		return fmt.Errorf("maintenance job id/sourceId are required: %w", domain.ErrInvalid)
 	}
-	if job.Kind != domain.MaintenanceInventory && job.Kind != domain.MaintenanceGC {
+	if job.Kind != domain.MaintenanceInventory && job.Kind != domain.MaintenanceGC && job.Kind != domain.MaintenanceRepair {
 		return fmt.Errorf("unsupported maintenance kind %q: %w", job.Kind, domain.ErrInvalid)
 	}
 	if job.Status != domain.MaintenanceQueued {

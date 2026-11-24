@@ -90,3 +90,66 @@ func (s *CatalogSnapshot) ValidateSource(ctx context.Context, sourceID string) e
 	}
 	return nil
 }
+
+func (s *CatalogSnapshot) WalkRepairProjects(ctx context.Context, sourceID string, visit func(string) error) error {
+	var present int
+	if err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='repair_entries')`).Scan(&present); err != nil {
+		return err
+	}
+	if present == 0 {
+		return nil
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT DISTINCT package_key FROM repair_entries WHERE source_id=? ORDER BY package_key`, sourceID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var project string
+		if err = rows.Scan(&project); err != nil {
+			return err
+		}
+		if err = visit(project); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func (s *CatalogSnapshot) RepairEntries(ctx context.Context, sourceID, project string) ([]domain.CatalogEntry, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT logical_path,size,sha256 FROM repair_entries WHERE source_id=? AND package_key=? ORDER BY logical_path`, sourceID, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.CatalogEntry
+	for rows.Next() {
+		v := domain.CatalogEntry{SourceID: sourceID, PackageKey: project}
+		if err = rows.Scan(&v.LogicalPath, &v.Size, &v.SHA256); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func (s *CatalogSnapshot) ValidateRepairSnapshot(ctx context.Context, sourceID string, repair bool) error {
+	var present int
+	if err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='repair_entries')`).Scan(&present); err != nil {
+		return err
+	}
+	if repair != (present == 1) {
+		return fmt.Errorf("repair capsule schema and evidence disagree: %w", domain.ErrConflict)
+	}
+	if !repair {
+		return nil
+	}
+	var count, invalid int64
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN r.source_id<>? OR r.size<0 OR LENGTH(r.sha256)<>64 OR r.package_key='' OR EXISTS(SELECT 1 FROM catalog_entries c WHERE c.source_id=r.source_id AND c.logical_path=r.logical_path) THEN 1 ELSE 0 END),0) FROM repair_entries r`, sourceID).Scan(&count, &invalid); err != nil {
+		return err
+	}
+	if count == 0 || invalid != 0 {
+		return fmt.Errorf("invalid repair evidence: %w", domain.ErrConflict)
+	}
+	return nil
+}

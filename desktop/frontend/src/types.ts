@@ -72,7 +72,7 @@ export interface DesktopTransferResult {
 export interface StateExportResult { path: string; export: { capsule: StateCapsule; name: string; download: string } }
 
 
-export type MaintenanceKind = 'INVENTORY' | 'GC'
+export type MaintenanceKind = 'INVENTORY' | 'GC' | 'REPAIR'
 export type MaintenanceStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 export interface MaintenanceJob {
   id: string; sourceId: string; kind: MaintenanceKind; status: MaintenanceStatus; execute: boolean;
@@ -83,3 +83,6 @@ export interface MaintenanceJob {
 export interface GCCandidate { logicalPath: string; size: number; modTimeUnixNano: number }
 export interface GCStats { objects: number; bytes: number }
 export interface GCCandidatesPage { items: GCCandidate[]; stats: GCStats; next: string }
+
+export interface RepairIssue { logicalPath: string; packageKey: string; size: number; sha256: string; kind: 'MISSING' | 'SIZE_MISMATCH'; actualSize: number }
+export interface RepairIssuesPage { items: RepairIssue[]; next: string }

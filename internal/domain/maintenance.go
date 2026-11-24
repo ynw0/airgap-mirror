@@ -10,6 +10,7 @@ type MaintenanceKind string
 const (
 	MaintenanceInventory MaintenanceKind = "INVENTORY"
 	MaintenanceGC        MaintenanceKind = "GC"
+	MaintenanceRepair    MaintenanceKind = "REPAIR"
 )
 
 type MaintenanceStatus string
@@ -63,4 +64,18 @@ func ValidateMaintenanceTransition(from, to MaintenanceStatus) error {
 		return fmt.Errorf("maintenance transition %s -> %s is not allowed: %w", from, to, ErrConflict)
 	}
 	return nil
+}
+
+type RepairIssue struct {
+	LogicalPath string `json:"logicalPath"`
+	PackageKey  string `json:"packageKey"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+	Kind        string `json:"kind"`
+	ActualSize  int64  `json:"actualSize"`
+}
+
+type RepairCheckpoint struct {
+	LastPath       string
+	CatalogVersion int64
 }

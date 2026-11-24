@@ -76,3 +76,24 @@ func (c *AgentClient) ResumeMaintenance(ctx context.Context, jobID string) (doma
 	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/maintenance/"+url.PathEscape(jobID)+"/resume", nil, &out)
 	return out, err
 }
+
+type RepairIssuesPage struct {
+	Items []domain.RepairIssue `json:"items"`
+	Next  string               `json:"next"`
+}
+
+func (c *AgentClient) StartRepair(ctx context.Context, sourceID string) (domain.MaintenanceJob, error) {
+	var out domain.MaintenanceJob
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/sources/"+url.PathEscape(sourceID)+"/repair-check", nil, &out)
+	return out, err
+}
+
+func (c *AgentClient) RepairIssues(ctx context.Context, jobID, after string, limit int) (RepairIssuesPage, error) {
+	var out RepairIssuesPage
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	q := url.Values{"limit": {strconv.Itoa(limit)}, "after": {after}}
+	err := c.jsonRequest(ctx, http.MethodGet, "/api/v1/maintenance/"+url.PathEscape(jobID)+"/repair-issues?"+q.Encode(), nil, &out)
+	return out, err
+}

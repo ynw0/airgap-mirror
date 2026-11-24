@@ -3,9 +3,10 @@ package domain
 import "time"
 
 const (
-	CapsuleSchemaVersion  = 1
-	BundleSchemaVersion   = 1
-	ManifestSchemaVersion = 1
+	CapsuleSchemaVersion       = 1
+	RepairCapsuleSchemaVersion = 2
+	BundleSchemaVersion        = 1
+	ManifestSchemaVersion      = 1
 )
 
 type CapsuleCatalog struct {

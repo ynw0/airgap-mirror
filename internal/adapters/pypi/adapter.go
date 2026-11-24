@@ -379,6 +379,23 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 	if meta.LastSerial != 0 && meta.LastSerial != target {
 		return plan, fmt.Errorf("PyPI root serial header/body mismatch %d/%d: %w", target, meta.LastSerial, domain.ErrConflict)
 	}
+	var repairCatalog ports.RepairCatalog
+	if repair, ok := req.Catalog.(ports.RepairCatalog); ok {
+		err = repair.WalkRepairProjects(ctx, req.Source.ID, func(project string) error {
+			if project == "" || normalizeProject(project) != project {
+				return fmt.Errorf("invalid repair project %q: %w", project, domain.ErrInvalid)
+			}
+			repairCatalog = repair
+			fresh, e := req.Workset.Add(ctx, ns, project)
+			if fresh {
+				changed++
+			}
+			return e
+		})
+		if err != nil {
+			return plan, err
+		}
+	}
 	epoch := domain.Epoch{ID: epochID, SourceID: req.Source.ID, BaseCursor: req.Base, TargetCursor: domain.Cursor{Kind: "pypi-serial", Value: strconv.FormatInt(target, 10)}, Status: domain.EpochPlanned, PublishUnitCount: changed, CreatedAt: time.Now()}
 	plan.Epoch = epoch
 	plan.PublishUnitCount = changed
@@ -420,6 +437,22 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 		// Plan all project artifacts before declaring its immutable required count.
 		unit := domain.PublishUnit{ID: unitID, EpochID: epochID, SourceID: req.Source.ID, Key: "pypi:" + project, Status: domain.PublishWaiting, MetadataPath: metadataPath}
 		views := make([]fileView, 0, len(pr.Files))
+		missing := make(map[string]domain.CatalogEntry)
+		if repairCatalog != nil {
+			entries, e := repairCatalog.RepairEntries(ctx, req.Source.ID, project)
+			if e != nil {
+				return e
+			}
+			for _, entry := range entries {
+				if entry.LogicalPath == metadataPath {
+					continue // missing project page is regenerated below
+				}
+				if !strings.HasPrefix(entry.LogicalPath, "packages/") {
+					return fmt.Errorf("invalid repair entry %s: %w", entry.LogicalPath, domain.ErrInvalid)
+				}
+				missing[entry.LogicalPath] = entry
+			}
+		}
 		var required int64
 		for _, file := range pr.Files {
 			view, x := fileViewFrom(file)
@@ -427,6 +460,12 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 				return x
 			}
 			views = append(views, view)
+			if entry, ok := missing[view.LogicalPath]; ok {
+				if entry.Size != file.Size || !strings.EqualFold(entry.SHA256, view.SHA256) {
+					return fmt.Errorf("缺失文件 %s 的上游内容与原账本不符: %w", view.LogicalPath, domain.ErrConflict)
+				}
+				delete(missing, view.LogicalPath)
+			}
 			art := domain.Artifact{LogicalPath: view.LogicalPath, Size: file.Size, SHA256: view.SHA256, UpstreamURL: view.File.URL, PublishUnitID: unitID, PackageKey: project}
 			op, needed, x := classify(ctx, req.Catalog, req.Source.ID, art)
 			if x != nil {
@@ -454,6 +493,11 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 			totalObjects++
 			totalBytes += art.Size
 			plan.ArtifactCount++
+		}
+		if len(missing) != 0 {
+			for logical := range missing {
+				return fmt.Errorf("缺失文件 %s 已无法从当前 PyPI 项目索引恢复，请使用可信备份: %w", logical, domain.ErrConflict)
+			}
 		}
 		page := renderProjectPage(project, views)
 		local, sha, size, x := req.Generated.Put(ctx, epochID, metadataPath, page)

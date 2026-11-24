@@ -84,6 +84,10 @@ func (r *LocalRepository) resolveParent(parent string) (string, error) {
 	if !withinRoot(r.Root, real) {
 		return "", fmt.Errorf("repository path escapes root: %w", domain.ErrInvalid)
 	}
+	// Bound memory on mirrors containing millions of package directories.
+	if len(r.parentReal) >= 4096 {
+		clear(r.parentReal)
+	}
 	r.parentReal[parent] = real
 	return real, nil
 }

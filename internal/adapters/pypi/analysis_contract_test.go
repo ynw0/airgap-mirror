@@ -103,3 +103,60 @@ func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 		t.Fatalf("required_count=%d, want 2", required)
 	}
 }
+
+type repairProjectCatalog struct {
+	absentProjectCatalog
+	entry domain.CatalogEntry
+}
+
+func (c repairProjectCatalog) WalkRepairProjects(ctx context.Context, sourceID string, visit func(string) error) error {
+	return visit(c.entry.PackageKey)
+}
+
+func (c repairProjectCatalog) RepairEntries(ctx context.Context, sourceID, project string) ([]domain.CatalogEntry, error) {
+	if project == c.entry.PackageKey {
+		return []domain.CatalogEntry{c.entry}, nil
+	}
+	return nil, nil
+}
+
+func TestRepairAnalyzesProjectEvenWhenSerialHasNotChanged(t *testing.T) {
+	ctx := context.Background()
+	sum := sha256.Sum256([]byte("wheel"))
+	hash := hex.EncodeToString(sum[:])
+	var serverURL string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/simple/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-PyPI-Last-Serial", "5")
+		_, _ = w.Write([]byte(`{"meta":{"api-version":"1.0","_last-serial":5},"projects":[{"name":"demo","_last-serial":5}]}`))
+	})
+	mux.HandleFunc("/simple/demo/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"meta":{"api-version":"1.0"},"name":"demo","files":[{"filename":"demo.whl","url":"%s/packages/d/demo.whl","hashes":{"sha256":"%s"},"size":5}]}`, serverURL, hash)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	serverURL = server.URL
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "client.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = storesqlite.InitClient(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err = db.ExecContext(ctx, `INSERT INTO state_capsules(id,file_path,exported_at,imported_at,state_json) VALUES(?,?,?,?,?)`, "snapshot", "", now, now, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	store := storesqlite.NewClientStore(db)
+	src := domain.Source{ID: "source", Type: domain.SourcePyPI, Provider: Provider, UpstreamURL: server.URL + "/simple", PublicURL: "https://repo.example/pypi", ConfigJSON: json.RawMessage("{}")}
+	base := domain.Cursor{Kind: "pypi-serial", Value: "5"}
+	entry := domain.CatalogEntry{SourceID: src.ID, LogicalPath: "packages/d/demo.whl", PackageKey: "demo", Size: 5, SHA256: hash}
+	plan, err := New(server.Client()).Analyze(ctx, ports.AnalyzeRequest{CapsuleID: "snapshot", Source: src, Base: base, Workset: store, Catalog: repairProjectCatalog{entry: entry}, Generated: testGenerated{root: t.TempDir()}}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.PublishUnitCount != 1 || plan.ArtifactCount != 2 || !plan.Epoch.TargetCursor.Equal(base) {
+		t.Fatalf("missing file was not planned independently of cursor: %+v", plan)
+	}
+}

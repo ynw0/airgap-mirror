@@ -175,3 +175,43 @@ CREATE TABLE IF NOT EXISTS audit_logs(
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_audit_created ON audit_logs(created_at);
+
+-- Catalog generations are additive: upgraded databases keep their existing
+-- catalog_entries as the initial live generation without a full migration.
+CREATE TABLE IF NOT EXISTS catalog_generations(
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  generation TEXT NOT NULL,
+  expected_objects INTEGER NOT NULL,
+  expected_bytes INTEGER NOT NULL,
+  copied_objects INTEGER NOT NULL DEFAULT 0,
+  copied_bytes INTEGER NOT NULL DEFAULT 0,
+  last_path TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK(status IN('BUILDING','LIVE','RETIRED')),
+  PRIMARY KEY(source_id,generation)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS catalog_generation_entries(
+  source_id TEXT NOT NULL,
+  generation TEXT NOT NULL,
+  logical_path TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  package_key TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  attributes BLOB,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(source_id,generation,logical_path),
+  FOREIGN KEY(source_id,generation) REFERENCES catalog_generations(source_id,generation) ON DELETE CASCADE
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS ix_generation_package ON catalog_generation_entries(source_id,generation,package_key);
+CREATE TABLE IF NOT EXISTS catalog_active_generation(
+  source_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+  generation TEXT NOT NULL,
+  FOREIGN KEY(source_id,generation) REFERENCES catalog_generations(source_id,generation)
+);
+CREATE VIEW IF NOT EXISTS live_catalog_entries AS
+ SELECT c.source_id,c.logical_path,c.size,c.sha256,c.package_key,c.version,c.attributes,c.updated_at
+ FROM catalog_entries c WHERE NOT EXISTS(SELECT 1 FROM catalog_active_generation a WHERE a.source_id=c.source_id)
+ UNION ALL
+ SELECT c.source_id,c.logical_path,c.size,c.sha256,c.package_key,c.version,c.attributes,c.updated_at
+ FROM catalog_generation_entries c JOIN catalog_active_generation a
+ ON a.source_id=c.source_id AND a.generation=c.generation;

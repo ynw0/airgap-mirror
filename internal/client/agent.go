@@ -291,3 +291,9 @@ func parseUploadHeaders(resp *http.Response) (offset, length int64, err error) {
 	}
 	return offset, length, nil
 }
+
+func (c *AgentClient) ExportRepairState(ctx context.Context, sourceID, jobID string) (StateExport, error) {
+	var out StateExport
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/state/export", map[string]any{"sourceIds": []string{sourceID}, "repairJobId": jobID}, &out)
+	return out, err
+}
