@@ -20,6 +20,7 @@ import (
 type approvedRepairStore interface {
 	HasApprovedRepair(context.Context, string, string) (bool, error)
 	ApprovedRepairEvidence(context.Context, string, string, string, int64, string) (domain.RepairReplacementEvidence, error)
+	GuardApprovedRepair(context.Context, string, string, domain.RepairReplacementEvidence, func() error) error
 }
 
 // Serialize approved replacements in this Agent. Normal imports never overwrite
@@ -43,7 +44,7 @@ func syncRepairDirectory(path string) error {
 // server-side approval and whose old file still matches the integrity report.
 // The original inode is hard-linked into a private quarantine before the
 // verified same-directory temporary file replaces the public path atomically.
-func repairVerifiedPackage(ctx context.Context, source domain.Source, rec domain.PackRecord, body io.Reader, evidence domain.RepairReplacementEvidence) (domain.InstallResult, error) {
+func repairVerifiedPackage(ctx context.Context, source domain.Source, rec domain.PackRecord, body io.Reader, evidence domain.RepairReplacementEvidence, guard func(func() error) error) (domain.InstallResult, error) {
 	var out domain.InstallResult
 	if source.Type != domain.SourcePyPI || source.Provider != "pypi" || !strings.HasPrefix(rec.LogicalPath, "packages/") ||
 		pack.IsStagingLogical(rec.LogicalPath) || rec.LogicalPath != evidence.LogicalPath || rec.ContentLength != evidence.Size ||
@@ -195,21 +196,27 @@ func repairVerifiedPackage(ctx context.Context, source domain.Source, rec domain
 			break
 		}
 	}
-	if err = ctx.Err(); err != nil {
-		return out, err
+	publish := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := rejectSymlinkParents(source.RootPath, target); err != nil {
+			return err
+		}
+		current, err := os.Lstat(target)
+		if err != nil {
+			return err
+		}
+		if !sameRepairFile(info, current) {
+			return fmt.Errorf("原软件包在修复期间变化: %w", domain.ErrConflict)
+		}
+		if err = os.Rename(tmp.Name(), target); err != nil {
+			return err
+		}
+		return syncRepairDirectory(filepath.Dir(target))
 	}
-	current, err = os.Lstat(target)
-	if err != nil {
-		return out, err
+	if guard != nil {
+		return out, guard(publish)
 	}
-	if !sameRepairFile(info, current) {
-		return out, fmt.Errorf("原软件包在修复期间变化: %w", domain.ErrConflict)
-	}
-	if err = os.Rename(tmp.Name(), target); err != nil {
-		return out, err
-	}
-	if err = syncRepairDirectory(filepath.Dir(target)); err != nil {
-		return out, err
-	}
-	return out, nil
+	return out, publish()
 }

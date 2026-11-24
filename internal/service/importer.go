@@ -146,7 +146,9 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 				if checkErr == nil {
 					// Never replace a file merely because the offline manifest
 					// says it is damaged. The server must authorize that identity.
-					result, repairErr := repairVerifiedPackage(ctx, source, rec, body, evidence)
+					result, repairErr := repairVerifiedPackage(ctx, source, rec, body, evidence, func(publish func() error) error {
+						return repair.GuardApprovedRepair(ctx, source.ID, sess.EpochID, evidence, publish)
+					})
 					if repairErr != nil {
 						return repairErr
 					}

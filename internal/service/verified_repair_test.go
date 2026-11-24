@@ -39,7 +39,7 @@ func TestVerifiedRepairPreservesOriginalUntilPayloadVerified(t *testing.T) {
 		{"different trusted hash", "good", domain.RepairReplacementEvidence{JobID: "job-1", LogicalPath: logical, Size: 4, SHA256: shaHex("fake"), ActualSize: 4, ActualSHA256: shaHex("evil")}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := repairVerifiedPackage(ctx, src, rec, bytes.NewReader([]byte(test.payload)), test.evidence); err == nil {
+			if _, err := repairVerifiedPackage(ctx, src, rec, bytes.NewReader([]byte(test.payload)), test.evidence, nil); err == nil {
 				t.Fatal("invalid repair succeeded")
 			}
 			got, err := os.ReadFile(target)
@@ -51,7 +51,7 @@ func TestVerifiedRepairPreservesOriginalUntilPayloadVerified(t *testing.T) {
 			}
 		})
 	}
-	result, err := repairVerifiedPackage(ctx, src, rec, bytes.NewReader([]byte("good")), evidence)
+	result, err := repairVerifiedPackage(ctx, src, rec, bytes.NewReader([]byte("good")), evidence, nil)
 	if err != nil || result.Skipped {
 		t.Fatalf("repair: %+v %v", result, err)
 	}
@@ -72,7 +72,7 @@ func TestVerifiedRepairPreservesOriginalUntilPayloadVerified(t *testing.T) {
 	if err != nil || string(old) != "evil" {
 		t.Fatalf("old data not preserved: %q %v", old, err)
 	}
-	result, err = repairVerifiedPackage(ctx, src, rec, bytes.NewReader([]byte("good")), evidence)
+	result, err = repairVerifiedPackage(ctx, src, rec, bytes.NewReader([]byte("good")), evidence, nil)
 	if err != nil || !result.Skipped {
 		t.Fatalf("idempotent retry failed: %+v %v", result, err)
 	}

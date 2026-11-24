@@ -101,6 +101,13 @@ func TestRepairApprovalOnlyAuthorizesCurrentCatalogAndVerifiedPackages(t *testin
 	if _, err = s.ApprovedRepairEvidence(ctx, src.ID, "other-epoch", path, 4, hash); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("different epoch authorized: %v", err)
 	}
+	called := false
+	if err = s.GuardApprovedRepair(ctx, src.ID, state.ActiveEpochID, e, func() error {
+		called = true
+		return nil
+	}); err != nil || !called {
+		t.Fatalf("valid final publication guard rejected: %v", err)
+	}
 	if err = s.ApproveRepairReplacement(ctx, job.ID, false); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("authorization revoked during active import: %v", err)
 	}
@@ -115,5 +122,12 @@ func TestRepairApprovalOnlyAuthorizesCurrentCatalogAndVerifiedPackages(t *testin
 	}
 	if err = s.ApproveRepairReplacement(ctx, job.ID, true); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("stale report approved: %v", err)
+	}
+	called = false
+	if err = s.GuardApprovedRepair(ctx, src.ID, "test-epoch", e, func() error {
+		called = true
+		return nil
+	}); err == nil || called {
+		t.Fatalf("stale final publication guard permitted replacement: %v", err)
 	}
 }
