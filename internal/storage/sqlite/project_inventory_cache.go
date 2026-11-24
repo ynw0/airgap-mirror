@@ -166,7 +166,7 @@ func (f *RebuildCatalogFactory) PromoteProjectInventory(jobID, sourceID string) 
 		return err
 	}
 	for _, suffix := range []string{"-wal", "-shm"} {
-		if _, err = os.Lstat(path+suffix); !errors.Is(err, os.ErrNotExist) {
+		if _, err = os.Lstat(path + suffix); !errors.Is(err, os.ErrNotExist) {
 			if err == nil {
 				return fmt.Errorf("inventory cache still has SQLite sidecar: %w", domain.ErrConflict)
 			}
