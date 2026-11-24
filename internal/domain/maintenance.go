@@ -87,3 +87,12 @@ type CatalogReclaimResult struct {
 	RemovedGenerations int64 `json:"removedGenerations"`
 	More               bool  `json:"more"`
 }
+
+type RepairReplacementEvidence struct {
+	JobID string
+	LogicalPath string
+	Size int64
+	SHA256 string
+	ActualSize int64
+	ActualSHA256 string
+}
