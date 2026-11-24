@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -153,7 +153,7 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 					repaired = true
 					if !result.Skipped {
 						id, _ := domain.NewID()
-						_ = i.Store.WriteAudit(ctx, domain.AuditEvent{ID:id, Kind:"package_repaired", SourceID:source.ID, EpochID:sess.EpochID, BatchID:sess.BatchID, Message:"verified package repair: "+rec.LogicalPath+"; report="+evidence.JobID, CreatedAt:i.now()})
+						_ = i.Store.WriteAudit(ctx, domain.AuditEvent{ID: id, Kind: "package_repaired", SourceID: source.ID, EpochID: sess.EpochID, BatchID: sess.BatchID, Message: "verified package repair: " + rec.LogicalPath + "; report=" + evidence.JobID, CreatedAt: i.now()})
 					}
 				} else if !errors.Is(checkErr, domain.ErrNotFound) {
 					return checkErr

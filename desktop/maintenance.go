@@ -132,8 +132,10 @@ func (a *App) StartIntegrity(sourceID string, mibPerSecond int) (domain.Maintena
 	return agent.StartIntegrity(a.ctx, sourceID, mibPerSecond)
 }
 
-func(a *App) ApproveRepairReplacement(jobID string,approve bool)error{
-	agent,err:=a.agentRef()
-	if err!=nil{return err}
-	return agent.ApproveRepairReplacement(a.ctx,jobID,approve)
+func (a *App) ApproveRepairReplacement(jobID string, approve bool) error {
+	agent, err := a.agentRef()
+	if err != nil {
+		return err
+	}
+	return agent.ApproveRepairReplacement(a.ctx, jobID, approve)
 }

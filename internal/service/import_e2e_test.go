@@ -258,18 +258,35 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 	inrelease := []byte("<html></html>")
 	base := domain.Cursor{}
 	target := domain.Cursor{Kind: "pypi-serial", Value: "5"}
-	if err=os.MkdirAll(filepath.Join(root,"packages"),0755);err!=nil{t.Fatal(err)}
-	if err=os.WriteFile(filepath.Join(root,"packages","demo.whl"),[]byte("evil"),0644);err!=nil{t.Fatal(err)}
-	if err=store.Upsert(ctx,domain.CatalogEntry{SourceID:src.ID,LogicalPath:"packages/demo.whl",PackageKey:"demo",Size:4,SHA256:shaHex("good"),UpdatedAt:now});err!=nil{t.Fatal(err)}
-	jobID:=mustE2EID(t)
-	job:=domain.MaintenanceJob{ID:jobID,SourceID:src.ID,Kind:domain.MaintenanceRepair,Status:domain.MaintenanceQueued,HashMiBPerSecond:64,CreatedAt:now}
-	if err=store.CreateMaintenanceJob(ctx,job);err!=nil{t.Fatal(err)}
-	if err=store.TransitionMaintenanceJob(ctx,jobID,domain.MaintenanceRunning,"",now);err!=nil{t.Fatal(err)}
-	if _,err=store.BeginRepairScan(ctx,jobID,src.ID);err!=nil{t.Fatal(err)}
-	if err=store.CommitRepairPage(ctx,jobID,"","packages/demo.whl",1,4,[]domain.RepairIssue{{LogicalPath:"packages/demo.whl",PackageKey:"demo",Size:4,SHA256:shaHex("good"),Kind:"HASH_MISMATCH",ActualSize:4,ActualSHA256:shaHex("evil")}});err!=nil{t.Fatal(err)}
-	if err=store.FinishRepairScan(ctx,jobID,now);err!=nil{t.Fatal(err)}
-	if err=store.ApproveRepairReplacement(ctx,jobID,true);err!=nil{t.Fatal(err)}
-
+	if err = os.MkdirAll(filepath.Join(root, "packages"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "packages", "demo.whl"), []byte("evil"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Upsert(ctx, domain.CatalogEntry{SourceID: src.ID, LogicalPath: "packages/demo.whl", PackageKey: "demo", Size: 4, SHA256: shaHex("good"), UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	jobID := mustE2EID(t)
+	job := domain.MaintenanceJob{ID: jobID, SourceID: src.ID, Kind: domain.MaintenanceRepair, Status: domain.MaintenanceQueued, HashMiBPerSecond: 64, CreatedAt: now}
+	if err = store.CreateMaintenanceJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.TransitionMaintenanceJob(ctx, jobID, domain.MaintenanceRunning, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.BeginRepairScan(ctx, jobID, src.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CommitRepairPage(ctx, jobID, "", "packages/demo.whl", 1, 4, []domain.RepairIssue{{LogicalPath: "packages/demo.whl", PackageKey: "demo", Size: 4, SHA256: shaHex("good"), Kind: "HASH_MISMATCH", ActualSize: 4, ActualSHA256: shaHex("evil")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.FinishRepairScan(ctx, jobID, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ApproveRepairReplacement(ctx, jobID, true); err != nil {
+		t.Fatal(err)
+	}
 
 	packPath := filepath.Join(staging, "000001.agp")
 	w, err := pack.Create(packPath, domain.PackHeader{PackID: packID, EpochID: epochID, BatchID: batchID})
@@ -279,7 +296,7 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 	art := domain.Artifact{
 		ID: artID, EpochID: epochID, SourceID: src.ID, PublishUnitID: unitID,
 		LogicalPath: "packages/demo.whl", Size: int64(len(deb)), SHA256: shaHex(string(deb)),
-		Operation: domain.ArtifactAdd, PackageKey:"demo",
+		Operation: domain.ArtifactAdd, PackageKey: "demo",
 	}
 	artLoc, err := w.Append(ctx, domain.PackEntry{Artifact: art}, bytes.NewReader(deb))
 	if err != nil {
@@ -395,12 +412,18 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 	if !bytes.Equal(gotDeb, deb) {
 		t.Fatalf("artifact content mismatch")
 	}
-	backups,err:=filepath.Glob(filepath.Join(root,".airgap-staging","repair-quarantine",jobID,"*","packages","demo.whl"))
-	if err!=nil||len(backups)!=1{t.Fatalf("quarantine missing after complete: %v %v",backups,err)}
-	original,err:=os.ReadFile(backups[0])
-	if err!=nil||string(original)!="evil"{t.Fatalf("corrupt original not preserved: %q %v",original,err)}
-	report,err:=store.GetMaintenanceJob(ctx,jobID)
-	if err!=nil||report.ReplacementApproved{t.Fatalf("completed epoch did not expire approval: %+v %v",report,err)}
+	backups, err := filepath.Glob(filepath.Join(root, ".airgap-staging", "repair-quarantine", jobID, "*", "packages", "demo.whl"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("quarantine missing after complete: %v %v", backups, err)
+	}
+	original, err := os.ReadFile(backups[0])
+	if err != nil || string(original) != "evil" {
+		t.Fatalf("corrupt original not preserved: %q %v", original, err)
+	}
+	report, err := store.GetMaintenanceJob(ctx, jobID)
+	if err != nil || report.ReplacementApproved {
+		t.Fatalf("completed epoch did not expire approval: %+v %v", report, err)
+	}
 
 	gotRel, err := os.ReadFile(filepath.Join(root, "simple", "demo", "index.html"))
 	if err != nil {
@@ -434,4 +457,3 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 		t.Fatalf("source state after complete: %+v", state)
 	}
 }
-
