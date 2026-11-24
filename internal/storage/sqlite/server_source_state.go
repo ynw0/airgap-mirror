@@ -43,7 +43,7 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 	}
 	if identityChanged {
 		var entries int
-		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM catalog_entries WHERE source_id=? LIMIT 1)`, v.ID).Scan(&entries); err != nil {
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM live_catalog_entries WHERE source_id=? LIMIT 1)`, v.ID).Scan(&entries); err != nil {
 			return err
 		}
 		if cursorKind != "" || cursorValue != "" || entries != 0 {

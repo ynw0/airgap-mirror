@@ -81,7 +81,7 @@ func (s *ServerStore) Get(ctx context.Context, sourceID, path string) (domain.Ca
 	var v domain.CatalogEntry
 	var attrs []byte
 	var updated string
-	err := s.DB.QueryRowContext(ctx, `SELECT source_id,logical_path,size,sha256,package_key,version,attributes,updated_at FROM catalog_entries WHERE source_id=? AND logical_path=?`, sourceID, path).Scan(&v.SourceID, &v.LogicalPath, &v.Size, &v.SHA256, &v.PackageKey, &v.Version, &attrs, &updated)
+	err := s.DB.QueryRowContext(ctx, `SELECT source_id,logical_path,size,sha256,package_key,version,attributes,updated_at FROM live_catalog_entries WHERE source_id=? AND logical_path=?`, sourceID, path).Scan(&v.SourceID, &v.LogicalPath, &v.Size, &v.SHA256, &v.PackageKey, &v.Version, &attrs, &updated)
 	if err != nil {
 		return v, mapNotFound(err)
 	}
@@ -90,7 +90,7 @@ func (s *ServerStore) Get(ctx context.Context, sourceID, path string) (domain.Ca
 	return v, nil
 }
 func (s *ServerStore) ListByPackage(ctx context.Context, sourceID, key string) ([]domain.CatalogEntry, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT source_id,logical_path,size,sha256,package_key,version,attributes,updated_at FROM catalog_entries WHERE source_id=? AND package_key=? ORDER BY logical_path`, sourceID, key)
+	rows, err := s.DB.QueryContext(ctx, `SELECT source_id,logical_path,size,sha256,package_key,version,attributes,updated_at FROM live_catalog_entries WHERE source_id=? AND package_key=? ORDER BY logical_path`, sourceID, key)
 	if err != nil {
 		return nil, err
 	}
@@ -110,16 +110,41 @@ func (s *ServerStore) ListByPackage(ctx context.Context, sourceID, key string) (
 	return out, rows.Err()
 }
 func (s *ServerStore) Upsert(ctx context.Context, v domain.CatalogEntry) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO catalog_entries(source_id,logical_path,size,sha256,package_key,version,attributes,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source_id,logical_path) DO UPDATE SET size=excluded.size,sha256=excluded.sha256,package_key=excluded.package_key,version=excluded.version,attributes=excluded.attributes,updated_at=excluded.updated_at`, v.SourceID, v.LogicalPath, v.Size, v.SHA256, v.PackageKey, v.Version, []byte(v.Attributes), timeString(v.UpdatedAt))
-	return err
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = upsertLiveCatalog(ctx, tx, v); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
+
 func (s *ServerStore) Delete(ctx context.Context, sourceID, path string) error {
-	_, err := s.DB.ExecContext(ctx, `DELETE FROM catalog_entries WHERE source_id=? AND logical_path=?`, sourceID, path)
-	return err
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	generation, err := activeCatalogGeneration(ctx, tx, sourceID)
+	if err != nil {
+		return err
+	}
+	if generation == "" {
+		_, err = tx.ExecContext(ctx, `DELETE FROM catalog_entries WHERE source_id=? AND logical_path=?`, sourceID, path)
+	} else {
+		_, err = tx.ExecContext(ctx, `DELETE FROM catalog_generation_entries WHERE source_id=? AND generation=? AND logical_path=?`, sourceID, generation, path)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
+
 func (s *ServerStore) Stats(ctx context.Context, sourceID string) (domain.CatalogStats, error) {
 	v := domain.CatalogStats{SourceID: sourceID}
-	err := s.DB.QueryRowContext(ctx, `SELECT COALESCE(SUM(size),0),COUNT(*) FROM catalog_entries WHERE source_id=?`, sourceID).Scan(&v.Bytes, &v.Objects)
+	err := s.DB.QueryRowContext(ctx, `SELECT COALESCE(SUM(size),0),COUNT(*) FROM live_catalog_entries WHERE source_id=?`, sourceID).Scan(&v.Bytes, &v.Objects)
 	return v, err
 }
 

@@ -34,7 +34,7 @@ func (s *ServerStore) ExportSource(ctx context.Context, sourceID, dest string) e
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO snapshot.catalog_entries SELECT source_id,logical_path,size,sha256,package_key,version,attributes,updated_at FROM main.catalog_entries WHERE source_id=?`, sourceID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO snapshot.catalog_entries SELECT source_id,logical_path,size,sha256,package_key,version,attributes,updated_at FROM main.live_catalog_entries WHERE source_id=?`, sourceID)
 	if err != nil {
 		return err
 	}
