@@ -100,20 +100,26 @@ func (a *App) ExportRepairCapsule(sourceID, jobID, destination string) (StateExp
 	return StateExportResult{Path: destination, Export: exported}, nil
 }
 
-func(a *App) ListExportJobs()([]domain.ExportJob,error){
-	agent,err:=a.agentRef()
-	if err!=nil{return nil,err}
+func (a *App) ListExportJobs() ([]domain.ExportJob, error) {
+	agent, err := a.agentRef()
+	if err != nil {
+		return nil, err
+	}
 	return agent.ListExportJobs(a.ctx)
 }
 
-func(a *App) DownloadExportJob(id,destination string)error{
-	agent,err:=a.agentRef()
-	if err!=nil{return err}
-	return agent.DownloadExportJob(a.ctx,id,destination)
+func (a *App) DownloadExportJob(id, destination string) error {
+	agent, err := a.agentRef()
+	if err != nil {
+		return err
+	}
+	return agent.DownloadExportJob(a.ctx, id, destination)
 }
 
-func(a *App) ReclaimCatalogHistory(sourceID string)(domain.CatalogReclaimResult,error){
-	agent,err:=a.agentRef()
-	if err!=nil{return domain.CatalogReclaimResult{},err}
-	return agent.ReclaimCatalogHistory(a.ctx,sourceID)
+func (a *App) ReclaimCatalogHistory(sourceID string) (domain.CatalogReclaimResult, error) {
+	agent, err := a.agentRef()
+	if err != nil {
+		return domain.CatalogReclaimResult{}, err
+	}
+	return agent.ReclaimCatalogHistory(a.ctx, sourceID)
 }

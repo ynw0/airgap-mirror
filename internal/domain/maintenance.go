@@ -81,7 +81,7 @@ type RepairCheckpoint struct {
 }
 
 type CatalogReclaimResult struct {
-	RemovedEntries int64 `json:"removedEntries"`
+	RemovedEntries     int64 `json:"removedEntries"`
 	RemovedGenerations int64 `json:"removedGenerations"`
-	More bool `json:"more"`
+	More               bool  `json:"more"`
 }

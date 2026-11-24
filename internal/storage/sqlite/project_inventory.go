@@ -18,15 +18,15 @@ import (
 // Its cursor, statistics, and catalog rows commit in the SAME transaction.
 // The production catalog is not touched until the entire scan passes validation.
 type projectInventory struct {
-	path      string
-	sourceID  string
-	db        *sql.DB
-	tx        *sql.Tx
-	progress  ports.InventoryProgress
-	unflushed int
+	path             string
+	sourceID         string
+	db               *sql.DB
+	tx               *sql.Tx
+	progress         ports.InventoryProgress
+	unflushed        int
 	unflushedObjects int64
-	lastFlush time.Time
-	closed    bool
+	lastFlush        time.Time
+	closed           bool
 }
 
 func (f *RebuildCatalogFactory) projectPath(jobID string) (string, error) {

@@ -26,7 +26,7 @@ type API struct {
 	Transfer    service.TransferService
 	Importer    service.ImportService
 	Capsules    service.CapsuleService
-	ExportJobs *service.ExportJobs
+	ExportJobs  *service.ExportJobs
 	Capacity    ports.CapacityInspector
 	BearerToken string
 	Signer      *service.APTSigner
@@ -492,20 +492,32 @@ func (a *API) reclaimCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (a *API) enqueueExport(w http.ResponseWriter,r *http.Request){
+func (a *API) enqueueExport(w http.ResponseWriter, r *http.Request) {
 	var req exportRequest
-	if err:=decodeJSON(r,&req);err!=nil{writeError(w,400,err.Error());return}
-	job,err:=a.ExportJobs.Enqueue(r.Context(),req.SourceIDs,req.RepairJobID)
-	if err!=nil{mapError(w,err);return}
-	writeJSON(w,http.StatusAccepted,job)
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	job, err := a.ExportJobs.Enqueue(r.Context(), req.SourceIDs, req.RepairJobID)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
 }
-func (a *API) listExports(w http.ResponseWriter,r *http.Request){
-	jobs,err:=a.ExportJobs.Store.ListExportJobs(r.Context())
-	if err!=nil{mapError(w,err);return}
-	writeJSON(w,http.StatusOK,jobs)
+func (a *API) listExports(w http.ResponseWriter, r *http.Request) {
+	jobs, err := a.ExportJobs.Store.ListExportJobs(r.Context())
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jobs)
 }
-func (a *API) getExport(w http.ResponseWriter,r *http.Request){
-	j,err:=a.ExportJobs.Get(r.Context(),r.PathValue("id"))
-	if err!=nil{mapError(w,err);return}
-	writeJSON(w,http.StatusOK,j)
+func (a *API) getExport(w http.ResponseWriter, r *http.Request) {
+	j, err := a.ExportJobs.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, j)
 }
