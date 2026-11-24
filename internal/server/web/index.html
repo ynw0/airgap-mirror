@@ -175,7 +175,18 @@ async function refresh(){
         detail.textContent=(page.items||[]).map(i=>(i.kind==='MISSING'?'缺失：':i.kind==='HASH_MISMATCH'?'SHA256 不符：':'大小不符：')+i.logicalPath+(i.actualSha256?'\n预期：'+i.sha256+'\n实际：'+i.actualSha256:'')).join('\n')||'没有更多异常文件';
         after=page.next||'';showIssues.textContent=after?'下一页异常文件':'查看异常文件';
       });buttons.appendChild(showIssues);
-      if(repair.candidateObjects>0){const exportRepair=action('导出修复状态',()=>exportState([s.id],repair.id));exportRepair.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(exportRepair);}
+      if(repair.candidateObjects>0){
+        const exportRepair=action('导出修复状态',()=>exportState([s.id],repair.id));exportRepair.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(exportRepair);
+        if(repair.hashMiBPerSecond){
+          const approved=!!repair.replacementApproved;
+          const approval=action(approved?'撤销损坏文件修复授权':'授权损坏文件修复',async()=>{
+            if(!confirm(approved?'撤销本报告的损坏文件替换授权？已完成的替换不会回滚。':'授权经过 SHA256 校验的损坏 PyPI 软件包修复。导入时再次核对原账本和旧文件，保留损坏文件后才替换。确认继续？'))return;
+            await api('/api/v1/maintenance/'+encodeURIComponent(repair.id)+'/repair-approval',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approve:!approved})});
+            show(approved?'已撤销授权。':'授权已保存，请导出修复状态文件，再联网下载并离线导入。');await refresh();
+          });
+          approval.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(approval);
+        }
+      }
     }
   }
   buttons.appendChild(action('导出状态文件',()=>exportState([s.id])));

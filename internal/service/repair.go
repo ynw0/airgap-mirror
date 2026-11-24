@@ -170,6 +170,13 @@ func (r *MaintenanceRunner) scanRepair(ctx context.Context, store repairStore, j
 			case info.Size() != entry.Size:
 				issue.Kind = "SIZE_MISMATCH"
 				issue.ActualSize = info.Size()
+				if job.HashMiBPerSecond > 0 {
+					sum, hashErr := hashRepositoryFile(ctx, repo, entry.LogicalPath, info, job.HashMiBPerSecond, hashBuffer)
+					if hashErr != nil {
+						return fmt.Errorf("校验 %s: %w", entry.LogicalPath, hashErr)
+					}
+					issue.ActualSHA256 = sum
+				}
 			default:
 				if job.HashMiBPerSecond > 0 {
 					sum, hashErr := hashRepositoryFile(ctx, repo, entry.LogicalPath, info, job.HashMiBPerSecond, hashBuffer)

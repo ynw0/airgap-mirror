@@ -13,6 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/ynw0/airgap-mirror/internal/adapters/apt"
+	"github.com/ynw0/airgap-mirror/internal/adapters/pypi"
 	"github.com/ynw0/airgap-mirror/internal/domain"
 	"github.com/ynw0/airgap-mirror/internal/pack"
 	storesqlite "github.com/ynw0/airgap-mirror/internal/storage/sqlite"
@@ -219,4 +220,240 @@ func mustE2EID(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return id
+}
+
+func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	staging := filepath.Join(t.TempDir(), "staging")
+	if err := os.MkdirAll(staging, 0755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(8)
+	if err = storesqlite.InitServer(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	store := storesqlite.NewServerStore(db)
+
+	now := time.Now().UTC()
+	src := domain.Source{
+		ID: mustE2EID(t), Name: "PyPI", Type: domain.SourcePyPI, Provider: pypi.Provider,
+		UpstreamURL: "https://pypi.org/simple", PublicURL: "https://repo.internal/pypi",
+		RootPath: root, Enabled: true,
+		ConfigJSON: json.RawMessage(`{}`),
+		CreatedAt:  now, UpdatedAt: now,
+	}
+	if err = store.CreateSource(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+
+	epochID, batchID, packID := mustE2EID(t), mustE2EID(t), mustE2EID(t)
+	unitID, artID, metaID := mustE2EID(t), mustE2EID(t), mustE2EID(t)
+	deb := []byte("good")
+	inrelease := []byte("<html></html>")
+	base := domain.Cursor{}
+	target := domain.Cursor{Kind: "pypi-serial", Value: "5"}
+	if err = os.MkdirAll(filepath.Join(root, "packages"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "packages", "demo.whl"), []byte("evil"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Upsert(ctx, domain.CatalogEntry{SourceID: src.ID, LogicalPath: "packages/demo.whl", PackageKey: "demo", Size: 4, SHA256: shaHex("good"), UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	jobID := mustE2EID(t)
+	job := domain.MaintenanceJob{ID: jobID, SourceID: src.ID, Kind: domain.MaintenanceRepair, Status: domain.MaintenanceQueued, HashMiBPerSecond: 64, CreatedAt: now}
+	if err = store.CreateMaintenanceJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.TransitionMaintenanceJob(ctx, jobID, domain.MaintenanceRunning, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.BeginRepairScan(ctx, jobID, src.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CommitRepairPage(ctx, jobID, "", "packages/demo.whl", 1, 4, []domain.RepairIssue{{LogicalPath: "packages/demo.whl", PackageKey: "demo", Size: 4, SHA256: shaHex("good"), Kind: "HASH_MISMATCH", ActualSize: 4, ActualSHA256: shaHex("evil")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.FinishRepairScan(ctx, jobID, now); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ApproveRepairReplacement(ctx, jobID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	packPath := filepath.Join(staging, "000001.agp")
+	w, err := pack.Create(packPath, domain.PackHeader{PackID: packID, EpochID: epochID, BatchID: batchID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	art := domain.Artifact{
+		ID: artID, EpochID: epochID, SourceID: src.ID, PublishUnitID: unitID,
+		LogicalPath: "packages/demo.whl", Size: int64(len(deb)), SHA256: shaHex(string(deb)),
+		Operation: domain.ArtifactAdd, PackageKey: "demo",
+	}
+	artLoc, err := w.Append(ctx, domain.PackEntry{Artifact: art}, bytes.NewReader(deb))
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := domain.Artifact{
+		ID: metaID, EpochID: epochID, SourceID: src.ID, PublishUnitID: unitID,
+		LogicalPath: "simple/demo/index.html", Size: int64(len(inrelease)), SHA256: shaHex(string(inrelease)),
+		Operation: domain.ArtifactAdd, Metadata: true,
+	}
+	metaLoc, err := w.Append(ctx, domain.PackEntry{Artifact: meta}, bytes.NewReader(inrelease))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	packSHA, packSize, err := pack.FileSHA256(packPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifestPath := filepath.Join(staging, "manifest.sqlite")
+	mdb, err := sql.Open("sqlite", manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.InitManifest(ctx, mdb); err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.PutManifestMeta(ctx, mdb, "schema_version", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.PutManifestMeta(ctx, mdb, "source_id", src.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.PutManifestMeta(ctx, mdb, "epoch_id", epochID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.PutManifestMeta(ctx, mdb, "batch_id", batchID); err != nil {
+		t.Fatal(err)
+	}
+	unit := domain.PublishUnit{ID: unitID, EpochID: epochID, SourceID: src.ID, Key: "pypi:demo", Required: 2, MetadataPath: "simple/demo/index.html"}
+	if err = pack.PutPublishUnit(ctx, mdb, unit); err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.PutManifestEntry(ctx, mdb, domain.ManifestEntry{EntryID: artID, Artifact: art, PackID: packID, PackOffset: artLoc.Offset, RecordLength: artLoc.RecordLength}); err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.PutManifestEntry(ctx, mdb, domain.ManifestEntry{EntryID: metaID, Artifact: meta, PackID: packID, PackOffset: metaLoc.Offset, RecordLength: metaLoc.RecordLength}); err != nil {
+		t.Fatal(err)
+	}
+	if err = mdb.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manifestSHA, manifestSize, err := pack.FileSHA256(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desc := domain.BatchDescriptor{
+		SchemaVersion: 1, SourceID: src.ID, EpochID: epochID, BatchID: batchID,
+		BatchSequence: 1, EpochTotalBytes: int64(len(deb) + len(inrelease)), EpochTotalObjects: 2,
+		EpochTotalBatches: 1, EpochPublishUnitCount: 1, BatchBytes: packSize, BatchObjects: 2,
+		BaseCursor: base, TargetCursor: target, ManifestSHA256: manifestSHA, ManifestSize: manifestSize,
+		Packs:     []domain.PackSpec{{ID: packID, Sequence: 1, Size: packSize, SHA256: packSHA, EntryCount: 2}},
+		CreatedAt: now,
+	}
+	session := domain.ImportSession{
+		ID: mustE2EID(t), RequestID: "batch-" + batchID, SourceID: src.ID, EpochID: epochID, BatchID: batchID,
+		ManifestPath: manifestPath, ManifestSize: manifestSize, ManifestSHA256: manifestSHA,
+		ManifestUploaded: manifestSize, Status: "OPEN", StagingPath: staging, CreatedAt: now, UpdatedAt: now,
+	}
+	ip := domain.ImportPack{SessionID: session.ID, PackID: packID, ExpectedSize: packSize, ExpectedSHA256: packSHA, StagingPath: packPath, Status: domain.PackUploading}
+	if _, err = store.RegisterImportBundle(ctx, desc, session, []domain.ImportPack{ip}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.RegisterManifest(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	ip.UploadedSize = packSize
+	ip.Status = domain.PackUploaded
+	if err = store.UpdateImportPack(ctx, ip); err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := NewRegistry(pypi.New(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	importer := ImportService{
+		Store: store, Installer: FileInstaller{},
+		Manifest:  ManifestReader{Open: func(path string) (*sql.DB, error) { return sql.Open("sqlite", path) }},
+		Publisher: PublisherService{Store: store, Catalog: store, Registry: reg},
+	}
+	if err = importer.CommitPack(ctx, session.ID, packID); err != nil {
+		t.Fatal(err)
+	}
+	if err = importer.CommitPack(ctx, session.ID, packID); err != nil {
+		t.Fatal(err)
+	}
+	if err = importer.CompleteBatch(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = importer.CompleteBatch(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	gotDeb, err := os.ReadFile(filepath.Join(root, "packages", "demo.whl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotDeb, deb) {
+		t.Fatalf("artifact content mismatch")
+	}
+	backups, err := filepath.Glob(filepath.Join(root, ".airgap-staging", "repair-quarantine", jobID, "*", "packages", "demo.whl"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("quarantine missing after complete: %v %v", backups, err)
+	}
+	original, err := os.ReadFile(backups[0])
+	if err != nil || string(original) != "evil" {
+		t.Fatalf("corrupt original not preserved: %q %v", original, err)
+	}
+	report, err := store.GetMaintenanceJob(ctx, jobID)
+	if err != nil || report.ReplacementApproved {
+		t.Fatalf("completed epoch did not expire approval: %+v %v", report, err)
+	}
+
+	gotRel, err := os.ReadFile(filepath.Join(root, "simple", "demo", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotRel, inrelease) {
+		t.Fatalf("metadata published mismatch")
+	}
+	staged := filepath.Join(root, ".airgap-staging", epochID, unitID, "simple", "demo", "index.html")
+	if _, err = os.Stat(staged); err == nil {
+		t.Fatal("staged metadata should be published away")
+	}
+	if _, err = os.Stat(filepath.Join(root, ".airgap-staging", epochID)); err == nil {
+		t.Fatal("completed epoch staging should be removed")
+	}
+	ep, err := store.GetEpoch(ctx, epochID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep.Status != domain.EpochComplete {
+		t.Fatalf("epoch status=%s", ep.Status)
+	}
+	if _, err := os.Stat(staging); !os.IsNotExist(err) {
+		t.Fatalf("completed import staging should be removed, stat err=%v", err)
+	}
+	state, err := store.GetState(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.LiveCursor.Equal(target) || state.ActiveEpochID != "" || state.LiveObjects != 2 {
+		t.Fatalf("source state after complete: %+v", state)
+	}
 }

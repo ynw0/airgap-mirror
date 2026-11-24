@@ -103,3 +103,7 @@ func (c *AgentClient) StartIntegrity(ctx context.Context, sourceID string, mibPe
 	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/sources/"+url.PathEscape(sourceID)+"/integrity-check", map[string]int{"mibPerSecond": mibPerSecond}, &out)
 	return out, err
 }
+
+func (c *AgentClient) ApproveRepairReplacement(ctx context.Context, jobID string, approve bool) error {
+	return c.jsonRequest(ctx, http.MethodPost, "/api/v1/maintenance/"+url.PathEscape(jobID)+"/repair-approval", map[string]bool{"approve": approve}, nil)
+}

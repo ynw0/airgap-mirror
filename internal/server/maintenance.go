@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"net/http"
+
+	"github.com/ynw0/airgap-mirror/internal/domain"
 	"strconv"
 
 	"github.com/ynw0/airgap-mirror/internal/ports"
@@ -25,6 +28,7 @@ func WithMaintenance(base http.Handler, api *API, runner *service.MaintenanceRun
 	mux.Handle("POST /api/v1/sources/{id}/repair-check", secure(h.startRepair))
 	mux.Handle("POST /api/v1/sources/{id}/integrity-check", secure(h.startIntegrity))
 	mux.Handle("GET /api/v1/maintenance/{id}/repair-issues", secure(h.repairIssues))
+	mux.Handle("POST /api/v1/maintenance/{id}/repair-approval", secure(h.repairApproval))
 	mux.Handle("POST /api/v1/sources/{id}/sign", secure(h.signAPT))
 	mux.Handle("GET /api/v1/signing-key", secure(h.publicSigningKey))
 	mux.Handle("POST /api/v1/sources/{id}/gc", secure(h.startGC))
@@ -148,4 +152,26 @@ func (h *MaintenanceHTTP) startIntegrity(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (h *MaintenanceHTTP) repairApproval(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Approve *bool `json:"approve"`
+	}
+	if err := decodeJSON(r, &req); err != nil || req.Approve == nil {
+		writeError(w, 400, "必须明确指定 approve")
+		return
+	}
+	store, ok := h.Jobs.(interface {
+		ApproveRepairReplacement(context.Context, string, bool) error
+	})
+	if !ok {
+		mapError(w, domain.ErrInvalid)
+		return
+	}
+	if err := store.ApproveRepairReplacement(r.Context(), r.PathValue("id"), *req.Approve); err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"approved": *req.Approve})
 }

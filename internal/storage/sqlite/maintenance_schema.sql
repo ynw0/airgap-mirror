@@ -65,3 +65,10 @@ CREATE TABLE IF NOT EXISTS repair_issues(
  PRIMARY KEY(job_id,logical_path)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS ix_repair_issue_kind ON repair_issues(job_id,kind,package_key);
+
+-- Explicit administrator approval is scoped to a completed integrity report.
+-- The report's source revision and Catalog version are checked again at import.
+CREATE TABLE IF NOT EXISTS repair_replacement_approvals(
+ job_id TEXT PRIMARY KEY REFERENCES repair_scans(job_id) ON DELETE CASCADE,
+ approved_at TEXT NOT NULL
+);

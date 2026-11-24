@@ -80,13 +80,13 @@ func (s *ServerStore) exportCatalogSnapshot(ctx context.Context, sourceID, dest,
 		return source, state, err
 	}
 	if repairJobID != "" {
-		// Only explicitly missing files are omitted from the exported baseline.
-		// The live catalog is untouched, and incorrect-size files are never
-		// silently overwritten by the normal immutable-artifact importer.
+		// Missing files are always eligible; corrupted immutable packages
+		// require a completed integrity report and explicit server approval.
+		// Neither operation changes the live catalog.
 		if _, err = tx.ExecContext(ctx, `CREATE TABLE snapshot.repair_entries(source_id TEXT NOT NULL,logical_path TEXT NOT NULL,size INTEGER NOT NULL,sha256 TEXT NOT NULL,package_key TEXT NOT NULL,PRIMARY KEY(source_id,logical_path)) WITHOUT ROWID; CREATE INDEX snapshot.ix_repair_project ON repair_entries(source_id,package_key);`); err != nil {
 			return source, state, err
 		}
-		result, e := tx.ExecContext(ctx, `INSERT INTO snapshot.repair_entries SELECT c.source_id,c.logical_path,c.size,c.sha256,c.package_key FROM snapshot.catalog_entries c JOIN main.repair_issues i ON i.job_id=? AND i.kind='MISSING' AND i.logical_path=c.logical_path AND i.size=c.size AND i.sha256=c.sha256 AND i.package_key=c.package_key`, repairJobID)
+		result, e := tx.ExecContext(ctx, `INSERT INTO snapshot.repair_entries SELECT c.source_id,c.logical_path,c.size,c.sha256,c.package_key FROM snapshot.catalog_entries c JOIN main.repair_issues i ON i.job_id=? AND (i.kind='MISSING' OR (i.kind IN('SIZE_MISMATCH','HASH_MISMATCH') AND i.logical_path LIKE 'packages/%' AND length(i.actual_sha256)=64 AND i.actual_size>=0 AND EXISTS(SELECT 1 FROM main.repair_replacement_approvals ap WHERE ap.job_id=i.job_id))) AND i.logical_path=c.logical_path AND i.size=c.size AND i.sha256=c.sha256 AND i.package_key=c.package_key`, repairJobID)
 		if e != nil {
 			return source, state, e
 		}
@@ -95,11 +95,11 @@ func (s *ServerStore) exportCatalogSnapshot(ctx context.Context, sourceID, dest,
 			return source, state, e
 		}
 		var expected int64
-		if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM main.repair_issues WHERE job_id=? AND kind='MISSING'`, repairJobID).Scan(&expected); err != nil {
+		if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM main.repair_issues i WHERE i.job_id=? AND (i.kind='MISSING' OR (i.kind IN('SIZE_MISMATCH','HASH_MISMATCH') AND i.logical_path LIKE 'packages/%' AND length(i.actual_sha256)=64 AND i.actual_size>=0 AND EXISTS(SELECT 1 FROM main.repair_replacement_approvals ap WHERE ap.job_id=i.job_id)))`, repairJobID).Scan(&expected); err != nil {
 			return source, state, err
 		}
 		if n == 0 || n != expected {
-			return source, state, fmt.Errorf("没有可自动修复的缺失文件，或报告与账本不一致: %w", domain.ErrConflict)
+			return source, state, fmt.Errorf("没有可修复的缺失文件或已授权损坏文件，或报告与账本不一致: %w", domain.ErrConflict)
 		}
 		if _, err = tx.ExecContext(ctx, `DELETE FROM snapshot.catalog_entries WHERE source_id=? AND logical_path IN(SELECT logical_path FROM snapshot.repair_entries WHERE source_id=?)`, sourceID, sourceID); err != nil {
 			return source, state, err
