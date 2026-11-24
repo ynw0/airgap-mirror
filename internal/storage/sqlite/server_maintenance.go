@@ -23,6 +23,7 @@ func scanMaintenanceJob(row interface{ Scan(...any) error }) (domain.Maintenance
 		&job.Status,
 		&execute,
 		&job.HashMiBPerSecond,
+		&job.ReplacementApproved,
 		&job.ScannedObjects,
 		&job.ScannedBytes,
 		&job.CompletedProjects,
@@ -47,7 +48,7 @@ func scanMaintenanceJob(row interface{ Scan(...any) error }) (domain.Maintenance
 	return job, nil
 }
 
-const maintenanceSelect = `SELECT id,source_id,kind,status,execute,hash_mib_per_second,scanned_objects,scanned_bytes,completed_projects,total_projects,last_project,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`
+const maintenanceSelect = `SELECT id,source_id,kind,status,execute,hash_mib_per_second,EXISTS(SELECT 1 FROM repair_replacement_approvals ap JOIN repair_scans r ON r.job_id=ap.job_id JOIN sources src ON src.id=maintenance_jobs.source_id JOIN source_states st ON st.source_id=src.id WHERE ap.job_id=maintenance_jobs.id AND st.catalog_version=r.catalog_version AND src.updated_at=r.source_updated_at),scanned_objects,scanned_bytes,completed_projects,total_projects,last_project,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`
 
 func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.MaintenanceJob) error {
 	if job.ID == "" || job.SourceID == "" {

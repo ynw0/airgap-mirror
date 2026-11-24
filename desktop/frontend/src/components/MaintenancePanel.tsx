@@ -165,13 +165,27 @@ export function MaintenancePanel({ overview }: Props) {
     finally { setBusy(false) }
   }
 
+  async function approveRepair(job: MaintenanceJob, approve: boolean) {
+    const message = approve
+      ? '授权此报告中经过 SHA256 校验的损坏 PyPI 软件包进行修复。导入时必须匹配原账本的大小及 SHA256，并再次验证旧文件与报告一致；原损坏文件会保留在隔离目录。确认授权？'
+      : '撤销本报告的损坏文件替换授权？已完成的替换不会回滚。'
+    if (!window.confirm(message)) return
+    setBusy(true); setMessage('')
+    try {
+      await app().ApproveRepairReplacement(job.id, approve)
+      await refreshJobs()
+      setMessage(approve ? '授权已保存，请导出修复状态文件，再按正常离线同步流程下载和导入。' : '已撤销授权。')
+    } catch (e) { setMessage(errorText(e)) }
+    finally { setBusy(false) }
+  }
+
   async function exportRepair(job: MaintenanceJob) {
     setBusy(true); setMessage('')
     try {
       const destination = await app().PickStateDestination()
       if (!destination) return
       const result = await app().ExportRepairCapsule(job.sourceId, job.id, destination)
-      setMessage(`修复状态文件已保存：${result.path}。请使用新版联网客户端下载并导入；大小不符的文件不会自动覆盖。`)
+      setMessage(`修复状态文件已保存：${result.path}。请使用新版联网客户端下载并导入；只有已授权且再次验证的损坏软件包才允许替换。`)
     } catch (e) { setMessage(errorText(e)) }
     finally { setBusy(false) }
   }
@@ -283,7 +297,7 @@ export function MaintenancePanel({ overview }: Props) {
           <td>{job.kind === 'GC' || job.kind === 'REPAIR' ? <>{formatCount(job.candidateObjects)}<small>{formatBytes(job.candidateBytes)}</small></> : '—'}</td>
           <td>{job.kind === 'GC' && job.execute ? <>{formatCount(job.affectedObjects)}<small>{formatBytes(job.affectedBytes)}</small></> : '—'}</td>
           <td>{formatDate(job.createdAt)}<small>{job.completedAt ? `完成 ${formatDate(job.completedAt)}` : job.startedAt ? `开始 ${formatDate(job.startedAt)}` : ''}</small></td>
-          <td><div className="button-row">{job.kind === 'REPAIR' && terminal(job) && <button disabled={busy} onClick={() => showRepair(job)}>查看异常</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && job.candidateObjects > 0 && <button disabled={busy || !!activeJob || !!pausedJob} onClick={() => exportRepair(job)}>导出修复状态</button>}{job.kind === 'GC' && terminal(job) && job.tempCatalogPath && <button disabled={busy} onClick={() => showCandidates(job)}>查看列表</button>}{job.kind === 'GC' && job.status === 'COMPLETED' && !job.execute && <button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => { setSelectedJobID(job.id); void showCandidates(job).then(() => undefined) }}>选中本次预览</button>}</div></td>
+          <td><div className="button-row">{job.kind === 'REPAIR' && terminal(job) && <button disabled={busy} onClick={() => showRepair(job)}>查看异常</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && job.candidateObjects > 0 && <button disabled={busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => exportRepair(job)}>导出修复状态</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && !!job.hashMiBPerSecond && job.candidateObjects > 0 && <button disabled={busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => approveRepair(job, !job.replacementApproved)}>{job.replacementApproved ? '撤销损坏文件修复授权' : '授权损坏文件修复'}</button>}{job.kind === 'GC' && terminal(job) && job.tempCatalogPath && <button disabled={busy} onClick={() => showCandidates(job)}>查看列表</button>}{job.kind === 'GC' && job.status === 'COMPLETED' && !job.execute && <button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => { setSelectedJobID(job.id); void showCandidates(job).then(() => undefined) }}>选中本次预览</button>}</div></td>
         </tr>) : <tr><td colSpan={8} className="empty">选择软件源后，可以查看以前的检查和清理记录。</td></tr>}</tbody>
       </table></div>
     </div>
@@ -300,7 +314,7 @@ export function MaintenancePanel({ overview }: Props) {
       </tbody></table></div>
     </div>}
     {repairIssues && <div className="card table-card">
-      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；大小或哈希不符的文件不自动覆盖</span></div>
+      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；损坏软件包须经过 SHA256 校验并明确授权后才能替换</span></div>
       <div className="table-wrap"><table><thead><tr><th>文件路径</th><th>类型</th><th>账本大小</th><th>实际大小</th></tr></thead><tbody>
         {repairIssues.items.map(item => <tr key={item.logicalPath}><td><code>{item.logicalPath}</code>{item.actualSha256 && <small>预期：{item.sha256}<br/>实际：{item.actualSha256}</small>}</td><td>{item.kind === 'MISSING' ? '缺失' : item.kind === 'HASH_MISMATCH' ? 'SHA256 不符' : '大小不符'}</td><td>{formatBytes(item.size)}</td><td>{item.kind === 'MISSING' ? '—' : formatBytes(item.actualSize)}</td></tr>)}
       </tbody></table></div>

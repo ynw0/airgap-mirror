@@ -31,6 +31,7 @@ type MaintenanceJob struct {
 	Status            MaintenanceStatus `json:"status"`
 	Execute           bool              `json:"execute"`
 	HashMiBPerSecond  int               `json:"hashMiBPerSecond,omitempty"`
+	ReplacementApproved bool `json:"replacementApproved,omitempty"`
 	ScannedObjects    int64             `json:"scannedObjects"`
 	ScannedBytes      int64             `json:"scannedBytes"`
 	CompletedProjects int64             `json:"completedProjects"`

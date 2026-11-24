@@ -104,7 +104,7 @@ func repairVerifiedPackage(ctx context.Context,source domain.Source,rec domain.P
 	if err!=nil{return out,err}
 	quarantine,err:=safeTarget(source.RootPath,".airgap-staging/repair-quarantine")
 	if err!=nil{return out,err}
-	backup,err:=safeTarget(source.RootPath,".airgap-staging/repair-quarantine/"+evidence.JobID+"/"+rec.LogicalPath+"."+id+".corrupt")
+	backup,err:=safeTarget(source.RootPath,".airgap-staging/repair-quarantine/"+evidence.JobID+"/"+id+"/"+rec.LogicalPath)
 	if err!=nil{return out,err}
 	if err=rejectSymlinkParents(source.RootPath,backup);err!=nil{return out,err}
 	if err=os.MkdirAll(filepath.Dir(backup),0700);err!=nil{return out,err}
