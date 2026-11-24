@@ -24,7 +24,10 @@ func InitServer(ctx context.Context, db *sql.DB) error {
 	if err := migrateMaintenanceSchema(ctx, db); err != nil {
 		return err
 	}
-	return initSchema(ctx, db, maintenanceSchema)
+	if err := initSchema(ctx, db, maintenanceSchema); err != nil {
+		return err
+	}
+	return migrateIntegritySchema(ctx, db)
 }
 
 func InitClient(ctx context.Context, db *sql.DB) error { return initSchema(ctx, db, clientSchema) }
@@ -59,6 +62,9 @@ func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 	if strings.Contains(ddl, "completed_projects") {
 		projectColumns = ",completed_projects,total_projects,last_project"
 	}
+	if strings.Contains(ddl, "hash_mib_per_second") {
+		projectColumns += ",hash_mib_per_second"
+	}
 	for _, stmt := range []string{
 		"DROP TRIGGER IF EXISTS trg_epoch_reject_active_maintenance",
 		"DROP TRIGGER IF EXISTS trg_maintenance_reject_active_epoch",
@@ -68,6 +74,7 @@ func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 			kind TEXT NOT NULL CHECK(kind IN('INVENTORY','GC','REPAIR')),
 			status TEXT NOT NULL CHECK(status IN('QUEUED','RUNNING','PAUSED','COMPLETED','FAILED','CANCELLED')),
 			execute INTEGER NOT NULL CHECK(execute IN(0,1)),
+			hash_mib_per_second INTEGER NOT NULL DEFAULT 0 CHECK(hash_mib_per_second BETWEEN 0 AND 1024),
 			scanned_objects INTEGER NOT NULL DEFAULT 0,
 			scanned_bytes INTEGER NOT NULL DEFAULT 0,
 			completed_projects INTEGER NOT NULL DEFAULT 0,
@@ -90,6 +97,38 @@ func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 	} {
 		if _, err = tx.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("migrate maintenance jobs: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+ // Migrate only the repair report schema, not the large live catalog. The
+ // existing maintenance table gains an additive mode field with default 0.
+func migrateIntegritySchema(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil { return err }
+	defer tx.Rollback()
+	var ddl string
+	if err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='maintenance_jobs'").Scan(&ddl); err != nil { return err }
+	if !strings.Contains(ddl, "hash_mib_per_second") {
+		if _, err = tx.ExecContext(ctx, "ALTER TABLE maintenance_jobs ADD COLUMN hash_mib_per_second INTEGER NOT NULL DEFAULT 0 CHECK(hash_mib_per_second BETWEEN 0 AND 1024)"); err != nil { return err }
+	}
+	if err = tx.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='repair_issues'").Scan(&ddl); err != nil { return err }
+	if !strings.Contains(ddl, "'HASH_MISMATCH'") {
+		for _, stmt := range []string{
+			`CREATE TABLE repair_issues_next(
+			 job_id TEXT NOT NULL REFERENCES repair_scans(job_id) ON DELETE CASCADE,
+			 logical_path TEXT NOT NULL,package_key TEXT NOT NULL,size INTEGER NOT NULL,sha256 TEXT NOT NULL,
+			 kind TEXT NOT NULL CHECK(kind IN('MISSING','SIZE_MISMATCH','HASH_MISMATCH')),
+			 actual_size INTEGER NOT NULL,actual_sha256 TEXT NOT NULL DEFAULT '',
+			 PRIMARY KEY(job_id,logical_path)) WITHOUT ROWID`,
+			`INSERT INTO repair_issues_next(job_id,logical_path,package_key,size,sha256,kind,actual_size)
+			 SELECT job_id,logical_path,package_key,size,sha256,kind,actual_size FROM repair_issues`,
+			"DROP TABLE repair_issues",
+			"ALTER TABLE repair_issues_next RENAME TO repair_issues",
+			"CREATE INDEX ix_repair_issue_kind ON repair_issues(job_id,kind,package_key)",
+		} {
+			if _, err = tx.ExecContext(ctx,stmt); err != nil { return fmt.Errorf("migrate repair reports: %w",err) }
 		}
 	}
 	return tx.Commit()

@@ -30,6 +30,7 @@ type MaintenanceJob struct {
 	Kind              MaintenanceKind   `json:"kind"`
 	Status            MaintenanceStatus `json:"status"`
 	Execute           bool              `json:"execute"`
+	HashMiBPerSecond  int               `json:"hashMiBPerSecond,omitempty"`
 	ScannedObjects    int64             `json:"scannedObjects"`
 	ScannedBytes      int64             `json:"scannedBytes"`
 	CompletedProjects int64             `json:"completedProjects"`
@@ -73,6 +74,7 @@ type RepairIssue struct {
 	SHA256      string `json:"sha256"`
 	Kind        string `json:"kind"`
 	ActualSize  int64  `json:"actualSize"`
+	ActualSHA256 string `json:"actualSha256,omitempty"`
 }
 
 type RepairCheckpoint struct {
