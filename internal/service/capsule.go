@@ -30,6 +30,17 @@ func (c CapsuleService) now() time.Time {
 	return time.Now()
 }
 func (c CapsuleService) Export(ctx context.Context, sourceIDs []string) (domain.StateCapsule, string, error) {
+	return c.export(ctx, sourceIDs, "")
+}
+
+func (c CapsuleService) ExportRepair(ctx context.Context, sourceID, jobID string) (domain.StateCapsule, string, error) {
+	if sourceID == "" || jobID == "" {
+		return domain.StateCapsule{}, "", domain.ErrInvalid
+	}
+	return c.export(ctx, []string{sourceID}, jobID)
+}
+
+func (c CapsuleService) export(ctx context.Context, sourceIDs []string, repairJobID string) (domain.StateCapsule, string, error) {
 	var cap domain.StateCapsule
 	if c.Store == nil || c.Exporter == nil || c.OutputDir == "" {
 		return cap, "", fmt.Errorf("capsule service not configured")
@@ -72,7 +83,15 @@ func (c CapsuleService) Export(ctx context.Context, sourceIDs []string) (domain.
 		local := filepath.Join(work, filepath.FromSlash(rel))
 		var state domain.SourceState
 		var e error
-		if snapshotter, ok := c.Exporter.(interface {
+		if repairJobID != "" {
+			repair, ok := c.Exporter.(interface {
+				ExportRepairSnapshot(context.Context, string, string, string) (domain.Source, domain.SourceState, error)
+			})
+			if !ok {
+				return cap, "", domain.ErrInvalid
+			}
+			s, state, e = repair.ExportRepairSnapshot(ctx, s.ID, local, repairJobID)
+		} else if snapshotter, ok := c.Exporter.(interface {
 			ExportSourceSnapshot(context.Context, string, string) (domain.Source, domain.SourceState, error)
 		}); ok {
 			s, state, e = snapshotter.ExportSourceSnapshot(ctx, s.ID, local)

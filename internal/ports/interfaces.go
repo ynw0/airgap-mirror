@@ -192,3 +192,10 @@ type AuditSink interface {
 	Write(context.Context, domain.AuditEvent) error
 }
 type Clock interface{ Now() time.Time }
+
+// RepairCatalog carries missing-file evidence in an explicitly exported repair
+// capsule. Normal catalog snapshots simply return no repair projects.
+type RepairCatalog interface {
+	WalkRepairProjects(context.Context, string, func(string) error) error
+	RepairEntries(context.Context, string, string) ([]domain.CatalogEntry, error)
+}

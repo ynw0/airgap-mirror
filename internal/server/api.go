@@ -270,6 +270,7 @@ func (a *API) batchGet(w http.ResponseWriter, r *http.Request) {
 
 type exportRequest struct {
 	SourceIDs []string `json:"sourceIds"`
+	RepairJobID string `json:"repairJobId,omitempty"`
 }
 
 func (a *API) stateExport(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +281,18 @@ func (a *API) stateExport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	cap, path, err := a.Capsules.Export(r.Context(), req.SourceIDs)
+	var cap domain.StateCapsule
+	var path string
+	var err error
+	if req.RepairJobID != "" {
+		if len(req.SourceIDs) != 1 {
+			writeError(w, 400, "修复状态文件必须指定一个软件源")
+			return
+		}
+		cap, path, err = a.Capsules.ExportRepair(r.Context(), req.SourceIDs[0], req.RepairJobID)
+	} else {
+		cap, path, err = a.Capsules.Export(r.Context(), req.SourceIDs)
+	}
 	if err != nil {
 		mapError(w, err)
 		return

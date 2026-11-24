@@ -22,6 +22,8 @@ func WithMaintenance(base http.Handler, api *API, runner *service.MaintenanceRun
 	mux := http.NewServeMux()
 	secure := func(fn http.HandlerFunc) http.Handler { return api.auth(fn) }
 	mux.Handle("POST /api/v1/sources/{id}/inventory", secure(h.startInventory))
+	mux.Handle("POST /api/v1/sources/{id}/repair-check", secure(h.startRepair))
+	mux.Handle("GET /api/v1/maintenance/{id}/repair-issues", secure(h.repairIssues))
 	mux.Handle("POST /api/v1/sources/{id}/sign", secure(h.signAPT))
 	mux.Handle("GET /api/v1/signing-key", secure(h.publicSigningKey))
 	mux.Handle("POST /api/v1/sources/{id}/gc", secure(h.startGC))
@@ -96,4 +98,35 @@ func (h *MaintenanceHTTP) resume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (h *MaintenanceHTTP) startRepair(w http.ResponseWriter, r *http.Request) {
+	job, err := h.Runner.StartRepair(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (h *MaintenanceHTTP) repairIssues(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 1000 {
+			writeError(w, 400, "limit must be between 1 and 1000")
+			return
+		}
+		limit = n
+	}
+	issues, err := h.Runner.RepairIssues(r.Context(), r.PathValue("id"), r.URL.Query().Get("after"), limit)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	next := ""
+	if len(issues) == limit {
+		next = issues[len(issues)-1].LogicalPath
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": issues, "next": next})
 }

@@ -90,3 +90,45 @@ func (s *CatalogSnapshot) ValidateSource(ctx context.Context, sourceID string) e
 	}
 	return nil
 }
+
+func (s *CatalogSnapshot) WalkRepairProjects(ctx context.Context, sourceID string, visit func(string) error) error {
+	var present int
+	if err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='repair_entries')`).Scan(&present); err != nil {
+		return err
+	}
+	if present == 0 {
+		return nil
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT DISTINCT package_key FROM repair_entries WHERE source_id=? ORDER BY package_key`, sourceID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var project string
+		if err = rows.Scan(&project); err != nil {
+			return err
+		}
+		if err = visit(project); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func (s *CatalogSnapshot) RepairEntries(ctx context.Context, sourceID, project string) ([]domain.CatalogEntry, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT logical_path,size,sha256 FROM repair_entries WHERE source_id=? AND package_key=? ORDER BY logical_path`, sourceID, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.CatalogEntry
+	for rows.Next() {
+		v := domain.CatalogEntry{SourceID: sourceID, PackageKey: project}
+		if err = rows.Scan(&v.LogicalPath, &v.Size, &v.SHA256); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
