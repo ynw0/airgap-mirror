@@ -47,7 +47,7 @@ func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	if strings.Contains(ddl, "'PAUSED'") && strings.Contains(ddl, "completed_projects") {
+	if strings.Contains(ddl, "'PAUSED'") && strings.Contains(ddl, "completed_projects") && strings.Contains(ddl, "'REPAIR'") {
 		return nil
 	}
 	tx, err := db.BeginTx(ctx, nil)
@@ -55,13 +55,17 @@ func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	defer tx.Rollback()
+	projectColumns := ""
+	if strings.Contains(ddl, "completed_projects") {
+		projectColumns = ",completed_projects,total_projects,last_project"
+	}
 	for _, stmt := range []string{
 		"DROP TRIGGER IF EXISTS trg_epoch_reject_active_maintenance",
 		"DROP TRIGGER IF EXISTS trg_maintenance_reject_active_epoch",
 		`CREATE TABLE maintenance_jobs_next(
 			id TEXT PRIMARY KEY,
 			source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-			kind TEXT NOT NULL CHECK(kind IN('INVENTORY','GC')),
+			kind TEXT NOT NULL CHECK(kind IN('INVENTORY','GC','REPAIR')),
 			status TEXT NOT NULL CHECK(status IN('QUEUED','RUNNING','PAUSED','COMPLETED','FAILED','CANCELLED')),
 			execute INTEGER NOT NULL CHECK(execute IN(0,1)),
 			scanned_objects INTEGER NOT NULL DEFAULT 0,
@@ -79,8 +83,8 @@ func migrateMaintenanceSchema(ctx context.Context, db *sql.DB) error {
 			completed_at TEXT,
 			error_text TEXT NOT NULL DEFAULT ''
 		)`,
-		`INSERT INTO maintenance_jobs_next(id,source_id,kind,status,execute,scanned_objects,scanned_bytes,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text)
-		SELECT id,source_id,kind,status,execute,scanned_objects,scanned_bytes,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`,
+		`INSERT INTO maintenance_jobs_next(id,source_id,kind,status,execute,scanned_objects,scanned_bytes,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text` + projectColumns + `)
+		SELECT id,source_id,kind,status,execute,scanned_objects,scanned_bytes,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text` + projectColumns + ` FROM maintenance_jobs`,
 		"DROP TABLE maintenance_jobs",
 		"ALTER TABLE maintenance_jobs_next RENAME TO maintenance_jobs",
 	} {

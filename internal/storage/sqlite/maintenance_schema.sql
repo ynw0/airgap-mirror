@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS maintenance_jobs(
   id TEXT PRIMARY KEY,
   source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK(kind IN('INVENTORY','GC')),
+  kind TEXT NOT NULL CHECK(kind IN('INVENTORY','GC','REPAIR')),
   status TEXT NOT NULL CHECK(status IN('QUEUED','RUNNING','PAUSED','COMPLETED','FAILED','CANCELLED')),
   execute INTEGER NOT NULL CHECK(execute IN(0,1)),
   scanned_objects INTEGER NOT NULL DEFAULT 0,
@@ -45,3 +45,21 @@ WHEN COALESCE(NEW.active_epoch_id,'') <> ''
 BEGIN
   SELECT RAISE(ABORT, 'source has active maintenance job; epoch is blocked');
 END;
+
+CREATE TABLE IF NOT EXISTS repair_scans(
+ job_id TEXT PRIMARY KEY REFERENCES maintenance_jobs(id) ON DELETE CASCADE,
+ catalog_version INTEGER NOT NULL,
+ source_updated_at TEXT NOT NULL,
+ last_path TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS repair_issues(
+ job_id TEXT NOT NULL REFERENCES repair_scans(job_id) ON DELETE CASCADE,
+ logical_path TEXT NOT NULL,
+ package_key TEXT NOT NULL,
+ size INTEGER NOT NULL,
+ sha256 TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN('MISSING','SIZE_MISMATCH')),
+ actual_size INTEGER NOT NULL,
+ PRIMARY KEY(job_id,logical_path)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS ix_repair_issue_kind ON repair_issues(job_id,kind,package_key);

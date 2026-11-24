@@ -40,8 +40,8 @@ WHERE j.status IN(?,?)`, domain.MaintenanceQueued, domain.MaintenanceRunning)
 	}
 	for _, it := range items {
 		target := domain.MaintenanceFailed
-		if it.kind == domain.MaintenanceInventory && it.typeName == "pypi" && it.provider == "pypi" &&
-			hasProjectCheckpoint(ctx, it.path) {
+		if it.typeName == "pypi" && it.provider == "pypi" &&
+			(it.kind == domain.MaintenanceRepair || (it.kind == domain.MaintenanceInventory && hasProjectCheckpoint(ctx, it.path))) {
 			target = domain.MaintenancePaused
 		}
 		completed := any(timeString(at))
