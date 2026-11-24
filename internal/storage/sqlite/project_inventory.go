@@ -24,6 +24,8 @@ type projectInventory struct {
 	tx        *sql.Tx
 	progress  ports.InventoryProgress
 	unflushed int
+	unflushedObjects int64
+	lastFlush time.Time
 	closed    bool
 }
 
@@ -128,6 +130,7 @@ FROM inventory_checkpoint WHERE id=1`).Scan(&oldSig, &oldHash, &savedTotal, &don
 		return c.progress, fmt.Errorf("checkpoint counters are invalid: %w", domain.ErrConflict)
 	}
 	c.progress = ports.InventoryProgress{ScannedObjects: objects, ScannedBytes: bytes, CompletedProjects: done, TotalProjects: total, LastProject: last}
+	c.lastFlush = time.Now()
 	c.tx, err = c.db.BeginTx(ctx, nil)
 	return c.progress, err
 }
@@ -162,6 +165,7 @@ VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source_id,logical_path) DO NOTHING`,
 		return nil
 	}
 	c.progress.ScannedObjects++
+	c.unflushedObjects++
 	c.progress.ScannedBytes += entry.Size
 	return nil
 }
@@ -176,7 +180,7 @@ func (c *projectInventory) CheckpointProject(ctx context.Context, project string
 	c.progress.LastProject = project
 	c.progress.CompletedProjects++
 	c.unflushed++
-	if c.unflushed >= 100 {
+	if c.unflushed >= 100 || c.unflushedObjects >= 10000 || time.Since(c.lastFlush) >= 15*time.Second {
 		p, err := c.Flush(ctx)
 		return p, true, err
 	}
@@ -198,6 +202,8 @@ func (c *projectInventory) Flush(ctx context.Context) (ports.InventoryProgress, 
 	}
 	c.tx = nil
 	c.unflushed = 0
+	c.unflushedObjects = 0
+	c.lastFlush = time.Now()
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err == nil {
 		c.tx = tx

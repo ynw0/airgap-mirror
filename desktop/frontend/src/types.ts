@@ -86,3 +86,12 @@ export interface GCCandidatesPage { items: GCCandidate[]; stats: GCStats; next: 
 
 export interface RepairIssue { logicalPath: string; packageKey: string; size: number; sha256: string; kind: 'MISSING' | 'SIZE_MISMATCH'; actualSize: number }
 export interface RepairIssuesPage { items: RepairIssue[]; next: string }
+
+export interface ExportJob {
+  id: string; sourceIds: string[]; repairJobId?: string;
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  stage: string; completedSources: number; totalSources: number;
+  capsule?: StateCapsule; name?: string; download?: string; errorText?: string;
+  createdAt: string; updatedAt: string;
+}
+export interface CatalogReclaimResult { removedEntries: number; removedGenerations: number; more: boolean }

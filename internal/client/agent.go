@@ -328,3 +328,22 @@ func (c *AgentClient) exportStateJob(ctx context.Context, request map[string]any
 		if err!=nil{return StateExport{},fmt.Errorf("导出任务 %s 已提交，可在服务器 WebUI 查看: %w",id,err)}
 	}
 }
+
+func (c *AgentClient) ListExportJobs(ctx context.Context)([]domain.ExportJob,error){
+	var out []domain.ExportJob
+	err:=c.jsonRequest(ctx,http.MethodGet,"/api/v1/state/export-jobs",nil,&out)
+	return out,err
+}
+
+func (c *AgentClient) DownloadExportJob(ctx context.Context,id,destination string)error{
+	var job domain.ExportJob
+	if err:=c.jsonRequest(ctx,http.MethodGet,"/api/v1/state/export-jobs/"+url.PathEscape(id),nil,&job);err!=nil{return err}
+	if job.Status!="COMPLETED"||job.Capsule==nil||job.Capsule.ID!=id||job.Name==""{return domain.ErrConflict}
+	return c.DownloadState(ctx,job.Name,destination)
+}
+
+func (c *AgentClient) ReclaimCatalogHistory(ctx context.Context,sourceID string)(domain.CatalogReclaimResult,error){
+	var result domain.CatalogReclaimResult
+	err:=c.jsonRequest(ctx,http.MethodPost,"/api/v1/sources/"+url.PathEscape(sourceID)+"/catalog/reclaim",nil,&result)
+	return result,err
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { app } from '../backend'
 import { errorText, formatBytes, formatCount, formatDate, shortID, statusLabel } from '../format'
-import type { AgentOverview, GCCandidatesPage, MaintenanceJob, RepairIssuesPage } from '../types'
+import type { AgentOverview, GCCandidatesPage, MaintenanceJob, RepairIssuesPage, ExportJob } from '../types'
 
 type Props = { overview: AgentOverview | null }
 
@@ -26,6 +26,7 @@ export function MaintenancePanel({ overview }: Props) {
   const [selectedJobID, setSelectedJobID] = useState('')
   const [candidates, setCandidates] = useState<GCCandidatesPage | null>(null)
   const [repairIssues, setRepairIssues] = useState<RepairIssuesPage | null>(null)
+  const [exports, setExports] = useState<ExportJob[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -62,6 +63,52 @@ export function MaintenancePanel({ overview }: Props) {
   useEffect(() => {
     setSelectedJobID(''); setCandidates(null); setRepairIssues(null); setMessage('')
   }, [sourceID])
+
+  useEffect(() => {
+    if (!overview) { setExports([]); return }
+    let disposed = false, pending = false
+    async function refresh() {
+      if (pending) return
+      pending = true
+      try {
+        const jobs = await app().ListExportJobs()
+        if (!disposed) setExports(jobs ?? [])
+      } catch (_) { /* older Agents do not have the export queue */ }
+      finally { pending = false }
+    }
+    void refresh()
+    const timer = window.setInterval(refresh, 3000)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [overview])
+
+  async function downloadExport(job: ExportJob) {
+    setBusy(true); setMessage('')
+    try {
+      const destination = await app().PickStateDestination()
+      if (!destination) return
+      await app().DownloadExportJob(job.id, destination)
+      setMessage(`状态文件已保存：${destination}`)
+    } catch (e) {
+      setMessage(errorText(e) + '。若下载中断，请选择同一导出任务及同一目标文件继续。')
+    } finally { setBusy(false) }
+  }
+
+  async function reclaimHistory() {
+    if (!sourceID || !window.confirm('仅回收已经退役或放弃的历史账本记录，不删除任何软件包。历史账本回收后不可恢复，SQLite 空闲页留作后续写入。确认继续？')) return
+    setBusy(true); setMessage('')
+    let entries = 0, generations = 0
+    try {
+      for (;;) {
+        const result = await app().ReclaimCatalogHistory(sourceID)
+        entries += result.removedEntries
+        generations += result.removedGenerations
+        setMessage(`已回收 ${formatCount(entries)} 条历史记录，${formatCount(generations)} 个历史版本。${result.more ? '仍在处理。' : '已完成。'}`)
+        if (!result.more) break
+        await new Promise(resolve => window.setTimeout(resolve, 100))
+      }
+    } catch (e) { setMessage(`已回收 ${formatCount(entries)} 条记录；` + errorText(e)) }
+    finally { setBusy(false) }
+  }
 
   async function refreshJobs() {
     if (!sourceID) return
@@ -203,6 +250,7 @@ export function MaintenancePanel({ overview }: Props) {
           {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={busy} onClick={pauseJob}>暂停检查</button>}
           {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>继续上次清点</button>}
           {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? '放弃清点' : '取消任务'}</button>}
+          <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={reclaimHistory}>回收历史账本</button>
           <button disabled={!sourceID || busy} onClick={refreshJobs}>刷新</button>
         </div>
       </div>
@@ -229,6 +277,12 @@ export function MaintenancePanel({ overview }: Props) {
       <div className="button-row"><button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
     </div>}
 
+    {exports.length > 0 && <div className="card table-card">
+      <div className="card-title"><span>状态文件导出任务</span><span>中断下载后选择同一任务和目标路径可继续</span></div>
+      <div className="table-wrap"><table><thead><tr><th>任务</th><th>状态</th><th>进度</th><th>时间</th><th></th></tr></thead><tbody>
+        {exports.map(job => <tr key={job.id}><td><code>{shortID(job.id)}</code>{job.repairJobId && <small>缺失文件修复</small>}</td><td>{statusLabel(job.status)}</td><td>{job.stage}<small>{job.completedSources}/{job.totalSources} 个软件源</small>{job.errorText && <small>{job.errorText}</small>}</td><td>{formatDate(job.createdAt)}</td><td>{job.status === 'COMPLETED' && <button disabled={busy} onClick={() => downloadExport(job)}>下载或继续下载</button>}</td></tr>)}
+      </tbody></table></div>
+    </div>}
     {repairIssues && <div className="card table-card">
       <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；大小不符的文件不自动覆盖</span></div>
       <div className="table-wrap"><table><thead><tr><th>文件路径</th><th>类型</th><th>账本大小</th><th>实际大小</th></tr></thead><tbody>
