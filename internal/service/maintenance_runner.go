@@ -99,6 +99,9 @@ func (r *MaintenanceRunner) ResumeInventory(ctx context.Context, id string) (dom
 	if err != nil {
 		return job, err
 	}
+	if job.Kind == domain.MaintenanceRepair {
+		return r.resumeRepair(ctx, job)
+	}
 	if job.Kind != domain.MaintenanceInventory || job.Status != domain.MaintenancePaused {
 		return job, fmt.Errorf("只有已暂停的文件清点任务可以继续: %w", domain.ErrConflict)
 	}
@@ -141,7 +144,7 @@ func (r *MaintenanceRunner) PauseInventory(ctx context.Context, id string) (doma
 	if err != nil {
 		return job, err
 	}
-	if job.Kind != domain.MaintenanceInventory || (job.Status != domain.MaintenanceRunning && job.Status != domain.MaintenanceQueued) {
+	if (job.Kind != domain.MaintenanceInventory && job.Kind != domain.MaintenanceRepair) || (job.Status != domain.MaintenanceRunning && job.Status != domain.MaintenanceQueued) {
 		return job, fmt.Errorf("只有正在扫描的任务可以暂停: %w", domain.ErrConflict)
 	}
 	source, err := r.Sources.GetSource(ctx, job.SourceID)
