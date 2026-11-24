@@ -31,13 +31,22 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 	}
 	defer tx.Rollback()
 	var oldType domain.SourceType
-	var oldProvider, oldRoot, oldUpstream, cursorKind, cursorValue string
+	var oldProvider, oldRoot, oldUpstream, oldPublic, cursorKind, cursorValue string
 	var oldConfig []byte
 	var active sql.NullString
-	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,s.config_json,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &oldConfig, &cursorKind, &cursorValue, &active); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,s.public_url,s.config_json,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &oldPublic, &oldConfig, &cursorKind, &cursorValue, &active); err != nil {
 		return mapNotFound(err)
 	}
 	identityChanged := oldType != v.Type || oldProvider != v.Provider || oldRoot != v.RootPath || oldUpstream != v.UpstreamURL || !sameSyncConfig(oldConfig, v.ConfigJSON)
+	if identityChanged || oldPublic != v.PublicURL || !reflect.DeepEqual(oldConfig, []byte(v.ConfigJSON)) {
+		var maintenance int
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM maintenance_jobs WHERE source_id=? AND status IN('QUEUED','RUNNING','PAUSED'))`, v.ID).Scan(&maintenance); err != nil {
+			return err
+		}
+		if maintenance != 0 {
+			return fmt.Errorf("软件源正在维护或暂停维护，不能修改仓库地址、类型和配置: %w", domain.ErrConflict)
+		}
+	}
 	if active.Valid && active.String != "" && identityChanged {
 		return fmt.Errorf("正在同步，不能修改软件源地址、类型或仓库目录: %w", domain.ErrConflict)
 	}

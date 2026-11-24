@@ -69,6 +69,9 @@ func (s *ServerStore) publishCatalogGeneration(ctx context.Context, generation, 
 	if err != nil { return err }
 	if !info.Mode().IsRegular() { return domain.ErrInvalid }
 
+	state, err := s.GetState(ctx, sourceID)
+	if err != nil { return err }
+	if state.ActiveEpochID != "" { return fmt.Errorf("source has active epoch: %w", domain.ErrConflict) }
 	conn, err := s.DB.Conn(ctx)
 	if err != nil { return err }
 	defer conn.Close()

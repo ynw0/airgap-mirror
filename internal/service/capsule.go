@@ -68,16 +68,24 @@ func (c CapsuleService) Export(ctx context.Context, sourceIDs []string) (domain.
 		return cap, "", err
 	}
 	for _, s := range sources {
-		state, e := c.Store.GetState(ctx, s.ID)
+		rel := filepath.ToSlash(filepath.Join("catalogs", s.ID+".sqlite"))
+		local := filepath.Join(work, filepath.FromSlash(rel))
+		var state domain.SourceState
+		var e error
+		if snapshotter, ok := c.Exporter.(interface {
+			ExportSourceSnapshot(context.Context, string, string) (domain.Source, domain.SourceState, error)
+		}); ok {
+			s, state, e = snapshotter.ExportSourceSnapshot(ctx, s.ID, local)
+		} else {
+			state, e = c.Store.GetState(ctx, s.ID)
+			if e == nil {
+				e = c.Exporter.ExportSource(ctx, s.ID, local)
+			}
+		}
 		if e != nil {
 			return cap, "", e
 		}
 		cap.Sources = append(cap.Sources, domain.CapsuleSource{Source: s.Public(), State: state})
-		rel := filepath.ToSlash(filepath.Join("catalogs", s.ID+".sqlite"))
-		local := filepath.Join(work, filepath.FromSlash(rel))
-		if e = c.Exporter.ExportSource(ctx, s.ID, local); e != nil {
-			return cap, "", e
-		}
 		h, n, e := pack.FileSHA256(local)
 		if e != nil {
 			return cap, "", e
