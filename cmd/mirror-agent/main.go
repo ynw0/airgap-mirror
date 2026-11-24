@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -41,7 +42,14 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	absDB, err := filepath.Abs(dbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// SQLite PRAGMAs such as busy_timeout and foreign_keys are per connection.
+	// Configure every pooled connection, not only the initialization connection.
+	dsn := (&url.URL{Scheme: "file", Path: absDB, RawQuery: url.Values{"_pragma": {"busy_timeout(10000)", "foreign_keys(ON)", "synchronous(NORMAL)"}}.Encode()}).String()
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
