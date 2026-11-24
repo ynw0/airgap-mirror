@@ -36,6 +36,7 @@ type AppBridge = {
   PauseTransfer(batchID: string): Promise<void>
   StartInventory(sourceID: string): Promise<MaintenanceJob>
   StartRepair(sourceID: string): Promise<MaintenanceJob>
+  StartIntegrity(sourceID: string, mibPerSecond: number): Promise<MaintenanceJob>
   RepairIssues(jobID: string, after: string, limit: number): Promise<RepairIssuesPage>
   ExportRepairCapsule(sourceID: string, jobID: string, destination: string): Promise<StateExportResult>
   StartGC(sourceID: string, execute: boolean): Promise<MaintenanceJob>

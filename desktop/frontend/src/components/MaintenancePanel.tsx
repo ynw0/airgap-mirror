@@ -140,6 +140,21 @@ export function MaintenancePanel({ overview }: Props) {
     finally { setBusy(false) }
   }
 
+  async function startIntegrity() {
+    if (!sourceID) return
+    const raw = window.prompt('完整校验会读取所有已入账文件，耗时可能很长。请输入每秒读取上限（1–1024 MiB/s）。', '64')
+    if (raw === null) return
+    const speed = Number(raw)
+    if (!Number.isInteger(speed) || speed < 1 || speed > 1024) { setMessage('请输入 1 至 1024 的整数。'); return }
+    setBusy(true); setMessage('')
+    try {
+      const job = await app().StartIntegrity(sourceID, speed)
+      setSelectedJobID(job.id); setCandidates(null); setRepairIssues(null)
+      await refreshJobs()
+    } catch (e) { setMessage(errorText(e)) }
+    finally { setBusy(false) }
+  }
+
   async function showRepair(job: MaintenanceJob, append = false) {
     setBusy(true); setMessage('')
     try {
@@ -247,6 +262,7 @@ export function MaintenancePanel({ overview }: Props) {
           <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startInventory}>重新清点</button>
           <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startGC(false)}>查看可清理文件</button>
           {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startRepair}>检查缺失文件</button>}
+          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startIntegrity}>SHA256 完整校验</button>}
           {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={busy} onClick={pauseJob}>暂停检查</button>}
           {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>继续上次清点</button>}
           {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? '放弃清点' : '取消任务'}</button>}
@@ -261,7 +277,7 @@ export function MaintenancePanel({ overview }: Props) {
       <div className="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>扫描</th><th>候选</th><th>实际删除</th><th>时间</th><th></th></tr></thead>
         <tbody>{jobs.length ? jobs.map(job => <tr key={job.id}>
           <td><code>{shortID(job.id)}</code>{job.errorText && <small className="clip">{job.errorText}</small>}</td>
-          <td>{job.kind === 'GC' ? '清理文件' : job.kind === 'REPAIR' ? '缺失文件检查' : '重新清点'}{job.kind === 'GC' && <small>{job.execute ? '执行删除' : '仅预览'}</small>}</td>
+          <td>{job.kind === 'GC' ? '清理文件' : job.kind === 'REPAIR' ? (job.hashMiBPerSecond ? `完整性校验（${job.hashMiBPerSecond} MiB/s）` : '缺失文件检查') : '重新清点'}{job.kind === 'GC' && <small>{job.execute ? '执行删除' : '仅预览'}</small>}</td>
           <td><span className={statusClass(job.status)}>{statusLabel(job.status)}</span></td>
           <td>{formatCount(job.scannedObjects)}<small>{formatBytes(job.scannedBytes)}</small>{job.kind === 'INVENTORY' && job.totalProjects > 0 && <small>已检查项目 {formatCount(job.completedProjects)}/{formatCount(job.totalProjects)}{job.lastProject ? ` · 到 ${job.lastProject}` : ''}</small>}</td>
           <td>{job.kind === 'GC' || job.kind === 'REPAIR' ? <>{formatCount(job.candidateObjects)}<small>{formatBytes(job.candidateBytes)}</small></> : '—'}</td>
@@ -284,9 +300,9 @@ export function MaintenancePanel({ overview }: Props) {
       </tbody></table></div>
     </div>}
     {repairIssues && <div className="card table-card">
-      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；大小不符的文件不自动覆盖</span></div>
+      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；大小或哈希不符的文件不自动覆盖</span></div>
       <div className="table-wrap"><table><thead><tr><th>文件路径</th><th>类型</th><th>账本大小</th><th>实际大小</th></tr></thead><tbody>
-        {repairIssues.items.map(item => <tr key={item.logicalPath}><td><code>{item.logicalPath}</code></td><td>{item.kind === 'MISSING' ? '缺失' : '大小不符'}</td><td>{formatBytes(item.size)}</td><td>{item.kind === 'MISSING' ? '—' : formatBytes(item.actualSize)}</td></tr>)}
+        {repairIssues.items.map(item => <tr key={item.logicalPath}><td><code>{item.logicalPath}</code>{item.actualSha256 && <small>预期：{item.sha256}<br/>实际：{item.actualSha256}</small>}</td><td>{item.kind === 'MISSING' ? '缺失' : item.kind === 'HASH_MISMATCH' ? 'SHA256 不符' : '大小不符'}</td><td>{formatBytes(item.size)}</td><td>{item.kind === 'MISSING' ? '—' : formatBytes(item.actualSize)}</td></tr>)}
       </tbody></table></div>
       {repairIssues.next && selectedJob && <button disabled={busy} onClick={() => showRepair(selectedJob, true)}>加载更多</button>}
     </div>}
