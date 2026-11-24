@@ -312,6 +312,18 @@ func (a *API) stateDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid export name")
 		return
 	}
+	if a.ExportJobs != nil {
+		id := strings.TrimSuffix(strings.TrimPrefix(name, "mirror-state-"), ".mstate")
+		job, jobErr := a.ExportJobs.Get(r.Context(), id)
+		if jobErr == nil && job.Status != "COMPLETED" {
+			mapError(w, fmt.Errorf("状态文件尚未生成完成: %w", domain.ErrConflict))
+			return
+		}
+		if jobErr != nil && !errors.Is(jobErr, domain.ErrNotFound) {
+			mapError(w, jobErr)
+			return
+		}
+	}
 	path := filepath.Join(a.Capsules.OutputDir, name)
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -329,6 +341,9 @@ func (a *API) stateDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
+	// Published export files are immutable. A strong validator prevents a
+	// resumed download from appending bytes from a different export.
+	w.Header().Set("ETag", fmt.Sprintf("\"%s-%d-%d\"", name, st.Size(), st.ModTime().UnixNano()))
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	http.ServeContent(w, r, name, st.ModTime(), f)
 }

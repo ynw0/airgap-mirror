@@ -35,6 +35,7 @@ summary{cursor:pointer;color:#26599e}code{font:12px Consolas,monospace;overflow-
 <div id="sources"></div>
 <div class="row"><button id="add">添加软件源</button><button id="exportAll">导出全部软件源状态</button><button id="key">下载 APT 签名公钥</button></div>
 </section>
+<section class="panel"><div class="row"><h2 class="grow">状态文件导出任务</h2><button id="refreshExports">刷新任务</button></div><p class="small">导出在服务器上执行，关闭页面不会取消任务。完成后可以再次连接并下载。支持文件保存接口的浏览器将直接写入磁盘；其他浏览器可使用 Windows 客户端下载大型文件。</p><div id="exportJobs"></div></section>
 <section class="panel hidden" id="editor"><h2 id="editorTitle">添加软件源</h2>
 <div class="form">
 <label>名称<input id="name" placeholder="例如 Debian"></label>
@@ -80,7 +81,44 @@ function make(tag,value,cls){const x=document.createElement(tag);x.textContent=S
 function action(label,fn){const b=make('button',label);b.addEventListener('click',()=>Promise.resolve(fn()).catch(e=>show(e.message,true)));return b;}
 function bytes(v){let x=Number(v)||0,i=0;const u=['B','KiB','MiB','GiB','TiB'];while(x>=1024&&i<4){x/=1024;i++;}return x.toFixed(i?1:0)+' '+u[i];}
 async function download(path,name){const data=await (await api(path)).blob();const url=URL.createObjectURL(data);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}
-async function exportState(ids,repairJobId){show('正在生成状态文件……');const v=await (await api('/api/v1/state/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceIds:ids,repairJobId:repairJobId||''})})).json();await download(v.download,v.name);show('状态文件已经下载。请把它放到移动硬盘，再到联网电脑下载更新。');}
+async function exportState(ids,repairJobId){
+ const j=await(await api('/api/v1/state/export-jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceIds:ids,repairJobId:repairJobId||''})})).json();
+ show('状态文件导出任务已提交：'+j.id+'。可在下方查看进度，完成后下载。');
+ await refreshExports();
+}
+async function downloadExport(j){
+ if(typeof window.showSaveFilePicker==='function'){
+  const handle=await window.showSaveFilePicker({suggestedName:j.name});
+  const response=await api(j.download);
+  const stream=await handle.createWritable();
+  try{await response.body.pipeTo(stream);}catch(e){try{await stream.abort();}catch(_){}throw e;}
+ }else{
+  const response=await api(j.download);
+  const size=Number(response.headers.get('Content-Length'));
+  if(size>512*1024*1024){await response.body.cancel();throw Error('状态文件超过 512 MiB，当前浏览器不支持直接写入磁盘。请使用支持文件保存接口的 HTTPS 浏览器或 Windows 客户端。');}
+  const data=await response.blob();const url=URL.createObjectURL(data);
+  const a=document.createElement('a');a.href=url;a.download=j.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+ }
+ show('状态文件已保存。');
+}
+let refreshingExports=false;
+async function refreshExports(){
+ if(!token||refreshingExports)return;
+ refreshingExports=true;
+ try{
+  const jobs=await(await api('/api/v1/state/export-jobs')).json();
+  const holder=el('exportJobs');holder.replaceChildren();
+  if(!jobs.length){holder.appendChild(make('p','暂无导出任务。','small'));return;}
+  const labels={QUEUED:'排队中',RUNNING:'生成中',COMPLETED:'已完成',FAILED:'失败'};
+  for(const j of jobs){
+   const row=make('div','');row.className='row';
+   row.appendChild(make('span',(labels[j.status]||j.status)+' · '+j.stage+' · '+j.completedSources+'/'+j.totalSources+' 个软件源 · '+j.id,'grow'));
+   if(j.errorText)row.appendChild(make('p',j.errorText,'small'));
+   if(j.status==='COMPLETED')row.appendChild(action('下载状态文件',()=>downloadExport(j)));
+   holder.appendChild(row);
+  }
+ }finally{refreshingExports=false;}
+}
 async function refresh(){
  const list=await (await api('/api/v1/sources')).json();sources=Array.isArray(list)?list:[];
  const holder=el('sources');holder.replaceChildren();
@@ -163,6 +201,8 @@ el('save').addEventListener('click',async()=>{try{const d=definitions[el('kind')
 el('cancelEdit').addEventListener('click',()=>el('editor').classList.add('hidden'));
 el('connect').addEventListener('click',async()=>{token=el('token').value.trim();if(!token){show('请填写连接令牌。',true);return;}try{await refresh();el('login').classList.add('hidden');el('app').classList.remove('hidden');el('token').value='';show('已经连接服务器。请先核对统计信息，再按需要导出状态文件。');}catch(e){token='';show('连接失败，请检查服务器和令牌。\n'+e.message,true);}});
 el('refresh').addEventListener('click',()=>refresh().then(()=>show('状态已更新。')).catch(e=>show(e.message,true)));
+el('refreshExports').addEventListener('click',()=>refreshExports().catch(e=>show(e.message,true)));
+setInterval(()=>{if(token)refreshExports().catch(()=>{});},3000);
 el('add').addEventListener('click',()=>openEditor(null));
 el('exportAll').addEventListener('click',()=>exportState(sources.map(s=>s.id)).catch(e=>show(e.message,true)));
 el('key').addEventListener('click',()=>download('/api/v1/signing-key','airgap-mirror-apt-key.asc').then(()=>show('公钥已下载，请在客户端配置为内网 APT 仓库的受信任密钥。')).catch(e=>show('公钥下载失败：'+e.message,true)));
