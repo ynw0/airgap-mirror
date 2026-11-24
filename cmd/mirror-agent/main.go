@@ -76,10 +76,16 @@ func main() {
 		recoverCancel()
 		log.Fatal(err)
 	}
+	if err = store.RecoverExportJobs(recoverCtx); err != nil {
+		recoverCancel()
+		log.Fatal(err)
+	}
 	recoverCancel()
 
 	signer := &service.APTSigner{Sources: store, Catalog: store, Jobs: store, GNUPGHOME: os.Getenv("AIRGAP_MIRROR_GNUPGHOME"), KeyID: os.Getenv("AIRGAP_MIRROR_APT_SIGNING_KEY")}
 	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token, Signer: signer}
+	api.ExportJobs = &service.ExportJobs{Store: store, Capsules: api.Capsules}
+	go api.ExportJobs.Run(maintenanceCtx)
 	handler := appserver.WithMaintenance(api.Handler(), api, maintenanceRunner, store)
 	httpServer := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, WriteTimeout: 0}
 	errCh := make(chan error, 1)

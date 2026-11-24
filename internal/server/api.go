@@ -26,6 +26,7 @@ type API struct {
 	Transfer    service.TransferService
 	Importer    service.ImportService
 	Capsules    service.CapsuleService
+	ExportJobs *service.ExportJobs
 	Capacity    ports.CapacityInspector
 	BearerToken string
 	Signer      *service.APTSigner
@@ -61,6 +62,11 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("POST /api/v1/epochs/{id}/cancel", secure(a.epochCancel))
 	mux.Handle("GET /api/v1/batches/{id}", secure(a.batchGet))
 	mux.Handle("POST /api/v1/state/export", secure(a.stateExport))
+	if a.ExportJobs != nil {
+		mux.Handle("POST /api/v1/state/export-jobs", secure(a.enqueueExport))
+		mux.Handle("GET /api/v1/state/export-jobs", secure(a.listExports))
+		mux.Handle("GET /api/v1/state/export-jobs/{id}", secure(a.getExport))
+	}
 	mux.Handle("GET /api/v1/state/exports/{name}", secure(a.stateDownload))
 	mux.Handle("POST /api/v1/imports", secure(a.importCreate))
 	mux.Handle("GET /api/v1/imports/{id}", secure(a.importGet))
@@ -469,4 +475,22 @@ func (a *API) reclaimCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *API) enqueueExport(w http.ResponseWriter,r *http.Request){
+	var req exportRequest
+	if err:=decodeJSON(r,&req);err!=nil{writeError(w,400,err.Error());return}
+	job,err:=a.ExportJobs.Enqueue(r.Context(),req.SourceIDs,req.RepairJobID)
+	if err!=nil{mapError(w,err);return}
+	writeJSON(w,http.StatusAccepted,job)
+}
+func (a *API) listExports(w http.ResponseWriter,r *http.Request){
+	jobs,err:=a.ExportJobs.Store.ListExportJobs(r.Context())
+	if err!=nil{mapError(w,err);return}
+	writeJSON(w,http.StatusOK,jobs)
+}
+func (a *API) getExport(w http.ResponseWriter,r *http.Request){
+	j,err:=a.ExportJobs.Get(r.Context(),r.PathValue("id"))
+	if err!=nil{mapError(w,err);return}
+	writeJSON(w,http.StatusOK,j)
 }
