@@ -54,6 +54,7 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /api/v1/sources/{id}", secure(a.sourceGet))
 	mux.Handle("PUT /api/v1/sources/{id}", secure(a.sourceUpdate))
 	mux.Handle("GET /api/v1/sources/{id}/state", secure(a.sourceState))
+	mux.Handle("POST /api/v1/sources/{id}/catalog/reclaim", secure(a.reclaimCatalog))
 	mux.Handle("GET /api/v1/epochs", secure(a.epochsList))
 	mux.Handle("GET /api/v1/epochs/{id}", secure(a.epochGet))
 	mux.Handle("GET /api/v1/epochs/{id}/batches", secure(a.epochBatches))
@@ -453,3 +454,19 @@ func (a *API) batchComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func Shutdown(ctx context.Context, s *http.Server) error { return s.Shutdown(ctx) }
+
+func (a *API) reclaimCatalog(w http.ResponseWriter, r *http.Request) {
+	store, ok := a.Store.(interface {
+		ReclaimCatalogHistory(context.Context, string) (domain.CatalogReclaimResult, error)
+	})
+	if !ok {
+		mapError(w, domain.ErrInvalid)
+		return
+	}
+	out, err := store.ReclaimCatalogHistory(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}

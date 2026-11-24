@@ -132,6 +132,19 @@ async function refresh(){
     }
   }
   buttons.appendChild(action('导出状态文件',()=>exportState([s.id])));
+  const reclaim=action('回收历史账本',async()=>{
+    if(!confirm('仅回收已退役或已放弃的 Catalog 数据库记录，不删除软件包文件，也不修改正式账本。回收后历史账本不可恢复，SQLite 空闲页将留作后续写入。确认继续？'))return;
+    reclaim.disabled=true;let count=0,versions=0;
+    try{
+      for(;;){
+        const v=await(await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/catalog/reclaim',{method:'POST'})).json();
+        count+=v.removedEntries;versions+=v.removedGenerations;
+        show('已回收 '+count+' 条历史记录、'+versions+' 个历史版本。'+(v.more?'仍在处理，可关闭页面后重新继续。':'已完成。'));
+        if(!v.more)break;
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+    }finally{reclaim.disabled=false;}
+  });reclaim.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(reclaim);
   buttons.appendChild(action('编辑设置',()=>openEditor(s)));
   if(s.type==='apt')buttons.appendChild(action('检查后重新签名',async()=>{if(!confirm('确认已查看清点结果，并且内网 APT 客户端会信任此次使用的专用公钥？'))return;const v=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/sign',{method:'POST'})).json();show('“'+s.name+'”已重新签名（'+v.suite+'）。请确认客户端已安装相应公钥。');await refresh();}));
   article.appendChild(buttons);holder.appendChild(article);
