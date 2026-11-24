@@ -4,6 +4,7 @@ import "time"
 
 const (
 	CapsuleSchemaVersion  = 1
+	RepairCapsuleSchemaVersion = 2
 	BundleSchemaVersion   = 1
 	ManifestSchemaVersion = 1
 )

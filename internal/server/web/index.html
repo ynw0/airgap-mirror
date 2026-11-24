@@ -80,7 +80,7 @@ function make(tag,value,cls){const x=document.createElement(tag);x.textContent=S
 function action(label,fn){const b=make('button',label);b.addEventListener('click',()=>Promise.resolve(fn()).catch(e=>show(e.message,true)));return b;}
 function bytes(v){let x=Number(v)||0,i=0;const u=['B','KiB','MiB','GiB','TiB'];while(x>=1024&&i<4){x/=1024;i++;}return x.toFixed(i?1:0)+' '+u[i];}
 async function download(path,name){const data=await (await api(path)).blob();const url=URL.createObjectURL(data);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}
-async function exportState(ids){show('正在生成状态文件……');const v=await (await api('/api/v1/state/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceIds:ids})})).json();await download(v.download,v.name);show('状态文件已经下载。请把它放到移动硬盘，再到联网电脑下载更新。');}
+async function exportState(ids,repairJobId){show('正在生成状态文件……');const v=await (await api('/api/v1/state/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceIds:ids,repairJobId:repairJobId||''})})).json();await download(v.download,v.name);show('状态文件已经下载。请把它放到移动硬盘，再到联网电脑下载更新。');}
 async function refresh(){
  const list=await (await api('/api/v1/sources')).json();sources=Array.isArray(list)?list:[];
  const holder=el('sources');holder.replaceChildren();
@@ -99,9 +99,11 @@ async function refresh(){
   article.appendChild(make('p','同步位置：'+(state.liveCursor&&state.liveCursor.value?state.liveCursor.kind+' · '+state.liveCursor.value:'还没有同步记录'),'small'));
   const buttons=make('div','');buttons.className='row';
   const tasks=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];
-  const running=tasks.find(j=>j.kind==='INVENTORY'&&(j.status==='RUNNING'||j.status==='QUEUED'));
-  const paused=tasks.find(j=>j.kind==='INVENTORY'&&j.status==='PAUSED');
-  if(s.type==='pypi' && (running||paused)){
+  const running=tasks.find(j=>(j.kind==='INVENTORY'||j.kind==='REPAIR')&&(j.status==='RUNNING'||j.status==='QUEUED'));
+  const paused=tasks.find(j=>(j.kind==='INVENTORY'||j.kind==='REPAIR')&&j.status==='PAUSED');
+  const repair=tasks.find(j=>j.kind==='REPAIR');
+  if(repair)article.appendChild(make('p','缺失文件检查：'+repair.status+'；已检查 '+repair.scannedObjects+' 个文件，异常 '+repair.candidateObjects+' 个。'+(repair.errorText||''),'small'));
+  if(s.type==='pypi' && (running||paused) && (running||paused).kind==='INVENTORY'){
     const j=running||paused;
     article.appendChild(make('p','PyPI 检查进度：'+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；已记录 '+bytes(j.scannedBytes)+'，最近完成：'+(j.lastProject||'尚无检查点'),'small'));
   }
@@ -114,6 +116,21 @@ async function refresh(){
     buttons.appendChild(action('放弃清点',async()=>{if(!confirm('放弃当前清点并删除检查点？旧文件账本不会改变。'))return;await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/cancel',{method:'POST'});show('已放弃本次清点。');await refresh();}));
   }
   buttons.appendChild(action('查看清点结果',async()=>{const jobs=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];const j=jobs.find(x=>x.kind==='INVENTORY');if(!j){show('还没有清点记录，请先点击“重新清点文件”。');return;}const statuses={QUEUED:'等待开始',RUNNING:'正在检查',PAUSED:'已暂停，可以继续',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消'};show('“'+s.name+'”最近一次清点：'+(statuses[j.status]||j.status)+'；已检查 '+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；记录 '+j.scannedObjects+' 个文件，约 '+bytes(j.scannedBytes)+(j.errorText?'。错误：'+j.errorText:''));if(j.status==='COMPLETED')await refresh();}));
+  if(s.type==='pypi'){
+    const check=action('检查缺失文件',async()=>{await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/repair-check',{method:'POST'});show('已开始检查缺失文件及文件大小。');await refresh();});
+    check.disabled=!!(running||paused||state.activeEpochId);
+    buttons.appendChild(check);
+    if(repair && repair.status==='COMPLETED'){
+      const detail=make('pre','');detail.className='small';article.appendChild(detail);
+      let after='';
+      const showIssues=action('查看异常文件',async()=>{
+        const page=await(await api('/api/v1/maintenance/'+encodeURIComponent(repair.id)+'/repair-issues?limit=100&after='+encodeURIComponent(after))).json();
+        detail.textContent=(page.items||[]).map(i=>(i.kind==='MISSING'?'缺失：':'大小不符：')+i.logicalPath).join('\n')||'没有更多异常文件';
+        after=page.next||'';showIssues.textContent=after?'下一页异常文件':'查看异常文件';
+      });buttons.appendChild(showIssues);
+      if(repair.candidateObjects>0){const exportRepair=action('导出修复状态',()=>exportState([s.id],repair.id));exportRepair.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(exportRepair);}
+    }
+  }
   buttons.appendChild(action('导出状态文件',()=>exportState([s.id])));
   buttons.appendChild(action('编辑设置',()=>openEditor(s)));
   if(s.type==='apt')buttons.appendChild(action('检查后重新签名',async()=>{if(!confirm('确认已查看清点结果，并且内网 APT 客户端会信任此次使用的专用公钥？'))return;const v=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/sign',{method:'POST'})).json();show('“'+s.name+'”已重新签名（'+v.suite+'）。请确认客户端已安装相应公钥。');await refresh();}));

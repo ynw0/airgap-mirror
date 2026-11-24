@@ -132,3 +132,24 @@ func (s *CatalogSnapshot) RepairEntries(ctx context.Context, sourceID, project s
 	}
 	return out, rows.Err()
 }
+
+func (s *CatalogSnapshot) ValidateRepairSnapshot(ctx context.Context, sourceID string, repair bool) error {
+	var present int
+	if err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='repair_entries')`).Scan(&present); err != nil {
+		return err
+	}
+	if repair != (present == 1) {
+		return fmt.Errorf("repair capsule schema and evidence disagree: %w", domain.ErrConflict)
+	}
+	if !repair {
+		return nil
+	}
+	var count, invalid int64
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN r.source_id<>? OR r.size<0 OR LENGTH(r.sha256)<>64 OR r.package_key='' OR EXISTS(SELECT 1 FROM catalog_entries c WHERE c.source_id=r.source_id AND c.logical_path=r.logical_path) THEN 1 ELSE 0 END),0) FROM repair_entries r`, sourceID).Scan(&count, &invalid); err != nil {
+		return err
+	}
+	if count == 0 || invalid != 0 {
+		return fmt.Errorf("invalid repair evidence: %w", domain.ErrConflict)
+	}
+	return nil
+}

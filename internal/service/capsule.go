@@ -50,6 +50,9 @@ func (c CapsuleService) export(ctx context.Context, sourceIDs []string, repairJo
 		return cap, "", err
 	}
 	cap = domain.StateCapsule{SchemaVersion: domain.CapsuleSchemaVersion, ID: id, ExportedAt: c.now()}
+	if repairJobID != "" {
+		cap.SchemaVersion = domain.RepairCapsuleSchemaVersion
+	}
 	if err = os.MkdirAll(c.OutputDir, 0755); err != nil {
 		return cap, "", err
 	}

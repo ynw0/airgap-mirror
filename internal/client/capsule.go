@@ -75,11 +75,14 @@ func readCapsuleState(f *zip.File) (domain.StateCapsule, error) {
 }
 
 func validateCapsuleManifest(cap domain.StateCapsule, files map[string]*zip.File) (map[string]domain.CapsuleCatalog, error) {
-	if cap.SchemaVersion != domain.CapsuleSchemaVersion || cap.ID == "" {
+	if (cap.SchemaVersion != domain.CapsuleSchemaVersion && cap.SchemaVersion != domain.RepairCapsuleSchemaVersion) || cap.ID == "" {
 		return nil, fmt.Errorf("unsupported State Capsule schema/id: %w", domain.ErrInvalid)
 	}
 	if len(cap.Sources) == 0 || len(cap.Catalogs) != len(cap.Sources) {
 		return nil, fmt.Errorf("State Capsule source/catalog cardinality mismatch: %w", domain.ErrConflict)
+	}
+	if cap.SchemaVersion == domain.RepairCapsuleSchemaVersion && (len(cap.Sources) != 1 || cap.Sources[0].Source.Type != domain.SourcePyPI) {
+		return nil, fmt.Errorf("repair capsule must contain exactly one PyPI source: %w", domain.ErrInvalid)
 	}
 	sources := make(map[string]struct{}, len(cap.Sources))
 	for _, item := range cap.Sources {
@@ -226,6 +229,9 @@ func ImportStateCapsule(ctx context.Context, capsulePath, workspaceRoot string) 
 			return out, err
 		}
 		err = snapshot.ValidateSource(ctx, sourceID)
+		if err == nil {
+			err = snapshot.ValidateRepairSnapshot(ctx, sourceID, cap.SchemaVersion == domain.RepairCapsuleSchemaVersion)
+		}
 		_ = db.Close()
 		if err != nil {
 			return out, fmt.Errorf("validate catalog %s: %w", sourceID, err)
