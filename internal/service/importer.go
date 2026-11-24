@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"io"
 	"os"
 	"path/filepath"
@@ -63,6 +65,18 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 	source, err := i.Store.GetSource(ctx, sess.SourceID)
 	if err != nil {
 		return err
+	}
+	var repair approvedRepairStore
+	if source.Type == domain.SourcePyPI && source.Provider == "pypi" {
+		if store, ok := i.Store.(approvedRepairStore); ok {
+			enabled, checkErr := store.HasApprovedRepair(ctx, source.ID, sess.EpochID)
+			if checkErr != nil {
+				return checkErr
+			}
+			if enabled {
+				repair = store
+			}
+		}
 	}
 	r, err := pack.Open(ip.StagingPath)
 	if err != nil {
@@ -126,8 +140,29 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 			if i.Installer == nil {
 				return fmt.Errorf("artifact installer required")
 			}
-			if _, e = i.Installer.Install(ctx, source, rec, body); e != nil {
-				return e
+			repaired := false
+			if repair != nil && strings.HasPrefix(rec.LogicalPath, "packages/") {
+				evidence, checkErr := repair.ApprovedRepairEvidence(ctx, source.ID, sess.EpochID, rec.LogicalPath, rec.ContentLength, rec.SHA256)
+				if checkErr == nil {
+					// Never replace a file merely because the offline manifest
+					// says it is damaged. The server must authorize that identity.
+					result, repairErr := repairVerifiedPackage(ctx, source, rec, body, evidence)
+					if repairErr != nil {
+						return repairErr
+					}
+					repaired = true
+					if !result.Skipped {
+						id, _ := domain.NewID()
+						_ = i.Store.WriteAudit(ctx, domain.AuditEvent{ID:id, Kind:"package_repaired", SourceID:source.ID, EpochID:sess.EpochID, BatchID:sess.BatchID, Message:"verified package repair: "+rec.LogicalPath+"; report="+evidence.JobID, CreatedAt:i.now()})
+					}
+				} else if !errors.Is(checkErr, domain.ErrNotFound) {
+					return checkErr
+				}
+			}
+			if !repaired {
+				if _, e = i.Installer.Install(ctx, source, rec, body); e != nil {
+					return e
+				}
 			}
 		}
 		c := domain.CatalogEntry{SourceID: m.Artifact.SourceID, LogicalPath: m.Artifact.LogicalPath, Size: m.Artifact.Size, SHA256: m.Artifact.SHA256, PackageKey: m.Artifact.PackageKey, Version: m.Artifact.Version, Attributes: m.Artifact.Attributes, UpdatedAt: i.now()}

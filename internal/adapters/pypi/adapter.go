@@ -462,7 +462,7 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 			views = append(views, view)
 			if entry, ok := missing[view.LogicalPath]; ok {
 				if entry.Size != file.Size || !strings.EqualFold(entry.SHA256, view.SHA256) {
-					return fmt.Errorf("缺失文件 %s 的上游内容与原账本不符: %w", view.LogicalPath, domain.ErrConflict)
+					return fmt.Errorf("待修复文件 %s 的上游内容与原账本不符: %w", view.LogicalPath, domain.ErrConflict)
 				}
 				delete(missing, view.LogicalPath)
 			}
@@ -496,7 +496,7 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 		}
 		if len(missing) != 0 {
 			for logical := range missing {
-				return fmt.Errorf("缺失文件 %s 已无法从当前 PyPI 项目索引恢复，请使用可信备份: %w", logical, domain.ErrConflict)
+				return fmt.Errorf("待修复文件 %s 已无法从当前 PyPI 项目索引恢复，请使用可信备份: %w", logical, domain.ErrConflict)
 			}
 		}
 		page := renderProjectPage(project, views)
