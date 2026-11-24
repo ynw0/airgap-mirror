@@ -1,0 +1,28 @@
+name: Temporary verified repair format
+on:
+  push:
+    branches: ['feat/verified-pypi-repair']
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/verified-pypi-repair
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Format and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git ls-files -z '*.go' | xargs -0 gofmt -w
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -u
+            git commit -m "style: format verified package repair"
+            git push origin HEAD:feat/verified-pypi-repair
+          fi
