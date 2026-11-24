@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS maintenance_jobs(
   kind TEXT NOT NULL CHECK(kind IN('INVENTORY','GC','REPAIR')),
   status TEXT NOT NULL CHECK(status IN('QUEUED','RUNNING','PAUSED','COMPLETED','FAILED','CANCELLED')),
   execute INTEGER NOT NULL CHECK(execute IN(0,1)),
+  hash_mib_per_second INTEGER NOT NULL DEFAULT 0 CHECK(hash_mib_per_second BETWEEN 0 AND 1024),
   scanned_objects INTEGER NOT NULL DEFAULT 0,
   scanned_bytes INTEGER NOT NULL DEFAULT 0,
   completed_projects INTEGER NOT NULL DEFAULT 0,
@@ -58,8 +59,9 @@ CREATE TABLE IF NOT EXISTS repair_issues(
  package_key TEXT NOT NULL,
  size INTEGER NOT NULL,
  sha256 TEXT NOT NULL,
- kind TEXT NOT NULL CHECK(kind IN('MISSING','SIZE_MISMATCH')),
+ kind TEXT NOT NULL CHECK(kind IN('MISSING','SIZE_MISMATCH','HASH_MISMATCH')),
  actual_size INTEGER NOT NULL,
+ actual_sha256 TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(job_id,logical_path)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS ix_repair_issue_kind ON repair_issues(job_id,kind,package_key);

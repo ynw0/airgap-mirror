@@ -72,7 +72,7 @@ func (s *ServerStore) CommitRepairPage(ctx context.Context, jobID, previous, las
 		if v.LogicalPath <= previous || v.LogicalPath > last || v.Size < 0 {
 			return domain.ErrInvalid
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO repair_issues(job_id,logical_path,package_key,size,sha256,kind,actual_size) VALUES(?,?,?,?,?,?,?)`, jobID, v.LogicalPath, v.PackageKey, v.Size, v.SHA256, v.Kind, v.ActualSize); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO repair_issues(job_id,logical_path,package_key,size,sha256,kind,actual_size,actual_sha256) VALUES(?,?,?,?,?,?,?,?)`, jobID, v.LogicalPath, v.PackageKey, v.Size, v.SHA256, v.Kind, v.ActualSize, v.ActualSHA256); err != nil {
 			return err
 		}
 		issueBytes += v.Size
@@ -104,7 +104,7 @@ func (s *ServerStore) ListRepairIssues(ctx context.Context, jobID, after string,
 	if limit < 1 || limit > 1000 {
 		return nil, domain.ErrInvalid
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT logical_path,package_key,size,sha256,kind,actual_size FROM repair_issues WHERE job_id=? AND logical_path>? ORDER BY logical_path LIMIT ?`, jobID, after, limit)
+	rows, err := s.DB.QueryContext(ctx, `SELECT logical_path,package_key,size,sha256,kind,actual_size,actual_sha256 FROM repair_issues WHERE job_id=? AND logical_path>? ORDER BY logical_path LIMIT ?`, jobID, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (s *ServerStore) ListRepairIssues(ctx context.Context, jobID, after string,
 	out := make([]domain.RepairIssue, 0, limit)
 	for rows.Next() {
 		var v domain.RepairIssue
-		if err = rows.Scan(&v.LogicalPath, &v.PackageKey, &v.Size, &v.SHA256, &v.Kind, &v.ActualSize); err != nil {
+		if err = rows.Scan(&v.LogicalPath, &v.PackageKey, &v.Size, &v.SHA256, &v.Kind, &v.ActualSize, &v.ActualSHA256); err != nil {
 			return nil, err
 		}
 		out = append(out, v)

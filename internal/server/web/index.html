@@ -140,7 +140,7 @@ async function refresh(){
   const running=tasks.find(j=>(j.kind==='INVENTORY'||j.kind==='REPAIR')&&(j.status==='RUNNING'||j.status==='QUEUED'));
   const paused=tasks.find(j=>(j.kind==='INVENTORY'||j.kind==='REPAIR')&&j.status==='PAUSED');
   const repair=tasks.find(j=>j.kind==='REPAIR');
-  if(repair)article.appendChild(make('p','缺失文件检查：'+repair.status+'；已检查 '+repair.scannedObjects+' 个文件，异常 '+repair.candidateObjects+' 个。'+(repair.errorText||''),'small'));
+  if(repair)article.appendChild(make('p',(repair.hashMiBPerSecond?'SHA256 完整校验（'+repair.hashMiBPerSecond+' MiB/s）：':'缺失文件检查：')+repair.status+'；已检查 '+repair.scannedObjects+' 个文件，异常 '+repair.candidateObjects+' 个。'+(repair.errorText||''),'small'));
   if(s.type==='pypi' && (running||paused) && (running||paused).kind==='INVENTORY'){
     const j=running||paused;
     article.appendChild(make('p','PyPI 检查进度：'+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；已记录 '+bytes(j.scannedBytes)+'，最近完成：'+(j.lastProject||'尚无检查点'),'small'));
@@ -158,12 +158,21 @@ async function refresh(){
     const check=action('检查缺失文件',async()=>{await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/repair-check',{method:'POST'});show('已开始检查缺失文件及文件大小。');await refresh();});
     check.disabled=!!(running||paused||state.activeEpochId);
     buttons.appendChild(check);
+    const integrity=action('SHA256 完整校验',async()=>{
+      const input=prompt('完整校验会读取所有已入账文件。请输入读取上限（1–1024 MiB/s）。','64');
+      if(input===null)return;
+      const speed=Number(input);
+      if(!Number.isInteger(speed)||speed<1||speed>1024)throw Error('请输入 1 至 1024 的整数。');
+      await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/integrity-check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mibPerSecond:speed})});
+      show('已开始 SHA256 完整校验，可暂停后继续。');await refresh();
+    });
+    integrity.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(integrity);
     if(repair && repair.status==='COMPLETED'){
       const detail=make('pre','');detail.className='small';article.appendChild(detail);
       let after='';
       const showIssues=action('查看异常文件',async()=>{
         const page=await(await api('/api/v1/maintenance/'+encodeURIComponent(repair.id)+'/repair-issues?limit=100&after='+encodeURIComponent(after))).json();
-        detail.textContent=(page.items||[]).map(i=>(i.kind==='MISSING'?'缺失：':'大小不符：')+i.logicalPath).join('\n')||'没有更多异常文件';
+        detail.textContent=(page.items||[]).map(i=>(i.kind==='MISSING'?'缺失：':i.kind==='HASH_MISMATCH'?'SHA256 不符：':'大小不符：')+i.logicalPath+(i.actualSha256?'\n预期：'+i.sha256+'\n实际：'+i.actualSha256:'')).join('\n')||'没有更多异常文件';
         after=page.next||'';showIssues.textContent=after?'下一页异常文件':'查看异常文件';
       });buttons.appendChild(showIssues);
       if(repair.candidateObjects>0){const exportRepair=action('导出修复状态',()=>exportState([s.id],repair.id));exportRepair.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(exportRepair);}

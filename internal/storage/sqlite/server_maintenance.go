@@ -22,6 +22,7 @@ func scanMaintenanceJob(row interface{ Scan(...any) error }) (domain.Maintenance
 		&job.Kind,
 		&job.Status,
 		&execute,
+		&job.HashMiBPerSecond,
 		&job.ScannedObjects,
 		&job.ScannedBytes,
 		&job.CompletedProjects,
@@ -46,7 +47,7 @@ func scanMaintenanceJob(row interface{ Scan(...any) error }) (domain.Maintenance
 	return job, nil
 }
 
-const maintenanceSelect = `SELECT id,source_id,kind,status,execute,scanned_objects,scanned_bytes,completed_projects,total_projects,last_project,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`
+const maintenanceSelect = `SELECT id,source_id,kind,status,execute,hash_mib_per_second,scanned_objects,scanned_bytes,completed_projects,total_projects,last_project,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`
 
 func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.MaintenanceJob) error {
 	if job.ID == "" || job.SourceID == "" {
@@ -54,6 +55,9 @@ func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.Maint
 	}
 	if job.Kind != domain.MaintenanceInventory && job.Kind != domain.MaintenanceGC && job.Kind != domain.MaintenanceRepair {
 		return fmt.Errorf("unsupported maintenance kind %q: %w", job.Kind, domain.ErrInvalid)
+	}
+	if job.HashMiBPerSecond < 0 || job.HashMiBPerSecond > 1024 || (job.HashMiBPerSecond > 0 && job.Kind != domain.MaintenanceRepair) {
+		return fmt.Errorf("invalid integrity check speed: %w", domain.ErrInvalid)
 	}
 	if job.Status != domain.MaintenanceQueued {
 		return fmt.Errorf("new maintenance job must start QUEUED: %w", domain.ErrInvalid)
@@ -65,7 +69,7 @@ func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.Maint
 	if job.Execute {
 		execute = 1
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO maintenance_jobs(id,source_id,kind,status,execute,created_at) VALUES(?,?,?,?,?,?)`, job.ID, job.SourceID, job.Kind, job.Status, execute, timeString(job.CreatedAt))
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO maintenance_jobs(id,source_id,kind,status,execute,hash_mib_per_second,created_at) VALUES(?,?,?,?,?,?,?)`, job.ID, job.SourceID, job.Kind, job.Status, execute, job.HashMiBPerSecond, timeString(job.CreatedAt))
 	if err != nil {
 		lower := strings.ToLower(err.Error())
 		if strings.Contains(lower, "unique constraint") {

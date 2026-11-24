@@ -75,7 +75,7 @@ export interface StateExportResult { path: string; export: { capsule: StateCapsu
 export type MaintenanceKind = 'INVENTORY' | 'GC' | 'REPAIR'
 export type MaintenanceStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 export interface MaintenanceJob {
-  id: string; sourceId: string; kind: MaintenanceKind; status: MaintenanceStatus; execute: boolean;
+  id: string; sourceId: string; kind: MaintenanceKind; status: MaintenanceStatus; execute: boolean; hashMiBPerSecond?: number;
   scannedObjects: number; scannedBytes: number; completedProjects: number; totalProjects: number; lastProject?: string; candidateObjects: number; candidateBytes: number;
   affectedObjects: number; affectedBytes: number; tempCatalogPath?: string; createdAt: string;
   startedAt?: string; completedAt?: string; errorText?: string;
@@ -84,7 +84,7 @@ export interface GCCandidate { logicalPath: string; size: number; modTimeUnixNan
 export interface GCStats { objects: number; bytes: number }
 export interface GCCandidatesPage { items: GCCandidate[]; stats: GCStats; next: string }
 
-export interface RepairIssue { logicalPath: string; packageKey: string; size: number; sha256: string; kind: 'MISSING' | 'SIZE_MISMATCH'; actualSize: number }
+export interface RepairIssue { logicalPath: string; packageKey: string; size: number; sha256: string; kind: 'MISSING' | 'SIZE_MISMATCH' | 'HASH_MISMATCH'; actualSize: number; actualSha256?: string }
 export interface RepairIssuesPage { items: RepairIssue[]; next: string }
 
 export interface ExportJob {
