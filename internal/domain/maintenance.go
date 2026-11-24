@@ -68,14 +68,14 @@ func ValidateMaintenanceTransition(from, to MaintenanceStatus) error {
 
 type RepairIssue struct {
 	LogicalPath string `json:"logicalPath"`
-	PackageKey string `json:"packageKey"`
-	Size int64 `json:"size"`
-	SHA256 string `json:"sha256"`
-	Kind string `json:"kind"`
-	ActualSize int64 `json:"actualSize"`
+	PackageKey  string `json:"packageKey"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+	Kind        string `json:"kind"`
+	ActualSize  int64  `json:"actualSize"`
 }
 
 type RepairCheckpoint struct {
-	LastPath string
+	LastPath       string
 	CatalogVersion int64
 }

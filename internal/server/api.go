@@ -269,8 +269,8 @@ func (a *API) batchGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type exportRequest struct {
-	SourceIDs []string `json:"sourceIds"`
-	RepairJobID string `json:"repairJobId,omitempty"`
+	SourceIDs   []string `json:"sourceIds"`
+	RepairJobID string   `json:"repairJobId,omitempty"`
 }
 
 func (a *API) stateExport(w http.ResponseWriter, r *http.Request) {

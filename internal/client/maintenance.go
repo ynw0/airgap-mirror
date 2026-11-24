@@ -79,7 +79,7 @@ func (c *AgentClient) ResumeMaintenance(ctx context.Context, jobID string) (doma
 
 type RepairIssuesPage struct {
 	Items []domain.RepairIssue `json:"items"`
-	Next string `json:"next"`
+	Next  string               `json:"next"`
 }
 
 func (c *AgentClient) StartRepair(ctx context.Context, sourceID string) (domain.MaintenanceJob, error) {
