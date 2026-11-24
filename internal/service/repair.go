@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
 	"fmt"
 	"os"
 	"strings"
@@ -21,6 +24,15 @@ type repairStore interface {
 }
 
 func (r *MaintenanceRunner) StartRepair(ctx context.Context, sourceID string) (domain.MaintenanceJob, error) {
+	return r.startRepair(ctx,sourceID,0)
+}
+
+func (r *MaintenanceRunner) StartIntegrity(ctx context.Context, sourceID string, mibPerSecond int) (domain.MaintenanceJob,error) {
+	if mibPerSecond<1||mibPerSecond>1024{return domain.MaintenanceJob{},fmt.Errorf("校验限速须在 1 至 1024 MiB/s 之间: %w",domain.ErrInvalid)}
+	return r.startRepair(ctx,sourceID,mibPerSecond)
+}
+
+func (r *MaintenanceRunner) startRepair(ctx context.Context, sourceID string, mibPerSecond int) (domain.MaintenanceJob, error) {
 	var job domain.MaintenanceJob
 	if _, ok := r.Jobs.(repairStore); !ok {
 		return job, domain.ErrInvalid
@@ -43,7 +55,7 @@ func (r *MaintenanceRunner) StartRepair(ctx context.Context, sourceID string) (d
 	if err != nil {
 		return job, err
 	}
-	job = domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceRepair, Status: domain.MaintenanceQueued, CreatedAt: r.now()}
+	job = domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceRepair, Status: domain.MaintenanceQueued, HashMiBPerSecond: mibPerSecond, CreatedAt: r.now()}
 	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
 		return job, err
 	}
@@ -111,11 +123,16 @@ func (r *MaintenanceRunner) scanRepair(ctx context.Context, store repairStore, j
 	if err != nil {
 		return err
 	}
+	limit:=1000
+	if job.HashMiBPerSecond>0{limit=32}
+	// Reuse the read buffer for the entire scan.
+	var hashBuffer []byte
+	if job.HashMiBPerSecond>0{hashBuffer=make([]byte,256*1024)}
 	for {
 		if err = ctx.Err(); err != nil {
 			return err
 		}
-		entries, err := store.RepairCatalogPage(ctx, source.ID, cp.LastPath, 1000)
+		entries, err := store.RepairCatalogPage(ctx, source.ID, cp.LastPath, limit)
 		if err != nil {
 			return err
 		}
@@ -124,11 +141,13 @@ func (r *MaintenanceRunner) scanRepair(ctx context.Context, store repairStore, j
 		}
 		var bytes int64
 		issues := make([]domain.RepairIssue, 0)
+		started:=time.Now()
+		last:=""
+		count:=int64(0)
 		for _, entry := range entries {
 			if err = ctx.Err(); err != nil {
 				return err
 			}
-			bytes += entry.Size
 			_, info, statErr := repo.Resolve(entry.LogicalPath)
 			issue := domain.RepairIssue{LogicalPath: entry.LogicalPath, PackageKey: entry.PackageKey, Size: entry.Size, SHA256: entry.SHA256}
 			switch {
@@ -146,12 +165,25 @@ func (r *MaintenanceRunner) scanRepair(ctx context.Context, store repairStore, j
 				issue.Kind = "SIZE_MISMATCH"
 				issue.ActualSize = info.Size()
 			default:
-				continue
+				if job.HashMiBPerSecond>0 {
+					sum, hashErr:=hashRepositoryFile(ctx,repo,entry.LogicalPath,info,job.HashMiBPerSecond,hashBuffer)
+					if hashErr!=nil{return fmt.Errorf("校验 %s: %w",entry.LogicalPath,hashErr)}
+					if !strings.EqualFold(sum,entry.SHA256){
+						issue.Kind="HASH_MISMATCH"
+						issue.ActualSize=info.Size()
+						issue.ActualSHA256=sum
+					}
+				}
 			}
-			issues = append(issues, issue)
+			if issue.Kind!=""{issues=append(issues,issue)}
+			last=entry.LogicalPath
+			count++
+			bytes+=entry.Size
+			// Checkpoint only completed files. Revisit the current file after
+			// interruption rather than persisting an unsafe partial digest.
+			if job.HashMiBPerSecond>0&&(bytes>=256*1024*1024||time.Since(started)>=5*time.Second){break}
 		}
-		last := entries[len(entries)-1].LogicalPath
-		if err = store.CommitRepairPage(ctx, job.ID, cp.LastPath, last, int64(len(entries)), bytes, issues); err != nil {
+		if err = store.CommitRepairPage(ctx, job.ID, cp.LastPath, last, count, bytes, issues); err != nil {
 			return err
 		}
 		cp.LastPath = last
@@ -168,4 +200,49 @@ func (r *MaintenanceRunner) RepairIssues(ctx context.Context, jobID, after strin
 		return nil, domain.ErrInvalid
 	}
 	return store.ListRepairIssues(ctx, jobID, after, limit)
+}
+
+
+// hashRepositoryFile limits read throughput and observes cancellation between
+// chunks. Recheck inode, size and modification time before accepting the digest.
+func hashRepositoryFile(ctx context.Context,repo *common.LocalRepository,logical string,expected os.FileInfo,mibPerSecond int,buffer []byte)(string,error){
+	if mibPerSecond<1||len(buffer)==0{return "",domain.ErrInvalid}
+	f,_,err:=repo.Open(logical)
+	if err!=nil{return "",err}
+	defer f.Close()
+	before,err:=f.Stat()
+	if err!=nil{return "",err}
+	if !os.SameFile(before,expected)||before.Size()!=expected.Size()||!before.ModTime().Equal(expected.ModTime()){return "",fmt.Errorf("文件在检查期间变化: %w",domain.ErrConflict)}
+	h:=sha256.New()
+	var total int64
+	rate:=int64(mibPerSecond)*1024*1024
+	for{
+		if err=ctx.Err();err!=nil{return "",err}
+		start:=time.Now()
+		n,readErr:=f.Read(buffer)
+		if n>0{
+			total+=int64(n)
+			_,_=h.Write(buffer[:n])
+			delay:=time.Duration(int64(n)*int64(time.Second)/rate)-time.Since(start)
+			if delay>0{
+				timer:=time.NewTimer(delay)
+				select{
+				case <-ctx.Done():timer.Stop();return "",ctx.Err()
+				case <-timer.C:
+				}
+			}
+		}
+		if readErr==io.EOF{break}
+		if readErr!=nil{return "",readErr}
+	}
+	after,err:=f.Stat()
+	if err!=nil{return "",err}
+	_,current,err:=repo.Resolve(logical)
+	if err!=nil{return "",err}
+	if total!=before.Size()||!os.SameFile(before,after)||!os.SameFile(after,current)||
+		before.Size()!=after.Size()||after.Size()!=current.Size()||
+		!before.ModTime().Equal(after.ModTime())||!after.ModTime().Equal(current.ModTime()){
+		return "",fmt.Errorf("文件在检查期间变化: %w",domain.ErrConflict)
+	}
+	return hex.EncodeToString(h.Sum(nil)),nil
 }

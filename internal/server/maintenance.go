@@ -23,6 +23,7 @@ func WithMaintenance(base http.Handler, api *API, runner *service.MaintenanceRun
 	secure := func(fn http.HandlerFunc) http.Handler { return api.auth(fn) }
 	mux.Handle("POST /api/v1/sources/{id}/inventory", secure(h.startInventory))
 	mux.Handle("POST /api/v1/sources/{id}/repair-check", secure(h.startRepair))
+	mux.Handle("POST /api/v1/sources/{id}/integrity-check", secure(h.startIntegrity))
 	mux.Handle("GET /api/v1/maintenance/{id}/repair-issues", secure(h.repairIssues))
 	mux.Handle("POST /api/v1/sources/{id}/sign", secure(h.signAPT))
 	mux.Handle("GET /api/v1/signing-key", secure(h.publicSigningKey))
@@ -129,4 +130,14 @@ func (h *MaintenanceHTTP) repairIssues(w http.ResponseWriter, r *http.Request) {
 		next = issues[len(issues)-1].LogicalPath
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": issues, "next": next})
+}
+
+func(h *MaintenanceHTTP) startIntegrity(w http.ResponseWriter,r *http.Request){
+	req:=struct{MiBPerSecond int `json:"mibPerSecond"`}{MiBPerSecond:64}
+	if r.ContentLength!=0 {
+		if err:=decodeJSON(r,&req);err!=nil{writeError(w,400,err.Error());return}
+	}
+	job,err:=h.Runner.StartIntegrity(r.Context(),r.PathValue("id"),req.MiBPerSecond)
+	if err!=nil{mapError(w,err);return}
+	writeJSON(w,http.StatusAccepted,job)
 }
