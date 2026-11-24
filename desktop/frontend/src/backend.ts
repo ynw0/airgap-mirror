@@ -1,7 +1,7 @@
 import type {
   AgentOverview, AnalyzeOptions, BatchBundle, BatchDownloadProgress, Bootstrap, DesktopTransferResult,
   Epoch, EpochView, ImportedCapsule, SourceInput, StateCapsule, StateExportResult, SyncPlan, UpstreamState, ValidatedBundle,
-  TransferProgress, MaintenanceJob, GCCandidatesPage, RepairIssuesPage,
+  TransferProgress, MaintenanceJob, GCCandidatesPage, RepairIssuesPage, ExportJob, CatalogReclaimResult,
 } from './types'
 
 type AppBridge = {
@@ -13,6 +13,9 @@ type AppBridge = {
   UpdateSource(input: SourceInput): Promise<AgentOverview>
   ListAgentEpochs(sourceID: string): Promise<Epoch[]>
   CancelEpoch(epochID: string): Promise<AgentOverview>
+  ListExportJobs(): Promise<ExportJob[]>
+  DownloadExportJob(id: string, destination: string): Promise<void>
+  ReclaimCatalogHistory(sourceID: string): Promise<CatalogReclaimResult>
   PickStateDestination(): Promise<string>
   ExportStateCapsule(sourceIDs: string[], destination: string): Promise<StateExportResult>
   PickCapsuleFile(): Promise<string>

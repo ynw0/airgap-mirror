@@ -215,3 +215,18 @@ CREATE VIEW IF NOT EXISTS live_catalog_entries AS
  SELECT c.source_id,c.logical_path,c.size,c.sha256,c.package_key,c.version,c.attributes,c.updated_at
  FROM catalog_generation_entries c JOIN catalog_active_generation a
  ON a.source_id=c.source_id AND a.generation=c.generation;
+
+CREATE TABLE IF NOT EXISTS state_export_jobs(
+ id TEXT PRIMARY KEY,
+ source_ids BLOB NOT NULL,
+ repair_job_id TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL CHECK(status IN('QUEUED','RUNNING','COMPLETED','FAILED')),
+ stage TEXT NOT NULL DEFAULT '',
+ completed_sources INTEGER NOT NULL DEFAULT 0,
+ total_sources INTEGER NOT NULL,
+ result_json BLOB,
+ error_text TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_state_export_status ON state_export_jobs(status,created_at);

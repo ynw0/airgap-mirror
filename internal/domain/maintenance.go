@@ -79,3 +79,9 @@ type RepairCheckpoint struct {
 	LastPath       string
 	CatalogVersion int64
 }
+
+type CatalogReclaimResult struct {
+	RemovedEntries     int64 `json:"removedEntries"`
+	RemovedGenerations int64 `json:"removedGenerations"`
+	More               bool  `json:"more"`
+}

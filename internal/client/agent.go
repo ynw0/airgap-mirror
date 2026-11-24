@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -204,12 +205,10 @@ func (c *AgentClient) Capacity(ctx context.Context, sourceID string) (domain.Cap
 }
 
 func (c *AgentClient) ExportState(ctx context.Context, sourceIDs []string) (StateExport, error) {
-	var out StateExport
-	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/state/export", map[string]any{"sourceIds": sourceIDs}, &out)
-	return out, err
+	return c.exportStateJob(ctx, map[string]any{"sourceIds": sourceIDs})
 }
 
-func (c *AgentClient) DownloadState(ctx context.Context, exportName, destination string) error {
+func (c *AgentClient) downloadStateLegacy(ctx context.Context, exportName, destination string) error {
 	if exportName == "" || filepath.Base(exportName) != exportName {
 		return fmt.Errorf("invalid State Capsule export name: %w", domain.ErrInvalid)
 	}
@@ -293,7 +292,71 @@ func parseUploadHeaders(resp *http.Response) (offset, length int64, err error) {
 }
 
 func (c *AgentClient) ExportRepairState(ctx context.Context, sourceID, jobID string) (StateExport, error) {
-	var out StateExport
-	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/state/export", map[string]any{"sourceIds": []string{sourceID}, "repairJobId": jobID}, &out)
+	return c.exportStateJob(ctx, map[string]any{"sourceIds": []string{sourceID}, "repairJobId": jobID})
+}
+
+func (c *AgentClient) exportStateJob(ctx context.Context, request map[string]any) (StateExport, error) {
+	var j domain.ExportJob
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/state/export-jobs", request, &j)
+	if errors.Is(err, domain.ErrNotFound) {
+		// Compatible with earlier Agents which only support synchronous exports.
+		var out StateExport
+		err = c.jsonRequest(ctx, http.MethodPost, "/api/v1/state/export", request, &out)
+		return out, err
+	}
+	if err != nil {
+		return StateExport{}, err
+	}
+	if j.ID == "" {
+		return StateExport{}, domain.ErrInvalid
+	}
+	id := j.ID
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		switch j.Status {
+		case "COMPLETED":
+			if j.Capsule == nil || j.Name == "" || j.Capsule.ID != id {
+				return StateExport{}, domain.ErrConflict
+			}
+			return StateExport{Capsule: *j.Capsule, Name: j.Name, Download: j.Download}, nil
+		case "FAILED":
+			return StateExport{}, fmt.Errorf("状态文件导出失败（任务 %s）：%s", id, j.ErrorText)
+		case "QUEUED", "RUNNING":
+		default:
+			return StateExport{}, fmt.Errorf("未知导出任务状态 %s: %w", j.Status, domain.ErrConflict)
+		}
+		select {
+		case <-ctx.Done():
+			return StateExport{}, fmt.Errorf("导出任务 %s 已提交，可在服务器 WebUI 查看: %w", id, ctx.Err())
+		case <-ticker.C:
+		}
+		err = c.jsonRequest(ctx, http.MethodGet, "/api/v1/state/export-jobs/"+url.PathEscape(id), nil, &j)
+		if err != nil {
+			return StateExport{}, fmt.Errorf("导出任务 %s 已提交，可在服务器 WebUI 查看: %w", id, err)
+		}
+	}
+}
+
+func (c *AgentClient) ListExportJobs(ctx context.Context) ([]domain.ExportJob, error) {
+	var out []domain.ExportJob
+	err := c.jsonRequest(ctx, http.MethodGet, "/api/v1/state/export-jobs", nil, &out)
 	return out, err
+}
+
+func (c *AgentClient) DownloadExportJob(ctx context.Context, id, destination string) error {
+	var job domain.ExportJob
+	if err := c.jsonRequest(ctx, http.MethodGet, "/api/v1/state/export-jobs/"+url.PathEscape(id), nil, &job); err != nil {
+		return err
+	}
+	if job.Status != "COMPLETED" || job.Capsule == nil || job.Capsule.ID != id || job.Name == "" {
+		return domain.ErrConflict
+	}
+	return c.DownloadState(ctx, job.Name, destination)
+}
+
+func (c *AgentClient) ReclaimCatalogHistory(ctx context.Context, sourceID string) (domain.CatalogReclaimResult, error) {
+	var result domain.CatalogReclaimResult
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/sources/"+url.PathEscape(sourceID)+"/catalog/reclaim", nil, &result)
+	return result, err
 }

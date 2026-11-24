@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -41,7 +42,14 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	absDB, err := filepath.Abs(dbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// SQLite PRAGMAs such as busy_timeout and foreign_keys are per connection.
+	// Configure every pooled connection, not only the initialization connection.
+	dsn := (&url.URL{Scheme: "file", Path: absDB, RawQuery: url.Values{"_pragma": {"busy_timeout(10000)", "foreign_keys(ON)", "synchronous(NORMAL)"}}.Encode()}).String()
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -76,10 +84,16 @@ func main() {
 		recoverCancel()
 		log.Fatal(err)
 	}
+	if err = store.RecoverExportJobs(recoverCtx); err != nil {
+		recoverCancel()
+		log.Fatal(err)
+	}
 	recoverCancel()
 
 	signer := &service.APTSigner{Sources: store, Catalog: store, Jobs: store, GNUPGHOME: os.Getenv("AIRGAP_MIRROR_GNUPGHOME"), KeyID: os.Getenv("AIRGAP_MIRROR_APT_SIGNING_KEY")}
 	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token, Signer: signer}
+	api.ExportJobs = &service.ExportJobs{Store: store, Capsules: api.Capsules}
+	go api.ExportJobs.Run(maintenanceCtx)
 	handler := appserver.WithMaintenance(api.Handler(), api, maintenanceRunner, store)
 	httpServer := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, WriteTimeout: 0}
 	errCh := make(chan error, 1)

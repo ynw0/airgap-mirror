@@ -26,6 +26,7 @@ type API struct {
 	Transfer    service.TransferService
 	Importer    service.ImportService
 	Capsules    service.CapsuleService
+	ExportJobs  *service.ExportJobs
 	Capacity    ports.CapacityInspector
 	BearerToken string
 	Signer      *service.APTSigner
@@ -54,12 +55,18 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /api/v1/sources/{id}", secure(a.sourceGet))
 	mux.Handle("PUT /api/v1/sources/{id}", secure(a.sourceUpdate))
 	mux.Handle("GET /api/v1/sources/{id}/state", secure(a.sourceState))
+	mux.Handle("POST /api/v1/sources/{id}/catalog/reclaim", secure(a.reclaimCatalog))
 	mux.Handle("GET /api/v1/epochs", secure(a.epochsList))
 	mux.Handle("GET /api/v1/epochs/{id}", secure(a.epochGet))
 	mux.Handle("GET /api/v1/epochs/{id}/batches", secure(a.epochBatches))
 	mux.Handle("POST /api/v1/epochs/{id}/cancel", secure(a.epochCancel))
 	mux.Handle("GET /api/v1/batches/{id}", secure(a.batchGet))
 	mux.Handle("POST /api/v1/state/export", secure(a.stateExport))
+	if a.ExportJobs != nil {
+		mux.Handle("POST /api/v1/state/export-jobs", secure(a.enqueueExport))
+		mux.Handle("GET /api/v1/state/export-jobs", secure(a.listExports))
+		mux.Handle("GET /api/v1/state/export-jobs/{id}", secure(a.getExport))
+	}
 	mux.Handle("GET /api/v1/state/exports/{name}", secure(a.stateDownload))
 	mux.Handle("POST /api/v1/imports", secure(a.importCreate))
 	mux.Handle("GET /api/v1/imports/{id}", secure(a.importGet))
@@ -305,6 +312,18 @@ func (a *API) stateDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid export name")
 		return
 	}
+	if a.ExportJobs != nil {
+		id := strings.TrimSuffix(strings.TrimPrefix(name, "mirror-state-"), ".mstate")
+		job, jobErr := a.ExportJobs.Get(r.Context(), id)
+		if jobErr == nil && job.Status != "COMPLETED" {
+			mapError(w, fmt.Errorf("状态文件尚未生成完成: %w", domain.ErrConflict))
+			return
+		}
+		if jobErr != nil && !errors.Is(jobErr, domain.ErrNotFound) {
+			mapError(w, jobErr)
+			return
+		}
+	}
 	path := filepath.Join(a.Capsules.OutputDir, name)
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -322,6 +341,9 @@ func (a *API) stateDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
+	// Published export files are immutable. A strong validator prevents a
+	// resumed download from appending bytes from a different export.
+	w.Header().Set("ETag", fmt.Sprintf("\"%s-%d-%d\"", name, st.Size(), st.ModTime().UnixNano()))
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	http.ServeContent(w, r, name, st.ModTime(), f)
 }
@@ -453,3 +475,49 @@ func (a *API) batchComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func Shutdown(ctx context.Context, s *http.Server) error { return s.Shutdown(ctx) }
+
+func (a *API) reclaimCatalog(w http.ResponseWriter, r *http.Request) {
+	store, ok := a.Store.(interface {
+		ReclaimCatalogHistory(context.Context, string) (domain.CatalogReclaimResult, error)
+	})
+	if !ok {
+		mapError(w, domain.ErrInvalid)
+		return
+	}
+	out, err := store.ReclaimCatalogHistory(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *API) enqueueExport(w http.ResponseWriter, r *http.Request) {
+	var req exportRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	job, err := a.ExportJobs.Enqueue(r.Context(), req.SourceIDs, req.RepairJobID)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+func (a *API) listExports(w http.ResponseWriter, r *http.Request) {
+	jobs, err := a.ExportJobs.Store.ListExportJobs(r.Context())
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jobs)
+}
+func (a *API) getExport(w http.ResponseWriter, r *http.Request) {
+	j, err := a.ExportJobs.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, j)
+}
