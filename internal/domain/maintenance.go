@@ -30,6 +30,7 @@ type MaintenanceJob struct {
 	Kind                MaintenanceKind   `json:"kind"`
 	Status              MaintenanceStatus `json:"status"`
 	Execute             bool              `json:"execute"`
+	IncrementalInventory bool             `json:"incrementalInventory,omitempty"`
 	HashMiBPerSecond    int               `json:"hashMiBPerSecond,omitempty"`
 	ReplacementApproved bool              `json:"replacementApproved,omitempty"`
 	ScannedObjects      int64             `json:"scannedObjects"`
