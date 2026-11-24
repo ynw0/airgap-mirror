@@ -148,6 +148,14 @@ async function refresh(){
   const startButton=action('重新清点文件',async()=>{if(!confirm('将扫描服务器文件并更新文件账本，确认开始吗？'))return;await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');await refresh();});
   startButton.disabled=!!(running||paused);
   buttons.appendChild(startButton);
+  if(s.type==='pypi'){
+    const incremental=action('增量清点',async()=>{
+      if(!confirm('复用未变化项目的已验证引用记录，并重新检查所有引用文件是否存在、大小是否一致。确认开始？'))return;
+      await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/incremental-inventory',{method:'POST'});
+      show('已开始增量清点；没有可用缓存的项目将重新解析。');await refresh();
+    });
+    incremental.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(incremental);
+  }
   if(s.type==='pypi' && running)buttons.appendChild(action('暂停清点',async()=>{await api('/api/v1/maintenance/'+encodeURIComponent(running.id)+'/pause',{method:'POST'});show('已请求暂停。最近一批项目完成后将保留检查点。');await refresh();}));
   if(s.type==='pypi' && paused){
     buttons.appendChild(action('继续清点',async()=>{await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/resume',{method:'POST'});show('已请求从上次完成的位置继续清点。');await refresh();}));

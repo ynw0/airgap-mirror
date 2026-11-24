@@ -35,6 +35,7 @@ type AppBridge = {
   TransferBatchDirectory(path: string, opts: {chunkSize: number; requestId?: string}): Promise<DesktopTransferResult>
   PauseTransfer(batchID: string): Promise<void>
   StartInventory(sourceID: string): Promise<MaintenanceJob>
+  StartIncrementalInventory(sourceID: string): Promise<MaintenanceJob>
   StartRepair(sourceID: string): Promise<MaintenanceJob>
   StartIntegrity(sourceID: string, mibPerSecond: number): Promise<MaintenanceJob>
   ApproveRepairReplacement(jobID: string, approve: boolean): Promise<void>

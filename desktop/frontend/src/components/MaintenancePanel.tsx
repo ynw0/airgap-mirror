@@ -118,11 +118,11 @@ export function MaintenancePanel({ overview }: Props) {
     finally { setBusy(false) }
   }
 
-  async function startInventory() {
+  async function startInventory(incremental = false) {
     if (!sourceID) return
     setBusy(true); setMessage('')
     try {
-      const job = await app().StartInventory(sourceID)
+      const job = await (incremental ? app().StartIncrementalInventory(sourceID) : app().StartInventory(sourceID))
       setSelectedJobID(job.id); setCandidates(null); setMessage(`已开始重新清点文件。任务：${shortID(job.id)}`)
       await refreshJobs()
     } catch (e) { setMessage(errorText(e)) }
@@ -273,7 +273,8 @@ export function MaintenancePanel({ overview }: Props) {
         </select></label>
         <div className="span-2"><p>如果服务器里的文件数量不对，可以先重新清点。PyPI 的大型仓库每检查一批项目会保存进度，暂停或 Agent 重启后可继续；整个任务完成前，不会替换原来的文件账本。</p>{source?.source.type === 'apt' && <small>APT 的共享包目录默认不会被清理。只有明确设为该软件源独占时，才允许删除其中的废弃文件。</small>}</div>
         <div className="button-row align-end">
-          <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startInventory}>重新清点</button>
+          <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startInventory(false)}>全量清点</button>
+          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startInventory(true)}>增量清点</button>}
           <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startGC(false)}>查看可清理文件</button>
           {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startRepair}>检查缺失文件</button>}
           {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startIntegrity}>SHA256 完整校验</button>}
@@ -291,7 +292,7 @@ export function MaintenancePanel({ overview }: Props) {
       <div className="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>扫描</th><th>候选</th><th>实际删除</th><th>时间</th><th></th></tr></thead>
         <tbody>{jobs.length ? jobs.map(job => <tr key={job.id}>
           <td><code>{shortID(job.id)}</code>{job.errorText && <small className="clip">{job.errorText}</small>}</td>
-          <td>{job.kind === 'GC' ? '清理文件' : job.kind === 'REPAIR' ? (job.hashMiBPerSecond ? `完整性校验（${job.hashMiBPerSecond} MiB/s）` : '缺失文件检查') : '重新清点'}{job.kind === 'GC' && <small>{job.execute ? '执行删除' : '仅预览'}</small>}</td>
+          <td>{job.kind === 'GC' ? '清理文件' : job.kind === 'REPAIR' ? (job.hashMiBPerSecond ? `完整性校验（${job.hashMiBPerSecond} MiB/s）` : '缺失文件检查') : job.incrementalInventory ? '增量清点' : '全量清点'}{job.kind === 'GC' && <small>{job.execute ? '执行删除' : '仅预览'}</small>}</td>
           <td><span className={statusClass(job.status)}>{statusLabel(job.status)}</span></td>
           <td>{formatCount(job.scannedObjects)}<small>{formatBytes(job.scannedBytes)}</small>{job.kind === 'INVENTORY' && job.totalProjects > 0 && <small>已检查项目 {formatCount(job.completedProjects)}/{formatCount(job.totalProjects)}{job.lastProject ? ` · 到 ${job.lastProject}` : ''}</small>}</td>
           <td>{job.kind === 'GC' || job.kind === 'REPAIR' ? <>{formatCount(job.candidateObjects)}<small>{formatBytes(job.candidateBytes)}</small></> : '—'}</td>

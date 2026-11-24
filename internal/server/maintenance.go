@@ -25,6 +25,7 @@ func WithMaintenance(base http.Handler, api *API, runner *service.MaintenanceRun
 	mux := http.NewServeMux()
 	secure := func(fn http.HandlerFunc) http.Handler { return api.auth(fn) }
 	mux.Handle("POST /api/v1/sources/{id}/inventory", secure(h.startInventory))
+	mux.Handle("POST /api/v1/sources/{id}/incremental-inventory", secure(h.startIncrementalInventory))
 	mux.Handle("POST /api/v1/sources/{id}/repair-check", secure(h.startRepair))
 	mux.Handle("POST /api/v1/sources/{id}/integrity-check", secure(h.startIntegrity))
 	mux.Handle("GET /api/v1/maintenance/{id}/repair-issues", secure(h.repairIssues))
@@ -174,4 +175,13 @@ func (h *MaintenanceHTTP) repairApproval(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"approved": *req.Approve})
+}
+
+func (h *MaintenanceHTTP) startIncrementalInventory(w http.ResponseWriter, r *http.Request) {
+	job, err := h.Runner.StartIncrementalInventory(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
 }

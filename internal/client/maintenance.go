@@ -107,3 +107,9 @@ func (c *AgentClient) StartIntegrity(ctx context.Context, sourceID string, mibPe
 func (c *AgentClient) ApproveRepairReplacement(ctx context.Context, jobID string, approve bool) error {
 	return c.jsonRequest(ctx, http.MethodPost, "/api/v1/maintenance/"+url.PathEscape(jobID)+"/repair-approval", map[string]bool{"approve": approve}, nil)
 }
+
+func (c *AgentClient) StartIncrementalInventory(ctx context.Context, sourceID string) (domain.MaintenanceJob, error) {
+	var out domain.MaintenanceJob
+	err := c.jsonRequest(ctx, http.MethodPost, "/api/v1/sources/"+url.PathEscape(sourceID)+"/incremental-inventory", nil, &out)
+	return out, err
+}

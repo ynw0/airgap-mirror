@@ -139,3 +139,11 @@ func (a *App) ApproveRepairReplacement(jobID string, approve bool) error {
 	}
 	return agent.ApproveRepairReplacement(a.ctx, jobID, approve)
 }
+
+func (a *App) StartIncrementalInventory(sourceID string) (domain.MaintenanceJob, error) {
+	agent, err := a.agentRef()
+	if err != nil {
+		return domain.MaintenanceJob{}, err
+	}
+	return agent.StartIncrementalInventory(a.ctx, sourceID)
+}
