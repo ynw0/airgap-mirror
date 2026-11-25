@@ -222,3 +222,6 @@ button:not(.primary),input,select,textarea{background:var(--app-surface);border-
 @media(max-width:1250px){.shell{grid-template-columns:205px minmax(0,1fr)}.home-grid{grid-template-columns:1fr}.workflow-card{padding:13px!important}}
 @media(max-width:900px){.sidebar{flex-wrap:wrap;overflow:visible;padding:12px 14px;gap:8px}.sidebar nav{width:100%;gap:4px}.sidebar nav button{padding:8px;gap:6px}.sidebar nav button small,.nav-label{display:none}.sidebar .nav-item{flex:none}.content{padding:18px}.desktop-topbar{margin-bottom:16px}.page-header h2{font-size:25px}}
 @media(max-width:620px){.workflow-grid{grid-template-columns:1fr}.sidebar nav button{font-size:12px}.sidebar nav button svg{width:17px;height:17px}.dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-metrics .metric{padding:12px}.dashboard-metrics .metric strong{font-size:18px}}
+
+/* Hidden pages remain mounted to preserve active work, but must not enter layout. */
+[hidden] { display: none !important; }
