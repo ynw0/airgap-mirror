@@ -1,5 +1,5 @@
 import type {
-  AgentOverview, AnalyzeOptions, BatchBundle, BatchDownloadProgress, Bootstrap, DesktopTransferResult,
+  ConnectionCheck, AgentOverview, AnalyzeOptions, BatchBundle, BatchDownloadProgress, Bootstrap, DesktopTransferResult,
   Epoch, EpochView, ImportedCapsule, SourceInput, StateCapsule, StateExportResult, SyncPlan, UpstreamState, ValidatedBundle,
   TransferProgress, MaintenanceJob, GCCandidatesPage, RepairIssuesPage, ExportJob, CatalogReclaimResult,
 } from './types'
@@ -7,6 +7,7 @@ import type {
 type AppBridge = {
   Bootstrap(): Promise<Bootstrap>
   ConnectAgent(baseURL: string, token: string): Promise<AgentOverview>
+  DiagnoseAgent(baseURL: string, token: string): Promise<ConnectionCheck[]>
   RefreshAgent(): Promise<AgentOverview>
   DisconnectAgent(): Promise<void>
   CreateSource(input: SourceInput): Promise<AgentOverview>
