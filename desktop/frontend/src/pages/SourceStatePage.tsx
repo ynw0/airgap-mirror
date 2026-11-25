@@ -159,7 +159,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
             <td>{valid ? <>剩余 {formatBytes(row.capacity.freeBytes)}<progress className={`disk-meter ${pct >= 95 ? 'critical' : pct >= 85 ? 'warning' : ''}`} max={100} value={pct} aria-label="所在磁盘已用比例"/><small>总计 {formatBytes(row.capacity.totalBytes)} · 已用 {pct.toFixed(1)}%</small>{pct >= 85 && <span className={`status ${pct >= 95 ? 'status-failed' : 'status-paused'}`}>{pct >= 95 ? '空间紧张' : '空间偏低'}</span>}</> : <small>无法读取磁盘容量{row.capacityError && <details><summary>错误详情</summary><span className="error-detail">{row.capacityError}</span></details>}</small>}</td>
             <td>{row.state.activeEpochId ? '有任务进行中' : '无'}</td>
             <td>{formatDate(row.state.updatedAt)}</td>
-            <td><button disabled={busy || !!row.state.activeEpochId} onClick={() => setEditor(row.source)}>编辑</button></td>
+            <td><button disabled={busy} onClick={() => setEditor(row.source)}>编辑</button></td>
           </tr>
         }) : <tr><td colSpan={9} className="empty">{overview ? (overview.sources.length ? '没有符合搜索条件的软件源。' : '服务器尚未配置软件源，请先添加。') : '连接服务器后，就能在这里选择需要更新的软件源。'}</td></tr>}</tbody>
       </table></div>
