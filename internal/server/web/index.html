@@ -98,6 +98,7 @@ function navigate(next){if(!viewInfo[next]||!token)return;if(!el('editor').class
 async function openRepository(id){const fromTasks=view==='tasks';navigate('repositories');if(view!=='repositories')return;if(fromTasks){show('正在读取软件源的最新状态……');await refresh();show('已更新仓库状态。');}el('sourceSearch').value='';el('sourceType').value='';filterSources();const article=Array.from(el('sources').querySelectorAll('article')).find(a=>a.dataset.sourceId===id);if(article){article.scrollIntoView({block:'start'});article.focus({preventScroll:true});}}
 function formatTime(value){if(!value)return '—';const d=new Date(value);return Number.isNaN(d.getTime())?String(value):d.toLocaleString('zh-CN');}
 function taskName(j){return j.kind==='INVENTORY'?(j.incrementalInventory?'增量清点':'全量清点'):j.kind==='REPAIR'?(j.hashMiBPerSecond?'SHA256 完整校验':'缺失文件检查'):j.kind==='GC'?(j.execute?'清理文件':'预览可清理文件'):j.kind;}
+function compareReportPaths(a,b){const encoder=new TextEncoder(),x=encoder.encode(a),y=encoder.encode(b);for(let i=0;i<Math.min(x.length,y.length);i++){if(x[i]!==y[i])return x[i]-y[i];}return x.length-y.length;}
 async function exportFullRepair(job,source,progressBox){
  if(typeof window.showSaveFilePicker!=='function')throw Error('当前浏览器不支持直接写入磁盘。请使用支持文件保存接口的 HTTPS 浏览器，或 Windows 客户端导出完整报告。');
  if(!confirm('将逐页读取已完成任务的全部异常记录，不会重新扫描仓库。报告可能包含内网文件路径，请妥善保管。继续吗？'))return;
@@ -108,16 +109,16 @@ async function exportFullRepair(job,source,progressBox){
  async function readPage(path){const timeout=setTimeout(()=>controller.abort(),60000);try{return await(await api(path,{signal:controller.signal})).json();}finally{clearTimeout(timeout);}}
  try{
   const current=await readPage('/api/v1/maintenance/'+encodeURIComponent(job.id));const total=current.candidateObjects;
-  if(current.id!==job.id||current.kind!=='REPAIR'||current.status!=='COMPLETED'||!Number.isSafeInteger(total)||total<0)throw Error('任务尚未完成，或异常记录数量无效。');
+  if(current.id!==job.id||current.sourceId!==source.id||current.kind!=='REPAIR'||current.status!=='COMPLETED'||!Number.isSafeInteger(total)||total<0)throw Error('任务尚未完成，或异常记录数量无效。');
   stream=await handle.createWritable();const header={kind:'repair',scope:'complete',exportedAt:new Date().toISOString(),sourceId:source.id,sourceName:source.name,jobId:job.id,total};
   await stream.write(JSON.stringify(header).slice(0,-1)+',"items":[\n');meter.max=Math.max(1,total);meter.value=0;
   for(;;){
    if(controller.signal.aborted)throw Error('导出已取消或查询超时。');
    const page=await readPage('/api/v1/maintenance/'+encodeURIComponent(job.id)+'/repair-issues?limit=500&after='+encodeURIComponent(after)),items=page.items??[];
    if(!Array.isArray(items)||count+items.length>total||items.some(i=>!i||typeof i.logicalPath!=='string'||!i.logicalPath))throw Error('异常记录数量或格式与任务不符。');
-   if(items.length){if(items[0].logicalPath===after||new Set(items.map(i=>i.logicalPath)).size!==items.length)throw Error('异常记录出现重复。');await stream.write((count?',\n':'')+items.map(i=>JSON.stringify(i)).join(',\n'));count+=items.length;}
+   if(items.length){let last=after;for(const item of items){if(compareReportPaths(item.logicalPath,last)<=0)throw Error('异常记录重复或分页顺序异常。');last=item.logicalPath;}await stream.write((count?',\n':'')+items.map(i=>JSON.stringify(i)).join(',\n'));count+=items.length;}
    label.textContent='已写入 '+number(count)+' / '+number(total)+' 条异常记录';meter.value=count;
-   if(!page.next)break;if(!items.length||page.next===after||page.next!==items[items.length-1].logicalPath)throw Error('异常报告分页位置未正确推进。');after=page.next;
+   if(!page.next)break;if(!items.length||compareReportPaths(page.next,after)<=0||page.next!==items[items.length-1].logicalPath)throw Error('异常报告分页位置未正确推进。');after=page.next;
   }
   if(count!==total||controller.signal.aborted)throw Error('报告记录数量不符，或导出已取消。');
   await stream.write('\n]}\n');await stream.close();stream=null;label.textContent='完整报告已保存，共 '+number(count)+' 条异常记录。';meter.value=meter.max;show('完整异常报告已保存。');
