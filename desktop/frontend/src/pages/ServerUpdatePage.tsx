@@ -39,7 +39,7 @@ export function ServerUpdatePage({ overview }: Props) {
     return () => window.clearInterval(timer)
   }, [running])
   function resetTelemetry() { sample.current = null; setRate(0); setObserved({}); setCommitted(new Set()); setProgress(null); setPauseRequested(false) }
-  const pct = useMemo(() => progress?.total ? Math.min(100, progress.transferred / progress.total * 100) : 0, [progress])
+  const pct = useMemo(() => progress?.total ? Math.max(0, Math.min(100, progress.transferred / progress.total * 100)) : 0, [progress])
 
   async function choose() {
     const value = await app().PickBatchDirectory()
@@ -47,7 +47,7 @@ export function ServerUpdatePage({ overview }: Props) {
   }
   async function validate() {
     if (!path) return
-    setBusy(true); setMessage(''); setResult(null)
+    setBusy(true); setMessage(''); setResult(null); resetTelemetry()
     try { const value = await app().ValidateBatchDirectory(path); setBundle(value); setMessage('文件清单检查完成，可以开始导入。上传时还会核对文件内容。') }
     catch (e) { setBundle(null); setMessage(errorText(e)) }
     finally { setBusy(false) }
@@ -84,7 +84,7 @@ export function ServerUpdatePage({ overview }: Props) {
     {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
     {!overview?.connected && <div className="card guidance">尚未连接内网服务器。可以先检查本地文件；导入前请在“连接服务器”页面建立连接。</div>}
     <div className="card form-grid transfer-form">
-      <label className="span-2">要导入的文件夹<div className="path-picker"><input disabled={busy || running} value={path} onChange={e => { setPath(e.target.value); setBundle(null); setResult(null); setProgress(null) }} placeholder="选择下载完成的“第 X 批”文件夹" /><button disabled={busy || running} onClick={choose}>浏览</button></div></label>
+      <label className="span-2">要导入的文件夹<div className="path-picker"><input disabled={busy || running} value={path} onChange={e => { setPath(e.target.value); setBundle(null); setResult(null); resetTelemetry() }} placeholder="选择下载完成的“第 X 批”文件夹" /><button disabled={busy || running} onClick={choose}>浏览</button></div></label>
       <details className="advanced-options span-2"><summary>高级选项（默认无需修改）</summary><div className="form-grid">
         <label>单次上传大小 (MiB)<input type="number" min="1" max="128" disabled={busy || running} value={chunkMiB} onChange={e => setChunkMiB(Number(e.target.value))} /></label>
         <label>请求标识（可选）<input disabled={busy || running} value={requestID} onChange={e => setRequestID(e.target.value)} placeholder="自动生成" /></label>
