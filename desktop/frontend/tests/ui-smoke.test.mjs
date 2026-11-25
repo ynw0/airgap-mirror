@@ -85,3 +85,35 @@ test('overview distinguishes unavailable capacity from a normal disk', () => {
   assert.equal(el('overview').children.at(-1).value, '1')
   assert.doesNotMatch(JSON.stringify(el('repositorySummary')), /磁盘容量未读取/)
 })
+
+
+test('task center offers the appropriate maintenance actions', async () => {
+  const requests = [], notices = []
+  let confirmed = false
+  const controls = vm.runInNewContext(functions('function taskControls(', 'function renderTasks(') + ';taskControls', {
+    make: () => ({children: [], appendChild(child) { this.children.push(child) }}),
+    action: (label, run) => ({label, run}),
+    api: async (path, options) => requests.push([path, options.method]),
+    confirm: () => confirmed,
+    show: message => notices.push(message),
+    refreshTasks: async () => {}
+  })
+  const labels = (source, job) => controls(source, job).children.map(b => b.label).join(',')
+  const pypi = {type:'pypi'}, apt = {type:'apt'}
+  const running = {id:'job1', kind:'INVENTORY', status:'RUNNING'}
+  assert.equal(labels(pypi, running), '暂停,取消任务')
+  assert.equal(labels(apt, running), '取消任务')
+  assert.equal(labels(pypi, {...running, status:'PAUSED'}), '继续,放弃任务')
+  assert.equal(labels(pypi, {...running, status:'COMPLETED'}), '')
+  await controls(pypi, running).children[0].run()
+  assert.equal(requests[0].join(' '), '/api/v1/maintenance/job1/pause POST')
+  assert.match(notices[0], /暂停/)
+  const paused = controls(pypi, {...running, status:'PAUSED'})
+  await paused.children[0].run()
+  assert.equal(requests[1][0], '/api/v1/maintenance/job1/resume')
+  await paused.children[1].run()
+  assert.equal(requests.length, 2)
+  confirmed = true
+  await paused.children[1].run()
+  assert.equal(requests[2][0], '/api/v1/maintenance/job1/cancel')
+})
