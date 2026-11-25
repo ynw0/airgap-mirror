@@ -42,6 +42,7 @@ type AppBridge = {
   StartIntegrity(sourceID: string, mibPerSecond: number): Promise<MaintenanceJob>
   ApproveRepairReplacement(jobID: string, approve: boolean): Promise<void>
   RepairIssues(jobID: string, after: string, limit: number): Promise<RepairIssuesPage>
+  ExportCompleteRepairReport(jobID: string): Promise<{path: string; count: number}>
   ExportRepairCapsule(sourceID: string, jobID: string, destination: string): Promise<StateExportResult>
   StartGC(sourceID: string, execute: boolean): Promise<MaintenanceJob>
   ListMaintenance(sourceID: string, limit: number): Promise<MaintenanceJob[]>
