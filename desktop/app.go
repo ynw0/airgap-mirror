@@ -136,10 +136,11 @@ func loadAgentOverview(ctx context.Context, agent *mirrorclient.AgentClient) (Ag
 			return AgentOverview{}, fmt.Errorf("read source state %s: %w", source.Name, stateErr)
 		}
 		capacity, capacityErr := agent.Capacity(ctx, source.ID)
+		view := AgentSourceView{Source: source, State: state, Capacity: capacity}
 		if capacityErr != nil {
-			return AgentOverview{}, fmt.Errorf("read source capacity %s: %w", source.Name, capacityErr)
+			view.CapacityError = capacityErr.Error()
 		}
-		views = append(views, AgentSourceView{Source: source, State: state, Capacity: capacity})
+		views = append(views, view)
 	}
 	return AgentOverview{Connected: true, BaseURL: agent.BaseURL, Sources: views}, nil
 }
