@@ -39,6 +39,8 @@ jobs:
         run: gpg --version
       - name: Test Go control plane
         run: go test ./internal/... ./cmd/...
+      - name: Detect Go data races in maintenance and storage
+        run: go test -race ./internal/service/... ./internal/storage/sqlite/... ./internal/client/...
       - name: Build Go control plane
         run: go build ./internal/... ./cmd/...
       - name: Verify deployment scripts
@@ -69,6 +71,9 @@ jobs:
           set -euo pipefail
           npm ci
           npm run build
+      - name: Test Windows report publication
+        shell: bash
+        run: go test ./desktop/report_publish_windows.go ./desktop/report_publish_test.go
       - name: Build Windows Wails executable
         shell: bash
         run: |
