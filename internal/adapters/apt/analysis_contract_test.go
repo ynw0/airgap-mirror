@@ -46,13 +46,14 @@ func testDigest(content []byte) string {
 func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 	ctx := context.Background()
 	pkg := []byte(fmt.Sprintf("Package: demo\nVersion: 1\nFilename: pool/main/d/demo.deb\nSize: 3\nSHA256: %s\n\n", testDigest([]byte("deb"))))
-	release := []byte(fmt.Sprintf("SHA256:\n %s %d main/binary-amd64/Packages\n", testDigest(pkg), len(pkg)))
+	release := []byte(fmt.Sprintf("Suite: stable\nDate: %s\nSHA256:\n %s %d main/binary-amd64/Packages\n", time.Now().UTC().Format(time.RFC1123), testDigest(pkg), len(pkg)))
+	keyring, signature, _ := signedReleaseFixture(t, release)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dists/stable/Release", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(release)
 	})
 	mux.HandleFunc("/dists/stable/Release.gpg", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("sig"))
+		_, _ = w.Write(signature)
 	})
 	mux.HandleFunc("/dists/stable/main/binary-amd64/Packages", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(pkg)
@@ -73,7 +74,7 @@ func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := storesqlite.NewClientStore(db)
-	src := domain.Source{ID: "source", Type: domain.SourceAPT, Provider: Provider, UpstreamURL: server.URL, PublicURL: "https://repo.example/apt", ConfigJSON: json.RawMessage(`{"suite":"stable","releaseMode":"detached"}`)}
+	src := domain.Source{ID: "source", Type: domain.SourceAPT, Provider: Provider, UpstreamURL: server.URL, PublicURL: "https://repo.example/apt", ConfigJSON: json.RawMessage(fmt.Sprintf(`{"suite":"stable","releaseMode":"detached","trustedKeyringBase64":%q}`, keyring))}
 	plan, err := New(server.Client()).Analyze(ctx, ports.AnalyzeRequest{
 		CapsuleID: "snapshot", Source: src, Workset: store, Catalog: absentCatalog{},
 	}, store)
