@@ -53,6 +53,8 @@ func (r *MaintenanceRunner) StartGC(ctx context.Context, sourceID string, execut
 		return empty, err
 	}
 	job := domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceGC, Status: domain.MaintenanceQueued, Execute: execute, CreatedAt: r.now()}
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
 	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
 		return empty, err
 	}
@@ -162,6 +164,7 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 			cancel()
 		}
 		delete(r.cancels, job.ID)
+		delete(r.intents, job.ID)
 		r.mu.Unlock()
 	}()
 	if err := r.transition(job.ID, domain.MaintenanceRunning, ""); err != nil {
@@ -316,12 +319,18 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 	defer reader.Close()
 	var affectedObjects, affectedBytes int64
 	err = reader.Walk(ctx, func(candidate domain.GCCandidate) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		contains, err := membership.Contains(ctx, source.ID, candidate.LogicalPath)
 		if err != nil {
 			return err
 		}
 		if contains {
 			return fmt.Errorf("GC candidate %s became referenced after planning: %w", candidate.LogicalPath, domain.ErrConflict)
+		}
+		if err = ctx.Err(); err != nil {
+			return err
 		}
 		if err = secureRemoveCandidate(root, candidate.LogicalPath, candidate); err != nil {
 			return err
