@@ -148,7 +148,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
       {overview && <div className="table-toolbar"><input type="search" aria-label="搜索软件源" placeholder="按名称、类型或目录搜索" value={search} onChange={e => setSearch(e.target.value)} /><span>显示 {visibleSources.length} / {overview.sources.length} 个软件源</span><div className="button-row"><button disabled={busy || !visibleSources.length} onClick={() => setSelected(prev => new Set([...prev, ...visibleSources.filter(x => x.source.enabled).map(x => x.source.id)]))}>选择当前列表中已启用的软件源</button><button disabled={busy || !selectedIDs.length} onClick={() => setSelected(new Set())}>取消全部选择</button></div></div>}
       <div className="table-wrap"><table><thead><tr><th>选择</th><th>软件源</th><th>类型</th><th>同步记录</th><th>现有文件</th><th>服务器空间</th><th>同步任务</th><th>更新时间</th><th></th></tr></thead>
         <tbody>{visibleSources.length ? visibleSources.map(row => {
-          const valid = Number.isFinite(row.capacity.totalBytes) && row.capacity.totalBytes > 0 && Number.isFinite(row.capacity.freeBytes) && row.capacity.freeBytes >= 0 && row.capacity.freeBytes <= row.capacity.totalBytes
+          const valid = !row.capacityError && Number.isFinite(row.capacity.totalBytes) && row.capacity.totalBytes > 0 && Number.isFinite(row.capacity.freeBytes) && row.capacity.freeBytes >= 0 && row.capacity.freeBytes <= row.capacity.totalBytes
           const pct = valid ? (row.capacity.totalBytes - row.capacity.freeBytes) / row.capacity.totalBytes * 100 : 0
           return <tr key={row.source.id}>
             <td><input type="checkbox" aria-label={`选择 ${row.source.name}`} disabled={busy} checked={selected.has(row.source.id)} onChange={e => setSelected(prev => { const n = new Set(prev); e.target.checked ? n.add(row.source.id) : n.delete(row.source.id); return n })} /></td>
@@ -156,7 +156,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
             <td><span className="pill">{row.source.type}</span><small>{row.source.provider}</small></td>
             <td>{row.state.liveCursor.kind || '暂无同步记录'}<small className="mono clip" title={row.state.liveCursor.value}>{row.state.liveCursor.value || '—'}</small></td>
             <td>{formatCount(row.state.liveObjects)} 个<small>{formatBytes(row.state.liveBytes)}</small></td>
-            <td>{valid ? <>剩余 {formatBytes(row.capacity.freeBytes)}<progress className={`disk-meter ${pct >= 95 ? 'critical' : pct >= 85 ? 'warning' : ''}`} max={100} value={pct} aria-label="所在磁盘已用比例"/><small>总计 {formatBytes(row.capacity.totalBytes)} · 已用 {pct.toFixed(1)}%</small>{pct >= 85 && <span className={`status ${pct >= 95 ? 'status-failed' : 'status-paused'}`}>{pct >= 95 ? '空间紧张' : '空间偏低'}</span>}</> : <small>无法读取磁盘容量</small>}</td>
+            <td>{valid ? <>剩余 {formatBytes(row.capacity.freeBytes)}<progress className={`disk-meter ${pct >= 95 ? 'critical' : pct >= 85 ? 'warning' : ''}`} max={100} value={pct} aria-label="所在磁盘已用比例"/><small>总计 {formatBytes(row.capacity.totalBytes)} · 已用 {pct.toFixed(1)}%</small>{pct >= 85 && <span className={`status ${pct >= 95 ? 'status-failed' : 'status-paused'}`}>{pct >= 95 ? '空间紧张' : '空间偏低'}</span>}</> : <small>无法读取磁盘容量{row.capacityError && <details><summary>错误详情</summary><span className="error-detail">{row.capacityError}</span></details>}</small>}</td>
             <td>{row.state.activeEpochId ? '有任务进行中' : '无'}</td>
             <td>{formatDate(row.state.updatedAt)}</td>
             <td><button disabled={busy || !!row.state.activeEpochId} onClick={() => setEditor(row.source)}>编辑</button></td>
