@@ -46,14 +46,16 @@ export function MaintenancePanel({ overview }: Props) {
 
   useEffect(() => {
     if (!overview || !sourceID) return
-    let disposed = false
+    let disposed = false, pending = false
     async function refresh() {
+      if (pending) return
+      pending = true
       try {
         const value = await app().ListMaintenance(sourceID, 50)
         if (!disposed) setJobs(value ?? [])
       } catch (e) {
         if (!disposed) setMessage(errorText(e))
-      }
+      } finally { pending = false }
     }
     void refresh()
     const timer = window.setInterval(refresh, 3000)
@@ -217,7 +219,7 @@ export function MaintenancePanel({ overview }: Props) {
     setBusy(true); setMessage('')
     try {
       await app().ResumeMaintenance(pausedJob.id)
-      setMessage('正在从上次保存的项目继续检查。已完成的检查点会保留。')
+      setMessage('已请求从上次保存的检查点继续。未完成的部分可能需要重新检查。')
       await refreshJobs()
     } catch (e) { setMessage(errorText(e)) }
     finally { setBusy(false) }
@@ -228,7 +230,7 @@ export function MaintenancePanel({ overview }: Props) {
     setBusy(true); setMessage('')
     try {
       await app().PauseMaintenance(activeJob.id)
-      setMessage('已请求暂停。正在处理的这批项目可能需要在下次继续时重查。')
+      setMessage('已请求暂停。服务器将保留最近一次完成的检查点。')
       await refreshJobs()
     } catch (e) { setMessage(errorText(e)) }
     finally { setBusy(false) }
@@ -237,7 +239,7 @@ export function MaintenancePanel({ overview }: Props) {
   async function cancelJob() {
     const target = activeJob ?? pausedJob
     if (!target) return
-    if (target.status === 'PAUSED' && !window.confirm('放弃这次清点并删除已保存的检查点？正式文件账本不会受影响。')) return
+    if (target.status === 'PAUSED' && !window.confirm('放弃这次维护任务并删除已保存的检查点？正式文件账本不会受影响。')) return
     setBusy(true); setMessage('')
     try {
       await app().CancelMaintenance(target.id)
@@ -265,6 +267,7 @@ export function MaintenancePanel({ overview }: Props) {
   }
 
   return <>
+    {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
     <div className="card">
       <div className="card-title"><span>维护工具</span><span>检查文件和清理服务器空间</span></div>
       <div className="form-grid">
@@ -272,15 +275,15 @@ export function MaintenancePanel({ overview }: Props) {
           {(overview?.sources ?? []).map(x => <option key={x.source.id} value={x.source.id}>{x.source.name} · {x.source.type}/{x.source.provider}</option>)}
         </select></label>
         <div className="span-2"><p>如果服务器里的文件数量不对，可以先重新清点。PyPI 的大型仓库每检查一批项目会保存进度，暂停或 Agent 重启后可继续；整个任务完成前，不会替换原来的文件账本。</p>{source?.source.type === 'apt' && <small>APT 的共享包目录默认不会被清理。只有明确设为该软件源独占时，才允许删除其中的废弃文件。</small>}</div>
-        <div className="button-row align-end">
-          <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startInventory(false)}>全量清点</button>
-          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startInventory(true)}>增量清点</button>}
-          <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={() => startGC(false)}>查看可清理文件</button>
-          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startRepair}>检查缺失文件</button>}
-          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || busy} onClick={startIntegrity}>SHA256 完整校验</button>}
-          {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={busy} onClick={pauseJob}>暂停检查</button>}
-          {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>继续上次清点</button>}
-          {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? '放弃清点' : '取消任务'}</button>}
+        <div className="button-row align-end maintenance-actions">
+          <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(false)}>全量清点</button>
+          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(true)}>增量清点</button>}
+          <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startGC(false)}>查看可清理文件</button>
+          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startRepair}>检查缺失文件</button>}
+          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startIntegrity}>SHA256 完整校验</button>}
+          {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={busy} onClick={pauseJob}>{activeJob.kind === 'REPAIR' ? '暂停校验' : '暂停清点'}</button>}
+          {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>{pausedJob.kind === 'REPAIR' ? '继续校验' : '继续清点'}</button>}
+          {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? (pausedJob.kind === 'REPAIR' ? '放弃校验' : '放弃清点') : '取消任务'}</button>}
           <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={reclaimHistory}>回收历史账本</button>
           <button disabled={!sourceID || busy} onClick={refreshJobs}>刷新</button>
         </div>
@@ -289,12 +292,12 @@ export function MaintenancePanel({ overview }: Props) {
 
     <div className="card table-card">
       <div className="card-title"><span>维护记录</span><span>{jobs.length ? `${jobs.length} 条` : '暂无记录'}</span></div>
-      <div className="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>扫描</th><th>候选</th><th>实际删除</th><th>时间</th><th></th></tr></thead>
+      <div className="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>已检查</th><th>异常或可清理文件</th><th>实际删除</th><th>时间</th><th></th></tr></thead>
         <tbody>{jobs.length ? jobs.map(job => <tr key={job.id}>
-          <td><code>{shortID(job.id)}</code>{job.errorText && <small className="clip">{job.errorText}</small>}</td>
+          <td><code>{shortID(job.id)}</code>{job.errorText && <small className="error-detail">{job.errorText}</small>}</td>
           <td>{job.kind === 'GC' ? '清理文件' : job.kind === 'REPAIR' ? (job.hashMiBPerSecond ? `完整性校验（${job.hashMiBPerSecond} MiB/s）` : '缺失文件检查') : job.incrementalInventory ? '增量清点' : '全量清点'}{job.kind === 'GC' && <small>{job.execute ? '执行删除' : '仅预览'}</small>}</td>
           <td><span className={statusClass(job.status)}>{statusLabel(job.status)}</span></td>
-          <td>{formatCount(job.scannedObjects)}<small>{formatBytes(job.scannedBytes)}</small>{job.kind === 'INVENTORY' && job.totalProjects > 0 && <small>已检查项目 {formatCount(job.completedProjects)}/{formatCount(job.totalProjects)}{job.lastProject ? ` · 到 ${job.lastProject}` : ''}</small>}</td>
+          <td>{formatCount(job.scannedObjects)}<small>{formatBytes(job.scannedBytes)}</small>{job.kind === 'INVENTORY' && job.totalProjects > 0 && <><progress className="maintenance-progress" aria-label="项目清点进度" max={job.totalProjects} value={Math.min(job.totalProjects, Math.max(0, job.completedProjects))} /><small>已检查项目 {formatCount(job.completedProjects)}/{formatCount(job.totalProjects)}{job.lastProject ? ` · 最近完成 ${job.lastProject}` : ''}</small></>}</td>
           <td>{job.kind === 'GC' || job.kind === 'REPAIR' ? <>{formatCount(job.candidateObjects)}<small>{formatBytes(job.candidateBytes)}</small></> : '—'}</td>
           <td>{job.kind === 'GC' && job.execute ? <>{formatCount(job.affectedObjects)}<small>{formatBytes(job.affectedBytes)}</small></> : '—'}</td>
           <td>{formatDate(job.createdAt)}<small>{job.completedAt ? `完成 ${formatDate(job.completedAt)}` : job.startedAt ? `开始 ${formatDate(job.startedAt)}` : ''}</small></td>
@@ -328,6 +331,5 @@ export function MaintenancePanel({ overview }: Props) {
       </tbody></table></div>
       {candidates.next && <div className="button-row" style={{ padding: 14 }}><button disabled={busy || !selectedJob} onClick={() => selectedJob && showCandidates(selectedJob, true)}>加载更多</button></div>}
     </div>}
-    {message && <div className="notice">{message}</div>}
   </>
 }
