@@ -44,7 +44,7 @@ test('connection diagnostics distinguish access, proxy path and gateway failures
   const message = vm.runInNewContext(functions('function diagnosticMessage(', 'async function diagnoseConnection(') + ';diagnosticMessage')
   assert.match(message(401), /令牌/)
   assert.match(message(403), /权限/)
-  assert.match(message(404), /子路径/)
+  assert.match(message(404), /反向代理路径/)
   assert.match(message(502), /代理/)
   assert.match(message(500), /HTTP 500/)
 })
