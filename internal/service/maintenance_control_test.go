@@ -52,6 +52,12 @@ func (controlTestSources) GetSource(_ context.Context, id string) (domain.Source
 	return domain.Source{ID: id, Type: domain.SourcePyPI, Provider: "pypi"}, nil
 }
 
+func (controlTestSources) GetState(_ context.Context, _ string) (domain.SourceState, error) {
+	// A resume based on stale PAUSED state must not panic in the test double.
+	// If it gets here during cancellation, return a distinct error.
+	return domain.SourceState{}, errors.New("unexpected stale resume state query")
+}
+
 func TestCancelIntentCannotBeDowngradedToPause(t *testing.T) {
 	jobs := &controlTestJobs{job: domain.MaintenanceJob{ID: "job", SourceID: "source", Kind: domain.MaintenanceInventory, Status: domain.MaintenanceRunning}}
 	r := NewMaintenanceRunner(context.Background(), controlTestSources{}, jobs, nil, nil, nil)
