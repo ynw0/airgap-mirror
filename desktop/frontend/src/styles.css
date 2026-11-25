@@ -246,3 +246,6 @@ button:not(.primary),input,select,textarea{background:var(--app-surface);border-
 .telemetry-note{font-size:12px;margin-top:12px}
 .current-task{border-left:3px solid var(--app-accent)}
 .export-empty{padding:0 17px 12px}
+
+/* Disk usage reflects the containing filesystem, not the repository alone. */
+.disk-meter{display:block;width:100%;min-width:100px;height:8px;accent-color:var(--app-accent);margin:6px 0}.disk-meter.warning{accent-color:#bb801a}.disk-meter.critical{accent-color:#c34355}.disk-meter+small{margin-bottom:5px}
