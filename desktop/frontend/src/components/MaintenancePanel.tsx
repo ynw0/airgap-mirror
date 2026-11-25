@@ -274,6 +274,15 @@ export function MaintenancePanel({ overview }: Props) {
     finally { setBusy(false) }
   }
 
+  async function saveReport(kind: 'maintenance' | 'repair') {
+    setBusy(true); setMessage('')
+    try {
+      const data = kind === 'maintenance' ? { kind, exportedAt: new Date().toISOString(), sourceId: sourceID, sourceName: source?.source.name, scope: 'recent-filtered', filter, lastRead, readError, items: visibleJobs } : { kind, exportedAt: new Date().toISOString(), sourceId: sourceID, sourceName: source?.source.name, jobId: selectedJobID, scope: 'loaded-items-only', hasMore: !!repairIssues?.next, items: repairIssues?.items ?? [] }
+      const destination = await app().SaveDiagnosticReport(JSON.stringify(data, null, 2))
+      if (destination) setMessage(`诊断报告已保存：${destination}。报告可能包含内网路径和错误详情，请妥善保管。`)
+    } catch (e) { setMessage('无法保存诊断报告，请选择尚不存在的文件名。' + errorText(e)) }
+    finally { setBusy(false) }
+  }
   const current = activeJob ?? pausedJob
   const visibleJobs = jobs.filter(j => filter === 'all' || (filter === 'active' && !terminal(j)) || (filter === 'failed' && j.status === 'FAILED') || (filter === 'completed' && j.status === 'COMPLETED'))
   return <>
@@ -303,7 +312,7 @@ export function MaintenancePanel({ overview }: Props) {
     {current && <div className="card current-task"><div className="card-title"><span>当前维护任务</span><span className={statusClass(current.status)}>{statusLabel(current.status)}</span></div><h3>{taskName(current)}</h3><p>任务编号：<code>{current.id}</code></p><div className="batch-overview"><div><span>已检查文件</span><strong>{formatCount(current.scannedObjects)}</strong></div><div><span>已登记检查容量</span><strong>{formatBytes(current.scannedBytes)}</strong></div><div><span>{current.kind === 'REPAIR' ? '异常文件' : current.kind === 'GC' ? '可清理文件' : '已完成项目'}</span><strong>{formatCount(current.kind === 'INVENTORY' ? current.completedProjects : current.candidateObjects)}</strong></div></div>{current.kind === 'INVENTORY' && current.totalProjects > 0 && <><progress className="maintenance-progress" aria-label="当前项目清点进度" max={current.totalProjects} value={Math.min(current.totalProjects, Math.max(0, current.completedProjects))}/><p>{formatCount(current.completedProjects)} / {formatCount(current.totalProjects)} 个项目{current.lastProject ? `；最近完成：${current.lastProject}` : ''}</p></>}<p>开始时间：{formatDate(current.startedAt)}</p>{current.status === 'PAUSED' && <p>任务已暂停，可从服务器保存的检查点继续。</p>}{current.errorText && <p className="error-detail">{current.errorText}</p>}</div>}
     <div className="card table-card">
       <div className="card-title"><span>维护记录</span><span>{lastRead ? `最近查询 ${lastRead}` : '尚未读取'}</span></div>
-      <div className="table-toolbar"><label>筛选任务<select value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部近期任务</option><option value="active">未结束</option><option value="failed">失败</option><option value="completed">已完成</option></select></label><span>显示 {visibleJobs.length} / {jobs.length} 条近期记录</span>{readError && <span className="error-detail">读取失败：{readError}（列表可能不是最新状态）</span>}</div>
+      <div className="table-toolbar"><label>筛选任务<select value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部近期任务</option><option value="active">未结束</option><option value="failed">失败</option><option value="completed">已完成</option></select></label><span>显示 {visibleJobs.length} / {jobs.length} 条近期记录</span><button disabled={busy || !visibleJobs.length} onClick={() => saveReport('maintenance')}>导出当前筛选结果</button>{readError && <span className="error-detail">读取失败：{readError}（列表可能不是最新状态）</span>}</div>
       <div className="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>已检查</th><th>异常或可清理文件</th><th>实际删除</th><th>时间</th><th></th></tr></thead>
         <tbody>{visibleJobs.length ? visibleJobs.map(job => <tr key={job.id}>
           <td><code>{shortID(job.id)}</code>{job.errorText && <small className="error-detail">{job.errorText}</small>}</td>
@@ -330,7 +339,7 @@ export function MaintenancePanel({ overview }: Props) {
       </tbody></table></div>
     </div>
     {repairIssues && <div className="card table-card">
-      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；损坏软件包须经过 SHA256 校验并明确授权后才能替换</span></div>
+      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；损坏软件包须经过 SHA256 校验并明确授权后才能替换</span></div><div className="table-toolbar"><span>已加载 {formatCount(repairIssues.items.length)} 条异常{repairIssues.next ? '，还有更多记录' : ''}</span><button disabled={busy || !repairIssues.items.length} onClick={() => saveReport('repair')}>导出已加载的异常报告</button></div>
       <div className="table-wrap"><table><thead><tr><th>文件路径</th><th>类型</th><th>账本大小</th><th>实际大小</th></tr></thead><tbody>
         {repairIssues.items.map(item => <tr key={item.logicalPath}><td><code>{item.logicalPath}</code>{item.actualSha256 && <small>预期：{item.sha256}<br/>实际：{item.actualSha256}</small>}</td><td>{item.kind === 'MISSING' ? '缺失' : item.kind === 'HASH_MISMATCH' ? 'SHA256 不符' : '大小不符'}</td><td>{formatBytes(item.size)}</td><td>{item.kind === 'MISSING' ? '—' : formatBytes(item.actualSize)}</td></tr>)}
       </tbody></table></div>
