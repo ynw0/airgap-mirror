@@ -74,6 +74,8 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
   const [suite, setSuite] = useState(String(initial.suite ?? 'bookworm'))
   const [releaseMode, setReleaseMode] = useState(String(initial.releaseMode ?? 'inrelease'))
   const [gcOwnsPool, setGcOwnsPool] = useState(initial.gcOwnsPool === true)
+  const [trustedKeyring, setTrustedKeyring] = useState(String(initial.trustedKeyringBase64 ?? ''))
+  const [requireValidUntil, setRequireValidUntil] = useState(initial.requireValidUntil === true)
   const [replicationUrl, setReplicationUrl] = useState(String(initial.replicationUrl ?? 'https://replicate.npmjs.com/registry'))
   const [changePageSize, setChangePageSize] = useState(Number(initial.changePageSize ?? 10000))
   const [allDocsPageSize, setAllDocsPageSize] = useState(Number(initial.allDocsPageSize ?? 10000))
@@ -95,7 +97,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
   function config(): unknown {
     switch (kind) {
       case 'apt':
-        return { suite: suite.trim(), releaseMode, gcOwnsPool }
+        return { suite: suite.trim(), releaseMode, gcOwnsPool, trustedKeyringBase64: trustedKeyring.trim(), requireValidUntil }
       case 'pypi':
         return {}
       case 'npm':
@@ -163,6 +165,13 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
             <option value="inrelease">inrelease</option>
             <option value="detached">detached</option>
           </select>
+        </label>
+        <label className="span-2">可信上游 OpenPGP 公钥环（Base64）
+          <textarea rows={4} spellCheck={false} value={trustedKeyring} onChange={e => setTrustedKeyring(e.target.value)} placeholder="由管理员从可信发行版渠道取得的二进制公钥环，转为 Base64 后粘贴" />
+          <small>不要填写私钥。未配置公钥环时，联网端拒绝 APT 上游分析；联网电脑需要安装 GnuPG。</small>
+        </label>
+        <label className="checkbox">要求上游 Release 包含 Valid-Until
+          <input type="checkbox" checked={requireValidUntil} onChange={e => setRequireValidUntil(e.target.checked)} />
         </label>
         <label className="checkbox">允许清理该软件源独占的包池
           <input type="checkbox" checked={gcOwnsPool} onChange={e => setGcOwnsPool(e.target.checked)} />

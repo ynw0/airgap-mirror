@@ -45,7 +45,7 @@ summary{cursor:pointer;color:#26599e}code{font:12px Consolas,monospace;overflow-
 <label>内网访问地址<input id="publicUrl" placeholder="http://192.168.21.4/debian"></label>
 <label>启用<input type="checkbox" id="enabled" checked style="width:22px;height:22px"></label>
 </div>
-<details><summary>软件源详细配置（有需要时再改）</summary><p class="small">APT 要填写真实发行版代号，例如 bookworm 或 jammy。Maven Central 需要明确指定要同步的依赖。</p><textarea id="config" rows="5" spellcheck="false"></textarea></details>
+<details><summary>软件源详细配置（有需要时再改）</summary><p class="small">APT 要填写真实发行版代号，例如 bookworm 或 jammy，并在 trustedKeyringBase64 中配置可信发行版二进制 OpenPGP 公钥环的 Base64 内容。requireValidUntil 为 true 时要求上游必须声明有效期。未配置公钥环时联网分析会失败。Maven Central 需要明确指定要同步的依赖。</p><textarea id="config" rows="5" spellcheck="false"></textarea></details>
 <div class="row" style="margin-top:14px"><button class="primary" id="save">保存软件源</button><button id="cancelEdit">取消</button></div>
 </section>
 <section class="panel"><h2>Linux 服务器配置与签名</h2>
@@ -60,7 +60,7 @@ summary{cursor:pointer;color:#26599e}code{font:12px Consolas,monospace;overflow-
 'use strict';
 const el=id=>document.getElementById(id);
 const definitions={
- apt:{type:'apt',provider:'apt-generic',url:'https://deb.debian.org/debian',config:{suite:'bookworm',releaseMode:'inrelease',gcOwnsPool:false}},
+ apt:{type:'apt',provider:'apt-generic',url:'https://deb.debian.org/debian',config:{suite:'bookworm',releaseMode:'inrelease',gcOwnsPool:false,trustedKeyringBase64:'',requireValidUntil:false}},
  pypi:{type:'pypi',provider:'pypi',url:'https://pypi.org/simple',config:{}},
  npm:{type:'npm',provider:'npmjs',url:'https://registry.npmjs.org',config:{replicationUrl:'https://replicate.npmjs.com/registry',changePageSize:10000,allDocsPageSize:10000}},
  'maven-generic':{type:'maven',provider:'maven-generic',url:'',config:{indexUrl:'',inventoryMode:'filesystem'}},
