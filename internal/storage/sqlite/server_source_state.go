@@ -10,19 +10,27 @@ import (
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
 
-// Repository topology must stay fixed while physical GC is reserved. This
-// check is inside the same SQLite transaction as the source write: a concurrent
-// maintenance reservation either precedes this read or invalidates the write
-// transaction's snapshot. Do not hold a database transaction during deletion.
-func requireStableRepositoryRoots(ctx context.Context, tx *sql.Tx) error {
-	var busy bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM maintenance_jobs WHERE kind='GC' AND execute=1 AND status IN('QUEUED','RUNNING','PAUSED'))`).Scan(&busy); err != nil {
+// Only a root that overlaps a running physical cleanup needs to be blocked.
+func requireRootOutsideCleanup(ctx context.Context, tx *sql.Tx, root string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT s.root_path FROM maintenance_jobs j JOIN sources s ON s.id=j.source_id WHERE j.kind='GC' AND j.execute=1 AND j.status IN('QUEUED','RUNNING','PAUSED')`)
+	if err != nil {
 		return err
 	}
-	if busy {
-		return fmt.Errorf("服务器正在执行文件清理，暂时不能新增软件源或修改仓库目录，请在清理结束后重试: %w", domain.ErrConflict)
+	defer rows.Close()
+	for rows.Next() {
+		var activeRoot string
+		if err = rows.Scan(&activeRoot); err != nil {
+			return err
+		}
+		overlap, err := domain.RepositoryRootsOverlap(root, activeRoot)
+		if err != nil {
+			return err
+		}
+		if overlap {
+			return fmt.Errorf("仓库目录与正在清理的软件源重叠，请在清理结束后重试: %w", domain.ErrConflict)
+		}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (s *ServerStore) CreateSource(ctx context.Context, v domain.Source) error {
@@ -31,7 +39,7 @@ func (s *ServerStore) CreateSource(ctx context.Context, v domain.Source) error {
 		return err
 	}
 	defer tx.Rollback()
-	if err = requireStableRepositoryRoots(ctx, tx); err != nil {
+	if err = requireRootOutsideCleanup(ctx, tx, v.RootPath); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sources(id,name,type,provider,upstream_url,root_path,public_url,enabled,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, v.ID, v.Name, v.Type, v.Provider, v.UpstreamURL, v.RootPath, v.PublicURL, v.Enabled, []byte(v.ConfigJSON), timeString(v.CreatedAt), timeString(v.UpdatedAt)); err != nil {
@@ -56,7 +64,7 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 		return mapNotFound(err)
 	}
 	if oldRoot != v.RootPath {
-		if err = requireStableRepositoryRoots(ctx, tx); err != nil {
+		if err = requireRootOutsideCleanup(ctx, tx, v.RootPath); err != nil {
 			return err
 		}
 	}
