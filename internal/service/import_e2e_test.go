@@ -89,8 +89,10 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 		LogicalPath: "dists/bookworm/main/binary-amd64/Packages", Size: int64(len(pkgIndex)), SHA256: shaHex(string(pkgIndex)),
 		Operation: domain.ArtifactAdd, Metadata: true,
 	}
-	indexLoc, err := w.Append(ctx, domain.PackEntry{Artifact:index}, bytes.NewReader(pkgIndex))
-	if err != nil {t.Fatal(err)}
+	indexLoc, err := w.Append(ctx, domain.PackEntry{Artifact: index}, bytes.NewReader(pkgIndex))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err = w.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +131,9 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 	if err = pack.PutManifestEntry(ctx, mdb, domain.ManifestEntry{EntryID: metaID, Artifact: meta, PackID: packID, PackOffset: metaLoc.Offset, RecordLength: metaLoc.RecordLength}); err != nil {
 		t.Fatal(err)
 	}
-	if err = pack.PutManifestEntry(ctx, mdb, domain.ManifestEntry{EntryID:index.ID, Artifact:index, PackID:packID, PackOffset:indexLoc.Offset, RecordLength:indexLoc.RecordLength}); err != nil {t.Fatal(err)}
+	if err = pack.PutManifestEntry(ctx, mdb, domain.ManifestEntry{EntryID: index.ID, Artifact: index, PackID: packID, PackOffset: indexLoc.Offset, RecordLength: indexLoc.RecordLength}); err != nil {
+		t.Fatal(err)
+	}
 	if err = mdb.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -226,33 +230,42 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 	}
 }
 
-
 func signedImportFixture(t *testing.T, body []byte) (string, []byte) {
 	t.Helper()
 	gpg, err := exec.LookPath("gpg")
-	if err != nil {t.Skip("GnuPG required")}
+	if err != nil {
+		t.Skip("GnuPG required")
+	}
 	dir, err := os.MkdirTemp("", "agp-import-")
-	if err != nil {t.Fatal(err)}
-	t.Cleanup(func(){
-		if gpgconf,e:=exec.LookPath("gpgconf");e==nil{_ = exec.Command(gpgconf,"--homedir",dir,"--kill","gpg-agent").Run()}
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if gpgconf, e := exec.LookPath("gpgconf"); e == nil {
+			_ = exec.Command(gpgconf, "--homedir", dir, "--kill", "gpg-agent").Run()
+		}
 		_ = os.RemoveAll(dir)
 	})
-	run:=func(args ...string)[]byte{
+	run := func(args ...string) []byte {
 		t.Helper()
-		ctx,cancel:=context.WithTimeout(context.Background(),time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		cmd:=exec.CommandContext(ctx,gpg,append([]string{"--no-options","--homedir",dir,"--batch","--no-tty","--pinentry-mode","loopback","--passphrase",""},args...)...)
+		cmd := exec.CommandContext(ctx, gpg, append([]string{"--no-options", "--homedir", dir, "--batch", "--no-tty", "--pinentry-mode", "loopback", "--passphrase", ""}, args...)...)
 		var stderr bytes.Buffer
-		cmd.Stderr=&stderr
-		out,e:=cmd.Output()
-		if e!=nil{t.Fatalf("gpg fixture: %v: %s",e,stderr.String())}
+		cmd.Stderr = &stderr
+		out, e := cmd.Output()
+		if e != nil {
+			t.Fatalf("gpg fixture: %v: %s", e, stderr.String())
+		}
 		return out
 	}
-	run("--quick-gen-key","Airgap import fixture <fixture@example.invalid>","ed25519","sign","1d")
-	keys:=run("--export")
-	file:=filepath.Join(dir,"Release")
-	if err=os.WriteFile(file,body,0600);err!=nil{t.Fatal(err)}
-	return base64.StdEncoding.EncodeToString(keys),run("--output","-","--clearsign",file)
+	run("--quick-gen-key", "Airgap import fixture <fixture@example.invalid>", "ed25519", "sign", "1d")
+	keys := run("--export")
+	file := filepath.Join(dir, "Release")
+	if err = os.WriteFile(file, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(keys), run("--output", "-", "--clearsign", file)
 }
 
 func mustE2EID(t *testing.T) string {

@@ -93,7 +93,7 @@ func validateUpstreamPublication(ctx context.Context, req ports.PublishValidatio
 	if cfg.ReleaseMode == "detached" {
 		cursor = shaHex([]byte(cursor + "\x00" + shaHex(signature)))
 	}
-	if !req.Epoch.TargetCursor.Equal(domain.Cursor{Kind:"apt-release-snapshot-sha256",Value:cursor}) {
+	if !req.Epoch.TargetCursor.Equal(domain.Cursor{Kind: "apt-release-snapshot-sha256", Value: cursor}) {
 		return fmt.Errorf("APT 同步位置与已验证的 Release 不一致: %w", domain.ErrConflict)
 	}
 	doc, err := parseRelease(plain)
@@ -111,77 +111,113 @@ func validateUpstreamPublication(ctx context.Context, req ports.PublishValidatio
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !strings.HasPrefix(logical,"pool/") || pack.ValidateLogicalPath(logical)!=nil || size<0 || !validSHA256(digest) {
+		if !strings.HasPrefix(logical, "pool/") || pack.ValidateLogicalPath(logical) != nil || size < 0 || !validSHA256(digest) {
 			return domain.ErrInvalid
 		}
 		entry, err := req.Catalog.Get(ctx, req.Source.ID, logical)
-		if err != nil || entry.Size != size || !strings.EqualFold(entry.SHA256,digest) {
-			return fmt.Errorf("APT 软件包与签名索引不一致 %s: %w",logical,domain.ErrConflict)
+		if err != nil || entry.Size != size || !strings.EqualFold(entry.SHA256, digest) {
+			return fmt.Errorf("APT 软件包与签名索引不一致 %s: %w", logical, domain.ErrConflict)
 		}
 		f, actual, err := req.OpenFile(logical)
 		if err != nil {
-			return fmt.Errorf("APT 签名索引引用的软件包不可用 %s: %w",logical,err)
+			return fmt.Errorf("APT 签名索引引用的软件包不可用 %s: %w", logical, err)
 		}
 		closeErr := f.Close()
-		if actual!=size {
-			return fmt.Errorf("APT 软件包大小不一致 %s: %w",logical,domain.ErrConflict)
+		if actual != size {
+			return fmt.Errorf("APT 软件包大小不一致 %s: %w", logical, domain.ErrConflict)
 		}
 		return closeErr
 	}
 	verifyIndex := func(logical string, entry releaseEntry, parse bool) error {
-		if err := ctx.Err(); err != nil {return err}
-		if entry.Size == math.MaxInt64 {return domain.ErrInvalid}
-		if err := checkDeclaration(logical,entry.Size,entry.SHA256);err!=nil{return err}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Size == math.MaxInt64 {
+			return domain.ErrInvalid
+		}
+		if err := checkDeclaration(logical, entry.Size, entry.SHA256); err != nil {
+			return err
+		}
 		f, size, err := req.OpenFile(logical)
-		if err != nil {return err}
+		if err != nil {
+			return err
+		}
 		defer f.Close()
-		if size != entry.Size {return fmt.Errorf("APT 索引大小不一致 %s: %w",logical,domain.ErrConflict)}
-		h:=sha256.New()
-		r:=io.TeeReader(io.LimitReader(f,entry.Size+1),h)
+		if size != entry.Size {
+			return fmt.Errorf("APT 索引大小不一致 %s: %w", logical, domain.ErrConflict)
+		}
+		h := sha256.New()
+		r := io.TeeReader(io.LimitReader(f, entry.Size+1), h)
 		if parse {
-			decoded, closer, err:=decompressor(entry.Path,r)
-			if err!=nil{return err}
-			_,pkg,src:=baseIndexName(entry.Path)
-			err=parseDeb822(decoded,func(rec map[string]string)error{
+			decoded, closer, err := decompressor(entry.Path, r)
+			if err != nil {
+				return err
+			}
+			_, pkg, src := baseIndexName(entry.Path)
+			err = parseDeb822(decoded, func(rec map[string]string) error {
 				if pkg {
-					n,e:=strconv.ParseInt(rec["Size"],10,64)
-					if e!=nil{return e}
-					return verifyPackage(rec["Filename"],n,rec["SHA256"])
+					n, e := strconv.ParseInt(rec["Size"], 10, 64)
+					if e != nil {
+						return e
+					}
+					return verifyPackage(rec["Filename"], n, rec["SHA256"])
 				}
 				if src {
-					if rec["Directory"]==""||rec["Checksums-Sha256"]=="" {return domain.ErrInvalid}
-					for _,line:=range strings.Split(rec["Checksums-Sha256"],"\n"){
-						fields:=strings.Fields(line)
-						if len(fields)!=3||path.Base(fields[2])!=fields[2]||fields[2]=="."||fields[2]==".." {return domain.ErrInvalid}
-						n,e:=strconv.ParseInt(fields[1],10,64)
-						if e!=nil{return e}
-						if e=verifyPackage(path.Join(rec["Directory"],fields[2]),n,fields[0]);e!=nil{return e}
+					if rec["Directory"] == "" || rec["Checksums-Sha256"] == "" {
+						return domain.ErrInvalid
+					}
+					for _, line := range strings.Split(rec["Checksums-Sha256"], "\n") {
+						fields := strings.Fields(line)
+						if len(fields) != 3 || path.Base(fields[2]) != fields[2] || fields[2] == "." || fields[2] == ".." {
+							return domain.ErrInvalid
+						}
+						n, e := strconv.ParseInt(fields[1], 10, 64)
+						if e != nil {
+							return e
+						}
+						if e = verifyPackage(path.Join(rec["Directory"], fields[2]), n, fields[0]); e != nil {
+							return e
+						}
 					}
 				}
 				return nil
 			})
-			if closer!=nil{_ = closer.Close()}
-			if err!=nil{return err}
+			if closer != nil {
+				_ = closer.Close()
+			}
+			if err != nil {
+				return err
+			}
 		}
-		if _,err=io.Copy(io.Discard,r);err!=nil{return err}
-		if hex.EncodeToString(h.Sum(nil))!=entry.SHA256{return fmt.Errorf("APT 索引 SHA256 不一致 %s: %w",logical,domain.ErrConflict)}
+		if _, err = io.Copy(io.Discard, r); err != nil {
+			return err
+		}
+		if hex.EncodeToString(h.Sum(nil)) != entry.SHA256 {
+			return fmt.Errorf("APT 索引 SHA256 不一致 %s: %w", logical, domain.ErrConflict)
+		}
 		return nil
 	}
-	for _, entry:=range doc.Entries{
-		logical:=path.Join(base,entry.Path)
-		if seen[logical] {return fmt.Errorf("Release 重复声明索引 %s: %w",logical,domain.ErrConflict)}
-		seen[logical]=true
-		if err=verifyIndex(logical,entry,selected[entry.Path]);err!=nil{return err}
+	for _, entry := range doc.Entries {
+		logical := path.Join(base, entry.Path)
+		if seen[logical] {
+			return fmt.Errorf("Release 重复声明索引 %s: %w", logical, domain.ErrConflict)
+		}
+		seen[logical] = true
+		if err = verifyIndex(logical, entry, selected[entry.Path]); err != nil {
+			return err
+		}
 		if doc.AcquireByHash {
-			byHash:=path.Join(path.Dir(logical),"by-hash","SHA256",entry.SHA256)
+			byHash := path.Join(path.Dir(logical), "by-hash", "SHA256", entry.SHA256)
 			if !seen[byHash] {
-				seen[byHash]=true
-				if err=verifyIndex(byHash,entry,false);err!=nil{return err}
+				seen[byHash] = true
+				if err = verifyIndex(byHash, entry, false); err != nil {
+					return err
+				}
 			}
 		}
 	}
-	if len(declared)!=0 {
-		return fmt.Errorf("离线包包含上游 Release 未授权的元数据: %w",domain.ErrConflict)
+	if len(declared) != 0 {
+		return fmt.Errorf("离线包包含上游 Release 未授权的元数据: %w", domain.ErrConflict)
 	}
 	return nil
 }

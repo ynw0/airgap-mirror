@@ -191,7 +191,6 @@ func (p PublisherService) publishMetadata(ctx context.Context, source domain.Sou
 	return p.Catalog.Upsert(ctx, domain.CatalogEntry{SourceID: m.SourceID, LogicalPath: m.LogicalPath, Size: m.Size, SHA256: m.SHA256, PackageKey: m.PackageKey, Version: m.Version, Attributes: m.Attributes, UpdatedAt: p.now()})
 }
 
-
 // proposedRepositoryFile never opens a manifest-supplied arbitrary path.
 // Only the expected staging path or the corresponding published file is read.
 func proposedRepositoryFile(source domain.Source, ep domain.Epoch, unit domain.PublishUnit, entries []domain.PublishMetadataEntry) func(string) (io.ReadCloser, int64, error) {
