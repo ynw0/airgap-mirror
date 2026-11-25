@@ -57,9 +57,6 @@ func findExistingImportBundle(ctx context.Context, tx *sql.Tx, requestID string,
 		return empty, fmt.Errorf("存在多个相关导入会话，请先核对历史会话，不能自动恢复: %w", domain.ErrConflict)
 	}
 	out := matches[0]
-	if out.RequestID != requestID {
-		return empty, fmt.Errorf("该批次已有导入会话，请使用原请求编号继续: %w", domain.ErrConflict)
-	}
 	if out.SourceID != d.SourceID || out.EpochID != d.EpochID || out.BatchID != d.BatchID || out.ManifestSize != d.ManifestSize || out.ManifestSHA256 != d.ManifestSHA256 {
 		return empty, fmt.Errorf("request id reused for another bundle: %w", domain.ErrConflict)
 	}
