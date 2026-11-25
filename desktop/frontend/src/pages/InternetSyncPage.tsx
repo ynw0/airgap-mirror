@@ -103,7 +103,7 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
   async function probeSource() {
-    if (!historyReady || locked) return
+    if (!validSource || locked) return
     setBusy(true); setMessage('')
     try { setProbe(await app().ProbeSource(capsuleID, sourceID)); setMessage('已经读到上游状态，可以继续检查更新。') } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
@@ -186,10 +186,10 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
         <label>每批最多 (GiB)<input type="number" min="1" step="1" disabled={locked} value={batchGiB} onChange={e => setBatchGiB(Number(e.target.value))} /></label>
         <label>单包容量 (GiB)<input type="number" min="1" step="1" disabled={locked} value={packGiB} onChange={e => setPackGiB(Number(e.target.value))} /></label>
       </div><p className="small">默认每批约 8 GiB，每个文件包约 1 GiB，更方便使用普通移动硬盘。实际文件包可能因单个大文件而超过设置值。</p></details>
-      <div className="button-row align-end"><button disabled={!historyReady || locked} onClick={probeSource}>查看上游状态</button><button className="primary" disabled={!historyReady || locked || !!(epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status))} onClick={analyze}>查看需要下载的更新</button></div>
+      <div className="button-row align-end"><button disabled={!validSource || locked} onClick={probeSource}>查看上游状态</button><button className="primary" disabled={!historyReady || locked || !!(epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status))} onClick={analyze}>查看需要下载的更新</button></div>
     </div>
 
-    {validSource && !historyReady && <div className="card guidance"><p>正在读取或尚未成功读取此软件源的已有下载任务。确认已有任务状态之前，暂不允许重新分析或下载。</p><button disabled={locked} onClick={() => setHistoryRetry(n => n + 1)}>重新读取任务</button></div>}
+    {validSource && !historyReady && <div className="card guidance"><p>正在读取或尚未成功读取此软件源的已有下载任务。仍可查看上游状态；重新分析或下载前请先读取已有任务。</p><button disabled={locked} onClick={() => setHistoryRetry(n => n + 1)}>重新读取任务</button></div>}
     {(probe || plan) && <div className="metrics-grid">
       <div className="metric"><span>内网当前版本标记</span><strong>{plan?.state.liveCursor.kind ?? capsule?.sources.find(x => x.source.id === sourceID)?.state.liveCursor.kind ?? '—'}</strong><small>{plan?.state.liveCursor.value ?? capsule?.sources.find(x => x.source.id === sourceID)?.state.liveCursor.value ?? '—'}</small></div>
       <div className="metric"><span>这次更新的版本标记</span><strong>{plan?.plan.epoch.targetCursor.kind ?? probe?.cursor.kind ?? '—'}</strong><small>{plan?.plan.epoch.targetCursor.value ?? probe?.cursor.value ?? '—'}</small></div>
