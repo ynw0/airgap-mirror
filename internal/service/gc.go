@@ -148,11 +148,27 @@ func (r *MaintenanceRunner) exclusiveRoot(ctx context.Context, source domain.Sou
 		}
 		otherAbs = filepath.Clean(otherAbs)
 		if rootsOverlap(currentAbs, otherAbs) {
-			return "", fmt.Errorf("source %s repository root overlaps source %s; physical GC is refused: %w", source.ID, other.ID, domain.ErrConflict)
+			return "", fmt.Errorf("软件源 %s 与 %s 的仓库目录重叠，已拒绝文件清理: %w", source.ID, other.ID, domain.ErrConflict)
 		}
-		otherReal, evalErr := filepath.EvalSymlinks(otherAbs)
-		if evalErr == nil && rootsOverlap(currentReal, filepath.Clean(otherReal)) {
-			return "", fmt.Errorf("source %s resolved repository root overlaps source %s; physical GC is refused: %w", source.ID, other.ID, domain.ErrConflict)
+		// A missing, inaccessible, or dangling repository path is not proof
+		// that it is independent. Refuse GC until its ownership can be checked.
+		_, otherReal, resolveErr := canonicalRepositoryRoot(other.RootPath)
+		if resolveErr != nil {
+			return "", fmt.Errorf("无法确认软件源 %s 的仓库目录 %q 是否与当前仓库重叠，已拒绝文件清理: %v: %w", other.ID, other.RootPath, resolveErr, domain.ErrConflict)
+		}
+		if rootsOverlap(currentReal, otherReal) {
+			return "", fmt.Errorf("软件源 %s 与 %s 解析后的仓库目录重叠，已拒绝文件清理: %w", source.ID, other.ID, domain.ErrConflict)
+		}
+		currentInfo, statErr := os.Stat(currentReal)
+		if statErr != nil {
+			return "", statErr
+		}
+		otherInfo, statErr := os.Stat(otherReal)
+		if statErr != nil {
+			return "", statErr
+		}
+		if os.SameFile(currentInfo, otherInfo) {
+			return "", fmt.Errorf("软件源 %s 与 %s 指向同一个仓库目录，已拒绝文件清理: %w", source.ID, other.ID, domain.ErrConflict)
 		}
 	}
 	return currentReal, nil
