@@ -1,6 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	mirrorclient "github.com/ynw0/airgap-mirror/internal/client"
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -146,4 +151,46 @@ func (a *App) StartIncrementalInventory(sourceID string) (domain.MaintenanceJob,
 		return domain.MaintenanceJob{}, err
 	}
 	return agent.StartIncrementalInventory(a.ctx, sourceID)
+}
+
+type RepairReportResult struct {
+	Path  string `json:"path"`
+	Count int64  `json:"count"`
+}
+
+func (a *App) ExportCompleteRepairReport(jobID string) (RepairReportResult, error) {
+	var result RepairReportResult
+	agent, err := a.agentRef()
+	if err != nil {
+		return result, err
+	}
+	destination, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "保存完整异常报告",
+		DefaultFilename: "airgap-repair-full.json",
+		Filters:         []runtime.FileFilter{{DisplayName: "JSON (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || destination == "" {
+		return result, err
+	}
+	if filepath.Ext(destination) == "" {
+		destination += ".json"
+	}
+	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return result, err
+	}
+	count, writeErr := agent.WriteRepairReport(a.ctx, jobID, file, func(done, total int64) {
+		runtime.EventsEmit(a.ctx, "repair-report-progress", map[string]any{"jobId": jobID, "done": done, "total": total})
+	})
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		if removeErr := os.Remove(destination); removeErr != nil {
+			return result, fmt.Errorf("报告未完成，请删除不完整文件 %s: %v (write: %v, close: %v)", destination, removeErr, writeErr, closeErr)
+		}
+		if writeErr != nil {
+			return result, writeErr
+		}
+		return result, closeErr
+	}
+	return RepairReportResult{Path: destination, Count: count}, nil
 }
