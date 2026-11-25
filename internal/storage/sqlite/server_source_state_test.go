@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -70,5 +71,50 @@ func TestSourceSyncConfigCannotChangeAfterSync(t *testing.T) {
 	src.ConfigJSON = []byte(`{"suite":"bookworm","releaseMode":"inrelease","gcOwnsPool":true}`)
 	if err = store.UpdateSource(ctx, src); err != nil {
 		t.Fatalf("changing only the pool cleanup policy should be allowed: %v", err)
+	}
+}
+
+func TestAPTTrustRotationPreservesCatalogAndRequiresIdleSource(t *testing.T) {
+	ctx := context.Background()
+	store := openServerDB(t)
+	src := testSource(t)
+	if err := store.CreateSource(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.GetState(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.LiveCursor = domain.Cursor{Kind: "apt-release", Value: "snapshot-1"}
+	state.CatalogVersion = 3
+	if err = store.PutState(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	src.ConfigJSON = []byte(`{"suite":"bookworm","releaseMode":"inrelease","trustedKeyringBase64":"public-key-fixture","requireValidUntil":true}`)
+	if err = store.UpdateSource(ctx, src); err != nil {
+		t.Fatalf("idle key rotation should be allowed: %v", err)
+	}
+	after, err := store.GetState(ctx, src.ID)
+	if err != nil || !after.LiveCursor.Equal(state.LiveCursor) || after.CatalogVersion != state.CatalogVersion {
+		t.Fatalf("trust rotation changed live state: %+v %v", after, err)
+	}
+	state.ActiveEpochID = "active-epoch"
+	if err = store.PutState(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	src.ConfigJSON = []byte(`{"suite":"bookworm","releaseMode":"inrelease","trustedKeyringBase64":"another-fixture","requireValidUntil":true}`)
+	if err = store.UpdateSource(ctx, src); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("changed keys during active sync: %v", err)
+	}
+	state.ActiveEpochID = ""
+	if err = store.PutState(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	job := domain.MaintenanceJob{ID: mustID(t), SourceID: src.ID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, CreatedAt: time.Now()}
+	if err = store.CreateMaintenanceJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.UpdateSource(ctx, src); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("changed keys during maintenance: %v", err)
 	}
 }
