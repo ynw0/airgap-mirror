@@ -24,11 +24,13 @@ func TestRootsOverlapNestedAndDistinct(t *testing.T) {
 	if err := os.MkdirAll(child, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if !rootsOverlap(parent, child) || !rootsOverlap(child, parent) {
-		t.Fatal("nested roots must overlap")
+	for _, pair := range [][2]string{{parent, child}, {child, parent}} {
+		if overlap, err := domain.RepositoryRootsOverlap(pair[0], pair[1]); err != nil || !overlap {
+			t.Fatalf("nested roots must overlap: %v, %v", overlap, err)
+		}
 	}
-	if rootsOverlap(parent, other) {
-		t.Fatal("sibling temp dirs must not overlap")
+	if overlap, err := domain.RepositoryRootsOverlap(parent, other); err != nil || overlap {
+		t.Fatalf("sibling temp dirs must not overlap: %v, %v", overlap, err)
 	}
 }
 
@@ -83,8 +85,8 @@ func TestExclusiveRootRejectsNestedSources(t *testing.T) {
 	if err = store.UpdateSource(ctx, srcB); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
-		t.Fatalf("unresolved repository root must not be assumed independent: %v", err)
+	if _, err = runner.exclusiveRoot(ctx, srcA); err != nil {
+		t.Fatalf("independent unmounted root must not block cleanup: %v", err)
 	}
 	alias := filepath.Join(distinct, "alias")
 	if err = os.Symlink(parent, alias); err != nil {
@@ -96,6 +98,13 @@ func TestExclusiveRootRejectsNestedSources(t *testing.T) {
 	}
 	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("symlink alias must be refused: %v", err)
+	}
+	srcB.RootPath = filepath.Join(alias, "not-created")
+	if err = store.UpdateSource(ctx, srcB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("missing directory under a symlink must still be checked: %v", err)
 	}
 }
 
