@@ -457,6 +457,7 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 		return domain.ArtifactAdd, true, nil
 	}
 	var required, metadataCount, totalBytes int64
+	forceRelease := false
 	add := func(art domain.Artifact) error {
 		fresh, e := req.Workset.Add(ctx, ns, art.LogicalPath)
 		if e != nil {
@@ -469,7 +470,7 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 		if e != nil {
 			return e
 		}
-		if !needed {
+		if !needed && !forceRelease {
 			return nil
 		}
 		if art.ID == "" {
@@ -494,18 +495,6 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 		return nil
 	}
 	distBase := path.Join("dists", cfg.Suite)
-	if cfg.ReleaseMode == "inrelease" {
-		if err = add(domain.Artifact{LogicalPath: path.Join(distBase, "InRelease"), Size: int64(len(snap.Release)), SHA256: shaHex(snap.Release), UpstreamURL: joinURL(req.Source.UpstreamURL, distBase, "InRelease"), Metadata: true}); err != nil {
-			return plan, err
-		}
-	} else {
-		if err = add(domain.Artifact{LogicalPath: path.Join(distBase, "Release"), Size: int64(len(snap.Release)), SHA256: shaHex(snap.Release), UpstreamURL: joinURL(req.Source.UpstreamURL, distBase, "Release"), Metadata: true}); err != nil {
-			return plan, err
-		}
-		if err = add(domain.Artifact{LogicalPath: path.Join(distBase, "Release.gpg"), Size: int64(len(snap.Signature)), SHA256: shaHex(snap.Signature), UpstreamURL: joinURL(req.Source.UpstreamURL, distBase, "Release.gpg"), Metadata: true}); err != nil {
-			return plan, err
-		}
-	}
 	for _, e := range doc.Entries {
 		logical := path.Join(distBase, e.Path)
 		if err = add(domain.Artifact{LogicalPath: logical, Size: e.Size, SHA256: e.SHA256, UpstreamURL: joinURL(req.Source.UpstreamURL, logical), Metadata: true}); err != nil {
@@ -596,6 +585,21 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 			return plan, fmt.Errorf("APT index %s sha256 mismatch: %w", index.Path, domain.ErrConflict)
 		}
 	}
+	// A nonempty update must carry fresh upstream signature evidence even
+	// when the local repository was previously re-signed with an internal key.
+	forceRelease = required > 0
+	if cfg.ReleaseMode == "inrelease" {
+		if err = add(domain.Artifact{LogicalPath: path.Join(distBase, "InRelease"), Size: int64(len(snap.Release)), SHA256: shaHex(snap.Release), UpstreamURL: joinURL(req.Source.UpstreamURL, distBase, "InRelease"), Metadata: true}); err != nil {
+			return plan, err
+		}
+	} else {
+		if err = add(domain.Artifact{LogicalPath: path.Join(distBase, "Release"), Size: int64(len(snap.Release)), SHA256: shaHex(snap.Release), UpstreamURL: joinURL(req.Source.UpstreamURL, distBase, "Release"), Metadata: true}); err != nil {
+			return plan, err
+		}
+		if err = add(domain.Artifact{LogicalPath: path.Join(distBase, "Release.gpg"), Size: int64(len(snap.Signature)), SHA256: shaHex(snap.Signature), UpstreamURL: joinURL(req.Source.UpstreamURL, distBase, "Release.gpg"), Metadata: true}); err != nil {
+			return plan, err
+		}
+	}
 	unit.Required = required
 	if err = sink.PutPublishUnit(ctx, unit); err != nil {
 		return plan, err
@@ -616,11 +620,8 @@ func shaHex(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(
 func (*Adapter) MaterializeMetadata(context.Context, ports.MetadataRequest) ([]domain.GeneratedFile, error) {
 	return nil, nil
 }
-func (*Adapter) ValidatePublish(_ context.Context, req ports.PublishValidationRequest) error {
-	if req.Unit.Imported != req.Unit.Required {
-		return fmt.Errorf("APT suite publish unit incomplete %d/%d: %w", req.Unit.Imported, req.Unit.Required, domain.ErrConflict)
-	}
-	return nil
+func (*Adapter) ValidatePublish(ctx context.Context, req ports.PublishValidationRequest) error {
+	return validateUpstreamPublication(ctx, req)
 }
 
 var _ ports.SourceAdapter = (*Adapter)(nil)

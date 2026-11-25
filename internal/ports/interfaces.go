@@ -26,6 +26,11 @@ type PublishValidationRequest struct {
 	Epoch   domain.Epoch
 	Unit    domain.PublishUnit
 	Catalog CatalogStore
+	Metadata []domain.PublishMetadataEntry
+	// OpenFile reads the proposed repository view: staged metadata takes
+	// precedence over published files; absent staged files may be resumed
+	// from their published path.
+	OpenFile func(string) (io.ReadCloser, int64, error)
 }
 
 type PlanSink interface {

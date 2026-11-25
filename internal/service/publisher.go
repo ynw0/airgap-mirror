@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -87,18 +88,21 @@ func (p PublisherService) PublishReady(ctx context.Context, epochID string) erro
 		if u.Status != domain.PublishReady && u.Status != domain.PublishWaiting {
 			return fmt.Errorf("publish unit %s status %s: %w", u.ID, u.Status, domain.ErrConflict)
 		}
+		entries, e := p.Store.ListPublishMetadata(ctx, u.ID)
+		if e != nil {
+			return e
+		}
+		if source.Type == domain.SourceAPT && p.Registry == nil {
+			return fmt.Errorf("APT publication requires upstream verification adapter: %w", domain.ErrInvalid)
+		}
 		if p.Registry != nil {
 			a, e := p.Registry.Get(source.Type, source.Provider)
 			if e != nil {
 				return e
 			}
-			if e = a.ValidatePublish(ctx, ports.PublishValidationRequest{Source: source, Epoch: ep, Unit: u, Catalog: p.Catalog}); e != nil {
+			if e = a.ValidatePublish(ctx, ports.PublishValidationRequest{Source: source, Epoch: ep, Unit: u, Catalog: p.Catalog, Metadata: entries, OpenFile: proposedRepositoryFile(source, ep, u, entries)}); e != nil {
 				return fmt.Errorf("validate publish unit %s: %w", u.Key, e)
 			}
-		}
-		entries, e := p.Store.ListPublishMetadata(ctx, u.ID)
-		if e != nil {
-			return e
 		}
 		sort.Slice(entries, func(i, j int) bool {
 			pi := publishPriority(source.Type, entries[i].LogicalPath)
@@ -185,4 +189,55 @@ func (p PublisherService) publishMetadata(ctx context.Context, source domain.Sou
 		return stageErr
 	}
 	return p.Catalog.Upsert(ctx, domain.CatalogEntry{SourceID: m.SourceID, LogicalPath: m.LogicalPath, Size: m.Size, SHA256: m.SHA256, PackageKey: m.PackageKey, Version: m.Version, Attributes: m.Attributes, UpdatedAt: p.now()})
+}
+
+
+// proposedRepositoryFile never opens a manifest-supplied arbitrary path.
+// Only the expected staging path or the corresponding published file is read.
+func proposedRepositoryFile(source domain.Source, ep domain.Epoch, unit domain.PublishUnit, entries []domain.PublishMetadataEntry) func(string) (io.ReadCloser, int64, error) {
+	staged := make(map[string]domain.PublishMetadataEntry, len(entries))
+	for _, m := range entries {
+		staged[m.LogicalPath] = m
+	}
+	return func(logical string) (io.ReadCloser, int64, error) {
+		if m, ok := staged[logical]; ok {
+			if m.Operation == domain.ArtifactDelete {
+				return nil, 0, os.ErrNotExist
+			}
+			expected, err := safeTarget(source.RootPath, filepath.ToSlash(filepath.Join(".airgap-staging", ep.ID, unit.ID, filepath.FromSlash(logical))))
+			if err != nil {
+				return nil, 0, err
+			}
+			if m.SourceID != source.ID || m.PublishUnitID != unit.ID || filepath.Clean(m.StagedPath) != expected {
+				return nil, 0, domain.ErrConflict
+			}
+			if err = rejectSymlinkParents(source.RootPath, expected); err != nil {
+				return nil, 0, err
+			}
+			info, err := os.Lstat(expected)
+			if err == nil {
+				if !info.Mode().IsRegular() {
+					return nil, 0, domain.ErrConflict
+				}
+				f, err := os.Open(expected)
+				if err != nil {
+					return nil, 0, err
+				}
+				opened, err := f.Stat()
+				if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() {
+					f.Close()
+					return nil, 0, domain.ErrConflict
+				}
+				return f, opened.Size(), nil
+			}
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, 0, err
+			}
+		}
+		f, info, err := OpenPublishedFile(source.RootPath, logical)
+		if err != nil {
+			return nil, 0, err
+		}
+		return f, info.Size(), nil
+	}
 }
