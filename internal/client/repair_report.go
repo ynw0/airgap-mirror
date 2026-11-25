@@ -13,7 +13,9 @@ import (
 // WriteRepairReport exports an existing completed report in bounded pages.
 // The caller owns the output and must discard it if this function returns an error.
 func (c *AgentClient) WriteRepairReport(ctx context.Context, jobID string, dst io.Writer, progress func(int64, int64)) (int64, error) {
-	job, err := c.Maintenance(ctx, jobID)
+	jobCtx, cancelJob := context.WithTimeout(ctx, 60*time.Second)
+	job, err := c.Maintenance(jobCtx, jobID)
+	cancelJob()
 	if err != nil {
 		return 0, err
 	}
