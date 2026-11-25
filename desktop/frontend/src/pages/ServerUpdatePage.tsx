@@ -3,9 +3,9 @@ import { app, onEvent } from '../backend'
 import { errorText, formatBytes, formatCount, shortID, statusLabel } from '../format'
 import type { AgentOverview, DesktopTransferResult, TransferProgress, ValidatedBundle } from '../types'
 
-type Props = { overview: AgentOverview | null }
+type Props = { overview: AgentOverview | null; onConnect: () => void; onImported: () => Promise<void> }
 
-export function ServerUpdatePage({ overview }: Props) {
+export function ServerUpdatePage({ overview, onConnect, onImported }: Props) {
   const [path, setPath] = useState('')
   const [bundle, setBundle] = useState<ValidatedBundle | null>(null)
   const [chunkMiB, setChunkMiB] = useState(64)
@@ -68,7 +68,9 @@ export function ServerUpdatePage({ overview }: Props) {
       const value = await app().TransferBatchDirectory(path, { chunkSize: Math.round(chunkMiB * 1024 * 1024) })
       setResult(value)
       window.dispatchEvent(new CustomEvent('airgap-transfer-activity', {detail:'导入完成'}))
-      setMessage(value.workspaceTracked ? '这批文件已导入服务器，本机的下载记录也已更新。' : '这批文件已导入服务器。可以继续选择下一批。')
+      const success = value.workspaceTracked ? '这批文件已导入服务器，本机的下载记录也已更新。' : '这批文件已导入服务器。可以继续选择下一批。'
+      setMessage(success)
+      try { await onImported() } catch (e) { setMessage(success + ' 但未能刷新服务器状态，请稍后手动刷新。\n' + errorText(e)) }
     } catch (e) { setMessage(errorText(e)); window.dispatchEvent(new CustomEvent('airgap-transfer-activity', {detail:'导入已停止'})) }
     finally { setRunning(false); setRate(0); setPauseRequested(false) }
   }
@@ -88,13 +90,13 @@ export function ServerUpdatePage({ overview }: Props) {
     <div className="page-header"><div><h2>把下载好的文件带回内网</h2><p>接上移动硬盘，选择下载完成的批次文件夹，再导入内网服务器。如果传输中断，可以选择原来的批次继续。</p></div><span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? `已连接 ${overview.baseUrl}` : '还没有连接服务器'}</span></div>
 
     {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
-    {!overview?.connected && <div className="card guidance">尚未连接内网服务器。可以先检查本地文件；导入前请在“连接服务器”页面建立连接。</div>}
+    {!overview?.connected && <div className="card guidance"><p>尚未连接内网服务器。可以先检查本地文件，导入前需要连接服务器。</p><button onClick={onConnect}>连接服务器</button></div>}
     <div className="card form-grid transfer-form">
-      <label className="span-2">要导入的文件夹<div className="path-picker"><input disabled={busy || running} value={path} onChange={e => { setPath(e.target.value); setBundle(null); setResult(null); resetTelemetry() }} placeholder="选择下载完成的批次文件夹" /><button disabled={busy || running} onClick={choose}>浏览</button></div></label>
+      <label className="span-2">要导入的文件夹<div className="path-picker"><input disabled={busy || running} value={path} onChange={e => { setPath(e.target.value); setBundle(null); setResult(null); resetTelemetry(); setMessage('') }} placeholder="选择下载完成的批次文件夹" /><button disabled={busy || running} onClick={choose}>浏览</button></div></label>
       <details className="advanced-options span-2"><summary>高级选项（默认无需修改）</summary><div className="form-grid">
         <label>单次上传大小 (MiB)<input type="number" min="1" max="128" disabled={busy || running} value={chunkMiB} onChange={e => setChunkMiB(Number(e.target.value))} /></label>
       </div></details>
-      <div className="button-row align-end"><button disabled={!path || busy || running} onClick={validate}>只检查文件</button>{running ? <button disabled={!bundle || pauseRequested} onClick={pause}>{pauseRequested ? '正在暂停…' : '暂停导入'}</button> : <button className="primary" disabled={!path || busy || !overview?.connected} onClick={transfer}>{progress && !result ? '继续导入' : '检查并导入服务器'}</button>}</div>
+      <div className="button-row align-end"><button disabled={!path || busy || running} onClick={validate}>{busy ? '正在检查…' : '只检查文件'}</button>{running ? <button disabled={!bundle || pauseRequested} onClick={pause}>{pauseRequested ? '正在暂停…' : '暂停导入'}</button> : <button className="primary" disabled={!path || busy || !overview?.connected} onClick={transfer}>{progress && !result ? '继续导入' : '检查并导入服务器'}</button>}</div>
     </div>
 
     {d ? <>
