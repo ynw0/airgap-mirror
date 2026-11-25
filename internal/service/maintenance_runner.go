@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -53,6 +54,14 @@ func (r *MaintenanceRunner) RecoverInterrupted(ctx context.Context) error {
 }
 
 func (r *MaintenanceRunner) StartInventory(ctx context.Context, sourceID string) (domain.MaintenanceJob, error) {
+	return r.startInventory(ctx, sourceID, false)
+}
+
+func (r *MaintenanceRunner) StartIncrementalInventory(ctx context.Context, sourceID string) (domain.MaintenanceJob, error) {
+	return r.startInventory(ctx, sourceID, true)
+}
+
+func (r *MaintenanceRunner) startInventory(ctx context.Context, sourceID string, incremental bool) (domain.MaintenanceJob, error) {
 	var empty domain.MaintenanceJob
 	if sourceID == "" || r.Sources == nil || r.Jobs == nil || r.Catalog == nil || r.Registry == nil || r.Factory == nil {
 		return empty, fmt.Errorf("maintenance runner is not fully configured: %w", domain.ErrInvalid)
@@ -60,6 +69,9 @@ func (r *MaintenanceRunner) StartInventory(ctx context.Context, sourceID string)
 	source, err := r.Sources.GetSource(ctx, sourceID)
 	if err != nil {
 		return empty, err
+	}
+	if incremental && (source.Type != domain.SourcePyPI || source.Provider != "pypi") {
+		return empty, fmt.Errorf("增量清点暂仅支持 PyPI: %w", domain.ErrInvalid)
 	}
 	state, err := r.Sources.GetState(ctx, sourceID)
 	if err != nil {
@@ -80,7 +92,7 @@ func (r *MaintenanceRunner) StartInventory(ctx context.Context, sourceID string)
 	if err != nil {
 		return empty, err
 	}
-	job := domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, CreatedAt: r.now()}
+	job := domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, IncrementalInventory: incremental, CreatedAt: r.now()}
 	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
 		return empty, err
 	}
@@ -280,7 +292,7 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 		return ctx.Err()
 	}
 
-	reported, err := inventory.Inventory(ctx, ports.InventoryRequest{Source: source, Current: r.Catalog, Report: report}, sink)
+	reported, err := inventory.Inventory(ctx, ports.InventoryRequest{Source: source, Incremental: job.IncrementalInventory, Current: r.Catalog, Report: report}, sink)
 	if err != nil {
 		r.finishInventoryError(job.ID, resumable, err)
 		return
@@ -333,6 +345,13 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 		return
 	}
 	if resumable {
+		if cache, ok := r.Factory.(ports.ProjectInventoryCacheFactory); ok {
+			if err := cache.PromoteProjectInventory(job.ID, source.ID); err == nil {
+				return
+			} else {
+				log.Printf("inventory cache promotion for %s: %v", source.ID, err)
+			}
+		}
 		if factory, ok := r.Factory.(ports.ProjectInventoryFactory); ok {
 			_ = factory.DiscardProjectInventory(job.ID)
 		}

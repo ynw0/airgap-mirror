@@ -75,7 +75,7 @@ export interface StateExportResult { path: string; export: { capsule: StateCapsu
 export type MaintenanceKind = 'INVENTORY' | 'GC' | 'REPAIR'
 export type MaintenanceStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 export interface MaintenanceJob {
-  id: string; sourceId: string; kind: MaintenanceKind; status: MaintenanceStatus; execute: boolean; hashMiBPerSecond?: number; replacementApproved?: boolean;
+  id: string; sourceId: string; kind: MaintenanceKind; status: MaintenanceStatus; execute: boolean; incrementalInventory?: boolean; hashMiBPerSecond?: number; replacementApproved?: boolean;
   scannedObjects: number; scannedBytes: number; completedProjects: number; totalProjects: number; lastProject?: string; candidateObjects: number; candidateBytes: number;
   affectedObjects: number; affectedBytes: number; tempCatalogPath?: string; createdAt: string;
   startedAt?: string; completedAt?: string; errorText?: string;

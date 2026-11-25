@@ -26,6 +26,10 @@ type projectInventory struct {
 	unflushed        int
 	unflushedObjects int64
 	lastFlush        time.Time
+	cache            *sql.DB
+	cachePath        string
+	projectRows      int64
+	projectUnsafe    bool
 	closed           bool
 }
 
@@ -86,6 +90,9 @@ CREATE TABLE IF NOT EXISTS inventory_checkpoint(
 );
 CREATE TABLE IF NOT EXISTS inventory_pages(
 	project TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS inventory_reuse_pages(
+	project TEXT PRIMARY KEY, sha256 TEXT NOT NULL, entries INTEGER NOT NULL CHECK(entries>0)
 ) WITHOUT ROWID;`
 	if _, err = db.ExecContext(ctx, ddl); err != nil {
 		db.Close()
@@ -104,7 +111,7 @@ CREATE TABLE IF NOT EXISTS inventory_pages(
 		db.Close()
 		return nil, fmt.Errorf("checkpoint belongs to another source: %w", domain.ErrConflict)
 	}
-	return &projectInventory{path: path, sourceID: sourceID, db: db}, nil
+	return &projectInventory{path: path, sourceID: sourceID, db: db, cachePath: inventoryCachePath(filepath.Dir(path), sourceID)}, nil
 }
 
 func (c *projectInventory) Restore(ctx context.Context, signature, projectHash string, total int64) (ports.InventoryProgress, error) {
@@ -155,15 +162,19 @@ VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source_id,logical_path) DO NOTHING`,
 	}
 	if n == 0 {
 		var oldSize int64
-		var oldSum string
-		if err = c.tx.QueryRowContext(ctx, `SELECT size,sha256 FROM catalog_entries WHERE source_id=? AND logical_path=?`, entry.SourceID, entry.LogicalPath).Scan(&oldSize, &oldSum); err != nil {
+		var oldSum, oldProject string
+		if err = c.tx.QueryRowContext(ctx, `SELECT size,sha256,package_key FROM catalog_entries WHERE source_id=? AND logical_path=?`, entry.SourceID, entry.LogicalPath).Scan(&oldSize, &oldSum, &oldProject); err != nil {
 			return err
 		}
 		if oldSize != entry.Size || !strings.EqualFold(oldSum, entry.SHA256) {
 			return fmt.Errorf("PyPI file %s has conflicting index references: %w", entry.LogicalPath, domain.ErrConflict)
 		}
+		if oldProject != entry.PackageKey {
+			c.projectUnsafe = true
+		}
 		return nil
 	}
+	c.projectRows++
 	c.progress.ScannedObjects++
 	c.unflushedObjects++
 	c.progress.ScannedBytes += entry.Size
@@ -177,6 +188,8 @@ func (c *projectInventory) CheckpointProject(ctx context.Context, project string
 	if _, err := c.tx.ExecContext(ctx, `INSERT INTO inventory_pages(project,size,mtime_ns) VALUES(?,?,?)`, project, size, mtimeNS); err != nil {
 		return c.progress, false, err
 	}
+	c.projectRows = 0
+	c.projectUnsafe = false
 	c.progress.LastProject = project
 	c.progress.CompletedProjects++
 	c.unflushed++
@@ -248,6 +261,7 @@ func (c *projectInventory) Stats(ctx context.Context) (domain.CatalogStats, erro
 func (c *projectInventory) Path() string { return c.path }
 
 func (c *projectInventory) Close() error {
+	c.closeCache()
 	if c.closed {
 		return nil
 	}
@@ -266,6 +280,7 @@ func (c *projectInventory) Close() error {
 // Abort does NOT remove the checkpoint. Uncommitted projects are rolled back;
 // completed groups survive a process stop and can be resumed.
 func (c *projectInventory) Abort() error {
+	c.closeCache()
 	if c.closed {
 		return nil
 	}

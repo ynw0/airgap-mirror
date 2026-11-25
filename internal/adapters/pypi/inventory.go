@@ -104,6 +104,7 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		return stats, err
 	}
 	var resumable ports.ProjectInventorySink
+	cache, _ := sink.(ports.ProjectInventoryCache)
 	var starting ports.InventoryProgress
 	if sink, ok := sink.(ports.ProjectInventorySink); ok {
 		resumable = sink
@@ -124,9 +125,15 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 			req.Source.ID, string(req.Source.Type), req.Source.Provider,
 			req.Source.RootPath, req.Source.PublicURL, string(req.Source.ConfigJSON),
 		}, "\x00")))
-		starting, err = resumable.Restore(ctx, hex.EncodeToString(signature[:]), hex.EncodeToString(names.Sum(nil)), total)
+		sourceSignature := hex.EncodeToString(signature[:])
+		starting, err = resumable.Restore(ctx, sourceSignature, hex.EncodeToString(names.Sum(nil)), total)
 		if err != nil {
 			return stats, err
+		}
+		if req.Incremental && cache != nil {
+			if err = cache.OpenPreviousCache(ctx, sourceSignature); err != nil {
+				return stats, fmt.Errorf("open previous PyPI inventory cache: %w", err)
+			}
 		}
 		if req.Report != nil {
 			if err = req.Report(starting); err != nil {
@@ -154,6 +161,25 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		return report(false)
 	}
 
+	completeProject := func(project, digest string, info os.FileInfo) error {
+		if resumable == nil {
+			return nil
+		}
+		if cache != nil {
+			if err := cache.RecordProjectDigest(ctx, project, digest); err != nil {
+				return err
+			}
+		}
+		progress, durable, err := resumable.CheckpointProject(ctx, project, info.Size(), info.ModTime().UnixNano())
+		if err != nil {
+			return err
+		}
+		if durable && req.Report != nil {
+			return req.Report(progress)
+		}
+		return nil
+	}
+
 	for _, projectEntry := range projects {
 		if err = ctx.Err(); err != nil {
 			return stats, err
@@ -172,6 +198,55 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		f, pageInfo, err := repo.Open(pageLogical)
 		if err != nil {
 			return stats, fmt.Errorf("open PyPI project page %s: %w", project, err)
+		}
+		if req.Incremental && cache != nil {
+			cachedDigest, cacheErr := cache.CachedProjectDigest(ctx, project)
+			if cacheErr != nil {
+				f.Close()
+				return stats, cacheErr
+			}
+			if cachedDigest != "" {
+				digest, hashErr := inventoryPageDigest(ctx, f)
+				if hashErr != nil {
+					f.Close()
+					return stats, hashErr
+				}
+				if digest == cachedDigest {
+					// Exact page content, not merely mtime, establishes the
+					// reference set. Every referenced file is still statted.
+					if err = cache.WalkCachedProject(ctx, project, digest, func(entry domain.CatalogEntry) error {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
+						if entry.LogicalPath != pageLogical && !strings.HasPrefix(entry.LogicalPath, "packages/") {
+							return fmt.Errorf("invalid cached PyPI path %s: %w", entry.LogicalPath, domain.ErrConflict)
+						}
+						_, info, err := repo.Resolve(entry.LogicalPath)
+						if err != nil {
+							return fmt.Errorf("PyPI project %s references unavailable %s: %w", project, entry.LogicalPath, err)
+						}
+						if info.Size() != entry.Size {
+							return fmt.Errorf("PyPI cached file %s size changed; run integrity check before rebuilding: %w", entry.LogicalPath, domain.ErrConflict)
+						}
+						entry.UpdatedAt = info.ModTime()
+						return put(entry)
+					}); err != nil {
+						f.Close()
+						return stats, err
+					}
+					if err = f.Close(); err != nil {
+						return stats, err
+					}
+					if err = completeProject(project, digest, pageInfo); err != nil {
+						return stats, err
+					}
+					continue
+				}
+				if _, err = f.Seek(0, io.SeekStart); err != nil {
+					f.Close()
+					return stats, err
+				}
+			}
 		}
 		pageURL, err := url.Parse(strings.TrimRight(req.Source.PublicURL, "/") + "/simple/" + url.PathEscape(project) + "/index.html")
 		if err != nil {
@@ -241,16 +316,8 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		if err = put(domain.CatalogEntry{SourceID: req.Source.ID, LogicalPath: pageLogical, Size: pageInfo.Size(), SHA256: pageSHA, PackageKey: project, UpdatedAt: pageInfo.ModTime()}); err != nil {
 			return stats, err
 		}
-		if resumable != nil {
-			progress, durable, checkpointErr := resumable.CheckpointProject(ctx, project, pageInfo.Size(), pageInfo.ModTime().UnixNano())
-			if checkpointErr != nil {
-				return stats, checkpointErr
-			}
-			if durable && req.Report != nil {
-				if err = req.Report(progress); err != nil {
-					return stats, err
-				}
-			}
+		if err = completeProject(project, pageSHA, pageInfo); err != nil {
+			return stats, err
 		}
 	}
 	if resumable != nil {
@@ -298,6 +365,29 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		}); err != nil {
 			return stats, err
 		}
+		// A paused scan may outlive external filesystem changes. Recheck
+		// all previously recorded package sizes and existence before activation.
+		if starting.CompletedProjects > 0 && cache != nil {
+			freshRepo, err := common.OpenLocalRepository(req.Source.RootPath)
+			if err != nil {
+				return stats, err
+			}
+			if err = cache.VerifyEntries(ctx, func(entry domain.CatalogEntry) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				_, info, err := freshRepo.Resolve(entry.LogicalPath)
+				if err != nil {
+					return fmt.Errorf("PyPI checkpoint file %s unavailable: %w", entry.LogicalPath, err)
+				}
+				if info.Size() != entry.Size {
+					return fmt.Errorf("PyPI checkpoint file %s changed size: %w", entry.LogicalPath, domain.ErrConflict)
+				}
+				return nil
+			}); err != nil {
+				return stats, err
+			}
+		}
 	} else {
 		if err = report(true); err != nil {
 			return stats, err
@@ -308,3 +398,23 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 }
 
 var _ ports.InventoryAdapter = (*Adapter)(nil)
+
+func inventoryPageDigest(ctx context.Context, r io.Reader) (string, error) {
+	h := sha256.New()
+	buf := make([]byte, 64*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		n, err := r.Read(buf)
+		if n > 0 {
+			_, _ = h.Write(buf[:n])
+		}
+		if err == io.EOF {
+			return hex.EncodeToString(h.Sum(nil)), nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+}

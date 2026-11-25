@@ -27,7 +27,10 @@ func InitServer(ctx context.Context, db *sql.DB) error {
 	if err := initSchema(ctx, db, maintenanceSchema); err != nil {
 		return err
 	}
-	return migrateIntegritySchema(ctx, db)
+	if err := migrateIntegritySchema(ctx, db); err != nil {
+		return err
+	}
+	return migrateIncrementalInventory(ctx, db)
 }
 
 func InitClient(ctx context.Context, db *sql.DB) error { return initSchema(ctx, db, clientSchema) }
@@ -142,4 +145,16 @@ func migrateIntegritySchema(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func migrateIncrementalInventory(ctx context.Context, db *sql.DB) error {
+	var ddl string
+	if err := db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name='maintenance_jobs'").Scan(&ddl); err != nil {
+		return err
+	}
+	if strings.Contains(ddl, "incremental_inventory") {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, "ALTER TABLE maintenance_jobs ADD COLUMN incremental_inventory INTEGER NOT NULL DEFAULT 0 CHECK(incremental_inventory IN(0,1))")
+	return err
 }

@@ -15,9 +15,10 @@ type InventoryProgress struct {
 }
 
 type InventoryRequest struct {
-	Source  domain.Source
-	Current CatalogStore
-	Report  func(InventoryProgress) error
+	Source      domain.Source
+	Incremental bool
+	Current     CatalogStore
+	Report      func(InventoryProgress) error
 }
 
 type InventoryAdapter interface {
@@ -39,4 +40,18 @@ type ProjectInventorySink interface {
 type ProjectInventoryFactory interface {
 	OpenProjectInventory(context.Context, string, string) (ProjectInventorySink, error)
 	DiscardProjectInventory(string) error
+}
+
+// ProjectInventoryCache is optional. Cache entries are usable only if the
+// complete page digest matches and every referenced file is checked again.
+type ProjectInventoryCache interface {
+	OpenPreviousCache(context.Context, string) error
+	CachedProjectDigest(context.Context, string) (string, error)
+	WalkCachedProject(context.Context, string, string, func(domain.CatalogEntry) error) error
+	RecordProjectDigest(context.Context, string, string) error
+	VerifyEntries(context.Context, func(domain.CatalogEntry) error) error
+}
+
+type ProjectInventoryCacheFactory interface {
+	PromoteProjectInventory(string, string) error
 }
