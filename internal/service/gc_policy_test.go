@@ -65,6 +65,33 @@ func TestExclusiveRootRejectsNestedSources(t *testing.T) {
 	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("nested roots should be refused, got %v", err)
 	}
+	// Preview is read-only and remains available on a shared directory.
+	registry, err := NewDefaultRegistry(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcA.ConfigJSON = json.RawMessage(`{"suite":"bookworm","releaseMode":"inrelease","gcOwnsPool":true}`)
+	if err = store.UpdateSource(ctx, srcA); err != nil {
+		t.Fatal(err)
+	}
+	runner.Registry = registry
+	runner.Candidates = storesqlite.NewGCCandidateFactory(t.TempDir())
+	preview, err := runner.StartGC(ctx, srcA.ID, false)
+	if err != nil {
+		t.Fatalf("shared-root preview should be available: %v", err)
+	}
+	wait, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	if err = runner.WaitForIdle(wait); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := store.GetMaintenanceJob(ctx, preview.ID)
+	if err != nil || completed.Status != domain.MaintenanceCompleted {
+		t.Fatalf("shared-root preview did not complete: %+v, %v", completed, err)
+	}
+	if _, err = runner.StartGC(ctx, srcA.ID, true); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("actual deletion must still reject a shared root: %v", err)
+	}
 	// Disabled sources still own repository data.
 	srcB.Enabled = false
 	if err = store.UpdateSource(ctx, srcB); err != nil {
