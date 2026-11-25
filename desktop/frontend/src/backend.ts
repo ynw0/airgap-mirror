@@ -16,6 +16,7 @@ type AppBridge = {
   ListExportJobs(): Promise<ExportJob[]>
   DownloadExportJob(id: string, destination: string): Promise<void>
   ReclaimCatalogHistory(sourceID: string): Promise<CatalogReclaimResult>
+  SaveDiagnosticReport(report: string): Promise<string>
   PickStateDestination(): Promise<string>
   ExportStateCapsule(sourceIDs: string[], destination: string): Promise<StateExportResult>
   PickCapsuleFile(): Promise<string>
