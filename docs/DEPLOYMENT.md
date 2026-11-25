@@ -73,6 +73,27 @@ sudo -u airgap-mirror env "$(cat /etc/airgap-mirror/agent.env)" \
   mirrorctl -url http://127.0.0.1:8787 sources
 ```
 
+### 已安装 Agent 的升级
+
+先确认没有正在提交文件包、发布元数据或执行实际文件清理的任务。暂停可恢复的 PyPI 清点或检查任务，待其状态变为已暂停后，再停止服务。
+
+从新版发布包解压目录执行以下命令。备份目录应位于有足够空间的存储设备上，且不得位于待备份目录或软件仓库内。默认状态目录可能包含很大的清点数据库和未完成的上传文件，请先检查空间。若使用自定义路径，备份实际使用的配置、数据库、暂存目录和维护目录。
+
+```bash
+sudo systemctl stop airgap-mirror-agent
+backup="/srv/backup/airgap-mirror-$(date +%Y%m%d-%H%M%S)"
+sudo install -d -m 0700 "$backup"
+sudo cp -a /etc/airgap-mirror /var/lib/airgap-mirror "$backup/"
+sudo bash scripts/install-agent.sh
+sudo systemctl start airgap-mirror-agent
+sudo systemctl status airgap-mirror-agent --no-pager
+curl -fsS http://127.0.0.1:8787/api/v1/health
+```
+
+以上健康检查使用默认监听地址；若已自定义监听地址，请使用实际地址。任何一步失败时先排查，不要继续后面的命令。原 Token、监听配置和仓库路径保持不变，无需重新配置 Apache。启动后检查软件源、Catalog 版本、未完成任务，再继续原有工作。
+
+此备份只包含控制面状态，不包含软件仓库本体；不等同于仓库数据备份。升级后不要直接换回旧二进制文件运行新版数据库。若需要回退，先停止服务，核对升级后仓库是否发生变化，再恢复与旧版本匹配的备份及旧程序。
+
 ## 3. Apache2 集成
 
 启用模块：
@@ -281,7 +302,7 @@ mirrorctl -url "$BASE" -token "$TOKEN" gc <source-id> execute
 mirrorctl -url "$BASE" -token "$TOKEN" epochs-cancel <epoch-id>
 ```
 
-已 `COMPLETE` 的 Epoch 不能取消。桌面客户端「源状态」页对同一 API 提供相同操作。
+已经完成或进入文件安装阶段的 Epoch 不能直接取消；后一种情况需要继续完成导入。桌面客户端「源状态」页提供相同操作。
 
 查看任务：
 
@@ -297,12 +318,12 @@ curl -fsS "$BASE/api/v1/maintenance/<job-id>/candidates?limit=100" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-`gc … execute` 会创建一个**新的 GC Job 并重新扫描**，不会直接删除上一次 dry-run 的旧候选。删除前会再次检查 Catalog membership、Source root ownership、regular file、size 和 mtime。
+`gc … execute` 会创建一个**新的 GC Job 并重新扫描**，不会直接删除上一次 dry-run 的旧候选。删除前会再次检查 Catalog 引用、仓库根目录身份、文件类型、大小和最后修改时间。
 
 安全边界：
 
 - Active Epoch 与 Active Maintenance Job 互斥；
-- physical GC 要求 Source root 不与任何其他 Source root 相同、嵌套或解析后重叠；
+- 实际文件清理要求仓库根目录不与其他软件源相同、嵌套或解析后重叠；其他软件源目录无法解析时也拒绝清理。执行期间不能新增软件源或修改仓库目录；
 - repository tree 出现 symlink 时 physical GC 拒绝继续；
 - physical delete 仅在 Linux 实现；
 - APT `pool/` 只有 `gcOwnsPool=true` 才进入删除范围。
@@ -320,4 +341,4 @@ curl -fsS "$BASE/api/v1/maintenance/<job-id>/candidates?limit=100" \
 
 ## 7. Build 与 Release
 
-`main`/Pull Request 由 `.github/workflows/ci.yml` 执行构建门禁，不运行测试。推送 `v*` tag 后 `.github/workflows/release.yml` 会构建 Linux/Windows amd64 bundle、生成 SHA-256 并创建 GitHub Release。
+`main`/Pull Request 由 `.github/workflows/ci.yml` 执行 Go 格式检查、自动化测试、竞态检测、部署脚本语法检查和 Linux/Windows 构建。推送 `v*` tag 后 `.github/workflows/release.yml` 会构建 Linux/Windows amd64 bundle、生成 SHA-256 并创建 GitHub Release。
