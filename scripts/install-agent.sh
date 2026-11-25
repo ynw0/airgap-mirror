@@ -21,6 +21,18 @@ if [[ ! -f "${AGENT_BIN}" ]]; then
   exit 1
 fi
 
+# Do not overwrite an installed service while it may be writing repository data.
+if systemctl is-active --quiet airgap-mirror-agent.service; then
+  echo "请先确认导入和清理任务已结束，暂停可恢复的清点任务，然后停止 Agent 并备份状态目录。" >&2
+  echo "sudo systemctl stop airgap-mirror-agent" >&2
+  echo "停止并备份后重新运行本安装脚本；详见 docs/DEPLOYMENT.md 的升级说明。" >&2
+  exit 1
+fi
+if [[ ! -f "${REPO_ROOT}/deploy/systemd/airgap-mirror-agent.service" ]]; then
+  echo "error: systemd service file not found" >&2
+  exit 1
+fi
+
 if ! getent group "${SERVICE_GROUP}" >/dev/null; then
   groupadd --system "${SERVICE_GROUP}"
 fi
