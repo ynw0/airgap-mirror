@@ -39,6 +39,7 @@ export function MaintenancePanel({ overview }: Props) {
   const [exportError, setExportError] = useState('')
   const [reportProgress, setReportProgress] = useState<{jobId: string; done: number; total: number} | null>(null)
   const [reportJob, setReportJob] = useState('')
+  const [reportCancelling, setReportCancelling] = useState(false)
   useEffect(() => onEvent<{jobId: string; done: number; total: number}>('repair-report-progress', p => { if (p?.jobId === reportJob) setReportProgress(p) }), [reportJob])
 
   const source = useMemo(() => overview?.sources.find(x => x.source.id === sourceID), [overview, sourceID])
@@ -279,10 +280,10 @@ export function MaintenancePanel({ overview }: Props) {
 
   async function exportCompleteReport(jobID: string) {
     if (!window.confirm('将读取该已完成任务的全部异常记录并逐页写入文件，不会重新扫描仓库。报告可能包含内网文件路径，请妥善保管。继续吗？')) return
-    setBusy(true); setReportJob(jobID); setReportProgress(null); setMessage('正在准备完整异常报告……')
+    setBusy(true); setReportJob(jobID); setReportProgress(null); setReportCancelling(false); setMessage('正在准备完整异常报告……')
     try { const result = await app().ExportCompleteRepairReport(jobID); setMessage(result.path ? `已保存完整报告，共 ${formatCount(result.count)} 条异常：${result.path}` : '已取消保存报告。') }
     catch (e) { setMessage('完整报告导出失败：' + errorText(e)) }
-    finally { setBusy(false); setReportJob(''); setReportProgress(null) }
+    finally { setBusy(false); setReportJob(''); setReportProgress(null); setReportCancelling(false) }
   }
   async function saveReport(kind: 'maintenance' | 'repair') {
     setBusy(true); setMessage('')
@@ -296,7 +297,7 @@ export function MaintenancePanel({ overview }: Props) {
   const current = activeJob ?? pausedJob
   const visibleJobs = jobs.filter(j => filter === 'all' || (filter === 'active' && !terminal(j)) || (filter === 'failed' && j.status === 'FAILED') || (filter === 'completed' && j.status === 'COMPLETED'))
   return <>
-    {message && <div className="notice" role="status" aria-live="polite">{message}</div>}{reportJob && <div className="card current-task"><h3>正在导出完整异常报告</h3><p>{reportProgress ? `已写入 ${formatCount(reportProgress.done)} / ${formatCount(reportProgress.total)} 条异常记录` : '等待选择文件或读取第一批记录……'}</p>{reportProgress && reportProgress.total > 0 && <progress className="maintenance-progress" max={reportProgress.total} value={reportProgress.done} aria-label="完整异常报告导出进度"/>}</div>}
+    {message && <div className="notice" role="status" aria-live="polite">{message}</div>}{reportJob && <div className="card current-task"><h3>正在导出完整异常报告</h3><p>{reportProgress ? `已写入 ${formatCount(reportProgress.done)} / ${formatCount(reportProgress.total)} 条异常记录` : '等待选择文件或读取第一批记录……'}</p>{reportProgress && reportProgress.total > 0 && <progress className="maintenance-progress" max={reportProgress.total} value={reportProgress.done} aria-label="完整异常报告导出进度"/>}{reportProgress && <button disabled={reportCancelling} onClick={async () => { setReportCancelling(true); try { await app().CancelRepairReport(reportJob); setMessage('已请求取消报告导出。') } catch (e) { setReportCancelling(false); setMessage(errorText(e)) } }}>{reportCancelling ? '正在取消…' : '取消导出'}</button>}</div>}
     <div className="card">
       <div className="card-title"><span>维护工具</span><span>检查文件和清理服务器空间</span></div>
       <div className="form-grid">
