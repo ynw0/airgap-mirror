@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -295,7 +296,9 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 	}
 	keepPlan = true
 	if !job.Execute {
-		_ = r.transition(job.ID, domain.MaintenanceCompleted, "")
+		if err = r.transition(job.ID, domain.MaintenanceCompleted, ""); err != nil {
+			log.Printf("maintenance job %s: persist completed state: %v", job.ID, err)
+		}
 		return
 	}
 
@@ -344,19 +347,25 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 		}
 		return nil
 	})
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+	// Flush the final deletion counters even on cancellation or an execution
+	// error. Files already removed cannot be restored by cancelling the job.
+	executeErr := err
+	progressErr := r.persist(func(pctx context.Context) error {
+		return r.Jobs.UpdateMaintenanceProgress(pctx, job.ID, ports.MaintenanceProgress{ScannedObjects: scannedObjects, ScannedBytes: scannedBytes, CandidateObjects: candidateObjects, CandidateBytes: candidateBytes, AffectedObjects: affectedObjects, AffectedBytes: affectedBytes})
+	})
+	if progressErr != nil {
+		r.finishFailure(job.ID, fmt.Errorf("GC removed %d files (%d bytes); final progress persistence failed: %w", affectedObjects, affectedBytes, errors.Join(executeErr, progressErr)))
+		return
+	}
+	if executeErr != nil {
+		if errors.Is(executeErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			r.finishCancelled(job.ID)
 			return
 		}
-		r.finishFailure(job.ID, err)
+		r.finishFailure(job.ID, executeErr)
 		return
 	}
-	if err = r.persist(func(pctx context.Context) error {
-		return r.Jobs.UpdateMaintenanceProgress(pctx, job.ID, ports.MaintenanceProgress{ScannedObjects: scannedObjects, ScannedBytes: scannedBytes, CandidateObjects: candidateObjects, CandidateBytes: candidateBytes, AffectedObjects: affectedObjects, AffectedBytes: affectedBytes})
-	}); err != nil {
-		r.finishFailure(job.ID, err)
-		return
+	if err = r.transition(job.ID, domain.MaintenanceCompleted, ""); err != nil {
+		log.Printf("maintenance job %s: persist completed state: %v", job.ID, err)
 	}
-	_ = r.transition(job.ID, domain.MaintenanceCompleted, "")
 }
