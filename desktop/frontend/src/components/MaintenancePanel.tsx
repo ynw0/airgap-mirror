@@ -59,7 +59,7 @@ export function MaintenancePanel({ overview }: Props) {
   }, [overview, sourceID])
 
   useEffect(() => {
-    if (!overview || !sourceID) return
+    if (!overview || !sourceID || busy) return
     let disposed = false, pending = false
     async function refresh() {
       if (pending) return
@@ -74,7 +74,7 @@ export function MaintenancePanel({ overview }: Props) {
     void refresh()
     const timer = window.setInterval(refresh, 3000)
     return () => { disposed = true; window.clearInterval(timer) }
-  }, [overview, sourceID])
+  }, [overview, sourceID, busy])
 
   useEffect(() => {
     setSelectedJobID(''); setCandidates(null); setRepairIssues(null); setMessage(''); setLoadedSource(''); setLastRead(''); setReadError(''); setFilter('all')
@@ -340,7 +340,7 @@ export function MaintenancePanel({ overview }: Props) {
 
     {selectedJob?.kind === 'GC' && selectedJob.status === 'COMPLETED' && !selectedJob.execute && <div className="card">
       <div className="card-title"><span>确认清理</span><span>{shortID(selectedJob.id)}</span></div>
-      <div className="button-row"><button className="danger-ghost" disabled={!ready || busy || !!activeJob || !!pausedJob} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
+      <div className="button-row"><button className="danger-ghost" disabled={!ready || busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
     </div>}
 
     <div className="card table-card">
