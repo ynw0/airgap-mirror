@@ -279,7 +279,6 @@ export function MaintenancePanel({ overview }: Props) {
   }
 
   async function exportCompleteReport(jobID: string) {
-    if (!window.confirm('将读取该已完成任务的全部异常记录并逐页写入文件，不会重新扫描仓库。报告可能包含内网文件路径，请妥善保管。继续吗？')) return
     setBusy(true); setReportJob(jobID); setReportProgress(null); setReportCancelling(false); setMessage('正在准备完整异常报告……')
     try { const result = await app().ExportCompleteRepairReport(jobID); setMessage(result.path ? `已保存完整报告，共 ${formatCount(result.count)} 条异常：${result.path}` : '已取消保存报告。') }
     catch (e) { setMessage('完整报告导出失败：' + errorText(e)) }
@@ -305,15 +304,15 @@ export function MaintenancePanel({ overview }: Props) {
           {(overview?.sources ?? []).map(x => <option key={x.source.id} value={x.source.id}>{x.source.name} · {x.source.type}/{x.source.provider}</option>)}
         </select></label>
         <div className="span-2"><p>如果服务器里的文件数量不对，可以先重新清点。PyPI 的大型仓库每检查一批项目会保存进度，暂停或 Agent 重启后可继续；整个任务完成前，不会替换原来的文件账本。</p>{source?.source.type === 'apt' && <small>APT 的共享包目录默认不会被清理。只有明确设为该软件源独占时，才允许删除其中的废弃文件。</small>}</div>
-        <div className="button-row align-end maintenance-actions">{!ready && sourceID && <p className="small">尚未成功读取此软件源的最新维护状态，暂不可启动、暂停或取消维护任务。</p>}
+        <div className="button-row align-end maintenance-actions">{!ready && sourceID && <p className="small">尚未读取最新维护状态。已有任务仍可尝试暂停、继续或取消。</p>}
           <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(false)}>全量清点</button>
           {source?.source.type === 'pypi' && <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(true)}>增量清点</button>}
           <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startGC(false)}>查看可清理文件</button>
           {source?.source.type === 'pypi' && <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startRepair}>检查缺失文件</button>}
           {source?.source.type === 'pypi' && <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startIntegrity}>SHA256 完整校验</button>}
-          {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={!ready || busy} onClick={pauseJob}>{activeJob.kind === 'REPAIR' ? '暂停校验' : '暂停清点'}</button>}
-          {pausedJob && <button className="primary" disabled={!ready || busy} onClick={resumeJob}>{pausedJob.kind === 'REPAIR' ? '继续校验' : '继续清点'}</button>}
-          {(activeJob || pausedJob) && <button className="danger-ghost" disabled={!ready || busy} onClick={cancelJob}>{pausedJob ? (pausedJob.kind === 'REPAIR' ? '放弃校验' : '放弃清点') : '取消任务'}</button>}
+          {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={busy} onClick={pauseJob}>{activeJob.kind === 'REPAIR' ? '暂停校验' : '暂停清点'}</button>}
+          {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>{pausedJob.kind === 'REPAIR' ? '继续校验' : '继续清点'}</button>}
+          {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? (pausedJob.kind === 'REPAIR' ? '放弃校验' : '放弃清点') : '取消任务'}</button>}
           <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={reclaimHistory}>回收历史账本</button>
           <button disabled={!sourceID || busy} onClick={async () => { setMessage(''); setBusy(true); try { await refreshJobs() } finally { setBusy(false) } }}>刷新</button>
         </div>
