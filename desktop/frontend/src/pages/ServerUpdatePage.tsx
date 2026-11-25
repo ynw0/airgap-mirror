@@ -57,6 +57,7 @@ export function ServerUpdatePage({ overview }: Props) {
     if (!overview?.connected) { setMessage('请先在“连接服务器”页面连接内网服务器。'); return }
     if (!Number.isInteger(chunkMiB) || chunkMiB < 1 || chunkMiB > 128) { setMessage('单次上传大小必须为 1 至 128 MiB 的整数。'); return }
     setRunning(true); setMessage(''); setResult(null); resetTelemetry()
+    window.dispatchEvent(new CustomEvent('airgap-transfer-activity', {detail:'开始导入'}))
     try {
       if (!bundle) {
         const checked = await app().ValidateBatchDirectory(path)
@@ -64,13 +65,14 @@ export function ServerUpdatePage({ overview }: Props) {
       }
       const value = await app().TransferBatchDirectory(path, { chunkSize: Math.round(chunkMiB * 1024 * 1024), requestId: requestID.trim() || undefined })
       setResult(value)
+      window.dispatchEvent(new CustomEvent('airgap-transfer-activity', {detail:'导入完成'}))
       setMessage(value.workspaceTracked ? '这批文件已导入服务器，本机的下载记录也已更新。' : '这批文件已导入服务器，即使是在另一台电脑下载的，也能正常使用。')
-    } catch (e) { setMessage(errorText(e)) }
+    } catch (e) { setMessage(errorText(e)); window.dispatchEvent(new CustomEvent('airgap-transfer-activity', {detail:'导入已停止'})) }
     finally { setRunning(false); setRate(0); setPauseRequested(false) }
   }
   async function pause() {
     if (!bundle || pauseRequested) return
-    try { await app().PauseTransfer(bundle.descriptor.batchId); setPauseRequested(true); setMessage('已请求暂停，等待当前传输结束。') } catch (e) { setMessage(errorText(e)) }
+    try { await app().PauseTransfer(bundle.descriptor.batchId); setPauseRequested(true); setMessage('已请求暂停，等待当前传输结束。'); window.dispatchEvent(new CustomEvent('airgap-transfer-activity', {detail:'已请求暂停'})) } catch (e) { setMessage(errorText(e)) }
   }
 
   const d = bundle?.descriptor
