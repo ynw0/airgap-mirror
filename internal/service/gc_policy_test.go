@@ -63,6 +63,40 @@ func TestExclusiveRootRejectsNestedSources(t *testing.T) {
 	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("nested roots should be refused, got %v", err)
 	}
+	// Disabled sources still own repository data.
+	srcB.Enabled = false
+	if err = store.UpdateSource(ctx, srcB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("disabled overlapping source must still be protected: %v", err)
+	}
+	distinct := t.TempDir()
+	srcB.RootPath = distinct
+	if err = store.UpdateSource(ctx, srcB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.exclusiveRoot(ctx, srcA); err != nil {
+		t.Fatalf("distinct roots should be allowed: %v", err)
+	}
+	srcB.RootPath = filepath.Join(distinct, "not-mounted")
+	if err = store.UpdateSource(ctx, srcB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("unresolved repository root must not be assumed independent: %v", err)
+	}
+	alias := filepath.Join(distinct, "alias")
+	if err = os.Symlink(parent, alias); err != nil {
+		t.Skipf("symlink fixture not supported: %v", err)
+	}
+	srcB.RootPath = alias
+	if err = store.UpdateSource(ctx, srcB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.exclusiveRoot(ctx, srcA); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("symlink alias must be refused: %v", err)
+	}
 }
 
 func TestPhysicalGCExecuteRejectedOffLinux(t *testing.T) {
