@@ -68,7 +68,7 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
   useEffect(() => onEvent<{batchId: string; state: string; error?: string}>('download-state', p => {
     if (!p?.batchId) return
     // The initiating promise owns the operation lock until all refreshes have finished.
-    if (p.error) setMessage(`下载已停止。可以继续下载已保存的部分。\n${p.error}`)
+    if (p.error) setMessage(`下载已停止，已保存的文件会保留。\n${p.error}`)
     void refreshBatchProgress(p.batchId)
   }), [])
 
@@ -192,7 +192,7 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     {validSource && !historyReady && <div className="card guidance"><p>{historyState.key === historyKey && historyState.error ? '无法读取以前的下载任务。可以查看上游状态，但请先重新读取任务，再开始下载或分析更新。' : '正在查找这个软件源以前的下载任务……'}</p>{historyState.key === historyKey && historyState.error && <p className="error-detail">{historyState.error}</p>}<button disabled={locked} onClick={() => setHistoryRetry(n => n + 1)}>重新读取任务</button></div>}
     {(probe || plan) && <div className="metrics-grid">
       <div className="metric"><span>内网当前版本</span><strong>{plan?.state.liveCursor.kind ?? capsule?.sources.find(x => x.source.id === sourceID)?.state.liveCursor.kind ?? '—'}</strong><small>{plan?.state.liveCursor.value ?? capsule?.sources.find(x => x.source.id === sourceID)?.state.liveCursor.value ?? '—'}</small></div>
-      <div className="metric"><span>上游版本</span><strong>{plan?.plan.epoch.targetCursor.kind ?? probe?.cursor.kind ?? '—'}</strong><small>{plan?.plan.epoch.targetCursor.value ?? probe?.cursor.value ?? '—'}</small></div>
+      <div className="metric"><span>目标版本</span><strong>{plan?.plan.epoch.targetCursor.kind ?? probe?.cursor.kind ?? '—'}</strong><small>{plan?.plan.epoch.targetCursor.value ?? probe?.cursor.value ?? '—'}</small></div>
       <div className="metric"><span>预计需要下载</span><strong>{plan ? formatBytes(plan.plan.epoch.totalBytes) : '尚未分析'}</strong><small>{plan ? formatCount(plan.plan.artifactCount) : '—'} 个文件</small></div>
       <div className="metric"><span>需要更新的软件清单</span><strong>{plan ? formatCount(plan.plan.publishUnitCount) : '—'}</strong><small>其中 {plan ? formatCount(plan.plan.metadataCount) : '—'} 份索引文件</small></div>
     </div>}
