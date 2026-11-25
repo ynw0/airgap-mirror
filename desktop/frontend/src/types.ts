@@ -16,7 +16,7 @@ export interface SourceState {
   liveObjects: number; activeEpochId?: string; updatedAt: string;
 }
 export interface Capacity { path: string; totalBytes: number; freeBytes: number }
-export interface AgentSourceView { source: Source; state: SourceState; capacity: Capacity }
+export interface AgentSourceView { source: Source; state: SourceState; capacity: Capacity; capacityError?: string }
 export interface AgentOverview { connected: boolean; baseUrl: string; sources: AgentSourceView[] }
 
 export interface CapsuleSource { source: Source; state: SourceState }
