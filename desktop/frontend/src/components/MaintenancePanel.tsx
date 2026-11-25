@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { app } from '../backend'
+import { app, onEvent } from '../backend'
 import { errorText, formatBytes, formatCount, formatDate, shortID, statusLabel } from '../format'
 import type { AgentOverview, GCCandidatesPage, MaintenanceJob, RepairIssuesPage, ExportJob } from '../types'
 
@@ -37,6 +37,9 @@ export function MaintenancePanel({ overview }: Props) {
   const [lastRead, setLastRead] = useState('')
   const [readError, setReadError] = useState('')
   const [exportError, setExportError] = useState('')
+  const [reportProgress, setReportProgress] = useState<{jobId: string; done: number; total: number} | null>(null)
+  const [reportJob, setReportJob] = useState('')
+  useEffect(() => onEvent<{jobId: string; done: number; total: number}>('repair-report-progress', p => { if (p?.jobId === reportJob) setReportProgress(p) }), [reportJob])
 
   const source = useMemo(() => overview?.sources.find(x => x.source.id === sourceID), [overview, sourceID])
   const selectedJob = useMemo(() => jobs.find(x => x.id === selectedJobID), [jobs, selectedJobID])
@@ -274,6 +277,13 @@ export function MaintenancePanel({ overview }: Props) {
     finally { setBusy(false) }
   }
 
+  async function exportCompleteReport(jobID: string) {
+    if (!window.confirm('将读取该已完成任务的全部异常记录并逐页写入文件，不会重新扫描仓库。报告可能包含内网文件路径，请妥善保管。继续吗？')) return
+    setBusy(true); setReportJob(jobID); setReportProgress(null); setMessage('正在准备完整异常报告……')
+    try { const result = await app().ExportCompleteRepairReport(jobID); setMessage(result.path ? `已保存完整报告，共 ${formatCount(result.count)} 条异常：${result.path}` : '已取消保存报告。') }
+    catch (e) { setMessage('完整报告导出失败：' + errorText(e)) }
+    finally { setBusy(false); setReportJob(''); setReportProgress(null) }
+  }
   async function saveReport(kind: 'maintenance' | 'repair') {
     setBusy(true); setMessage('')
     try {
@@ -286,7 +296,7 @@ export function MaintenancePanel({ overview }: Props) {
   const current = activeJob ?? pausedJob
   const visibleJobs = jobs.filter(j => filter === 'all' || (filter === 'active' && !terminal(j)) || (filter === 'failed' && j.status === 'FAILED') || (filter === 'completed' && j.status === 'COMPLETED'))
   return <>
-    {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
+    {message && <div className="notice" role="status" aria-live="polite">{message}</div>}{reportJob && <div className="card current-task"><h3>正在导出完整异常报告</h3><p>{reportProgress ? `已写入 ${formatCount(reportProgress.done)} / ${formatCount(reportProgress.total)} 条异常记录` : '等待选择文件或读取第一批记录……'}</p>{reportProgress && reportProgress.total > 0 && <progress className="maintenance-progress" max={reportProgress.total} value={reportProgress.done} aria-label="完整异常报告导出进度"/>}</div>}
     <div className="card">
       <div className="card-title"><span>维护工具</span><span>检查文件和清理服务器空间</span></div>
       <div className="form-grid">
@@ -339,7 +349,7 @@ export function MaintenancePanel({ overview }: Props) {
       </tbody></table></div>
     </div>
     {repairIssues && <div className="card table-card">
-      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；损坏软件包须经过 SHA256 校验并明确授权后才能替换</span></div><div className="table-toolbar"><span>已加载 {formatCount(repairIssues.items.length)} 条异常{repairIssues.next ? '，还有更多记录' : ''}</span><button disabled={busy || !repairIssues.items.length} onClick={() => saveReport('repair')}>导出已加载的异常报告</button></div>
+      <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；损坏软件包须经过 SHA256 校验并明确授权后才能替换</span></div><div className="table-toolbar"><span>已加载 {formatCount(repairIssues.items.length)} 条异常{repairIssues.next ? '，还有更多记录' : ''}</span><button disabled={busy || !repairIssues.items.length} onClick={() => saveReport('repair')}>导出已加载的异常报告</button>{selectedJob?.status === 'COMPLETED' && <button className="primary" disabled={busy} onClick={() => exportCompleteReport(selectedJob.id)}>导出完整异常报告</button>}</div>
       <div className="table-wrap"><table><thead><tr><th>文件路径</th><th>类型</th><th>账本大小</th><th>实际大小</th></tr></thead><tbody>
         {repairIssues.items.map(item => <tr key={item.logicalPath}><td><code>{item.logicalPath}</code>{item.actualSha256 && <small>预期：{item.sha256}<br/>实际：{item.actualSha256}</small>}</td><td>{item.kind === 'MISSING' ? '缺失' : item.kind === 'HASH_MISMATCH' ? 'SHA256 不符' : '大小不符'}</td><td>{formatBytes(item.size)}</td><td>{item.kind === 'MISSING' ? '—' : formatBytes(item.actualSize)}</td></tr>)}
       </tbody></table></div>
