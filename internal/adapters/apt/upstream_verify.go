@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"net/mail"
 	"os"
@@ -31,7 +32,81 @@ func decodeTrustedKeyring(encoded string) ([]byte, error) {
 	if err != nil || len(keys) == 0 || len(keys) > maxTrustedKeyring {
 		return nil, fmt.Errorf("APT 公钥环必须为 Base64 编码的二进制 OpenPGP 公钥环: %w", domain.ErrInvalid)
 	}
+	if err := validatePublicKeyring(keys); err != nil {
+		return nil, err
+	}
 	return keys, nil
+}
+
+// Inspect packet framing before storing or exporting a configured keyring.
+// Reject secret-key packets, compressed data, and other non-keyring objects.
+// GnuPG performs the actual cryptographic parsing during verification.
+func validatePublicKeyring(data []byte) error {
+	bad := func() error {
+		return fmt.Errorf("APT 公钥环必须是仅含公钥的二进制 OpenPGP 导出文件，不得包含私钥或其他数据: %w", domain.ErrInvalid)
+	}
+	primary := false
+	for len(data) > 0 {
+		header := data[0]
+		data = data[1:]
+		if header&0x80 == 0 {
+			return bad()
+		}
+		var tag byte
+		var n uint64
+		if header&0x40 != 0 {
+			tag = header & 0x3f
+			if len(data) == 0 {
+				return bad()
+			}
+			first := data[0]
+			data = data[1:]
+			switch {
+			case first < 192:
+				n = uint64(first)
+			case first < 224:
+				if len(data) < 1 {
+					return bad()
+				}
+				n = uint64(first-192)*256 + uint64(data[0]) + 192
+				data = data[1:]
+			case first == 255:
+				if len(data) < 4 {
+					return bad()
+				}
+				n = uint64(binary.BigEndian.Uint32(data[:4]))
+				data = data[4:]
+			default:
+				return bad()
+			}
+		} else {
+			tag = (header >> 2) & 0x0f
+			lengthBytes := 1 << (header & 3)
+			if lengthBytes > 4 || len(data) < lengthBytes {
+				return bad()
+			}
+			for _, v := range data[:lengthBytes] {
+				n = n*256 + uint64(v)
+			}
+			data = data[lengthBytes:]
+		}
+		switch tag {
+		case 6:
+			primary = true
+		case 2, 10, 12, 13, 14, 17:
+			// Signature, marker, trust, user ID, public subkey, user attribute.
+		default:
+			return bad()
+		}
+		if n > uint64(len(data)) {
+			return bad()
+		}
+		data = data[int(n):]
+	}
+	if !primary {
+		return bad()
+	}
+	return nil
 }
 
 // verifyUpstreamRelease uses an isolated GnuPG home and the administrator's
