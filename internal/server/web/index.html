@@ -85,7 +85,7 @@ details>summary{font-weight:600}
 </section>
 <div id="app" class="hidden">
 <section class="panel" id="repositories"><div class="row"><h2 class="grow">软件源与仓库状态</h2><button id="refresh">刷新仓库状态</button><button id="add" class="primary">添加软件源</button></div>
-<p>“文件账本”记录服务器已有的文件，“同步位置”记录上次同步到哪里。如果磁盘上的文件有变化，先“重新清点”再继续。</p>
+<p>文件账本记录已登记的仓库文件，同步位置记录上次更新到哪里。若在系统之外修改过仓库文件，请先清点。页面中的仓库状态需要手动刷新。</p>
 <div id="overview" class="metrics" aria-label="软件源概况"></div>
 <div class="toolbar"><input id="sourceSearch" type="search" aria-label="搜索软件源" placeholder="按名称、类型或目录搜索"><span id="sourceCount" class="small" aria-live="polite"></span><span class="grow"></span><button id="exportAll">导出全部软件源状态</button></div>
 <div id="sources"></div>
@@ -160,21 +160,22 @@ async function downloadExport(j){
   const data=await response.blob();const url=URL.createObjectURL(data);
   const a=document.createElement('a');a.href=url;a.download=j.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
  }
- show('状态文件已保存。');
+ show(typeof window.showSaveFilePicker==='function'?'状态文件已保存。':'已交给浏览器下载，请在下载列表确认是否完成。');
 }
-let refreshingExports=false;
+let refreshingExports=false,lastExportSnapshot='';
 async function refreshExports(){
  if(!token||refreshingExports)return;
  refreshingExports=true;
  try{
   const jobs=await(await api('/api/v1/state/export-jobs')).json();
-  const holder=el('exportJobs');holder.replaceChildren();
+  const snapshot=JSON.stringify(jobs);if(snapshot===lastExportSnapshot)return;
+  const holder=el('exportJobs');holder.replaceChildren();lastExportSnapshot=snapshot;
   if(!jobs.length){holder.appendChild(make('p','暂无导出任务。','small'));return;}
   const labels={QUEUED:'排队中',RUNNING:'生成中',COMPLETED:'已完成',FAILED:'失败'};
   for(const j of jobs){
    const row=make('div','');row.className='row exportrow';
    const info=make('div','','grow');info.append(make('strong',labels[j.status]||j.status),make('p','已处理 '+number(j.completedSources)+' / '+number(j.totalSources)+' 个软件源','small'),make('p','任务编号：'+j.id,'small'));if(j.stage)info.appendChild(make('p','当前阶段：'+j.stage,'small'));if(j.errorText)info.appendChild(make('p','错误：'+j.errorText,'small'));row.appendChild(info);
-   if(j.status==='COMPLETED')row.appendChild(action('下载状态文件',()=>downloadExport(j)));
+   if(j.status==='COMPLETED'){const button=action('下载状态文件',()=>downloadExport(j));button.classList.add('primary');row.appendChild(button);}
    holder.appendChild(row);
   }
  }finally{refreshingExports=false;}
@@ -191,14 +192,14 @@ async function refresh(){
   const head=make('div','');head.className='row';head.appendChild(make('h3',s.name,'grow'));head.appendChild(make('span',s.type+' · '+s.provider,'tag'));head.appendChild(make('span',s.enabled?'已启用':'已停用','tag '+(s.enabled?'good':'muted')));article.appendChild(head);
   try{
   const state=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/state')).json();
-  let freeSpace='当前无法读取（请检查仓库目录是否存在、Agent 是否有权限）';
+  let freeSpace='无法读取';
   try {
     const capacity=await (await api('/api/v1/capacity?sourceId='+encodeURIComponent(s.id))).json();
-    freeSpace=bytes(capacity.freeBytes);
+    if(typeof capacity.freeBytes==='number'&&capacity.freeBytes>=0)freeSpace=bytes(capacity.freeBytes);
   } catch (_) {}
-  const stats=make('div','','metrics');stats.append(metric('文件账本中的文件',number(state.liveObjects)+' 个'),metric('账本记录容量',bytes(state.liveBytes)),metric('所在磁盘剩余空间',freeSpace));article.appendChild(stats);
+  const stats=make('div','','metrics');stats.append(metric('文件账本中的文件',number(state.liveObjects)+' 个'),metric('账本记录容量',bytes(state.liveBytes)),metric('所在磁盘剩余空间',freeSpace));article.appendChild(stats);if(freeSpace==='无法读取')article.appendChild(make('p','无法读取磁盘剩余空间，请检查仓库目录和 Agent 的访问权限。','small'));
   const paths=document.createElement('details');paths.append(make('summary','仓库目录与访问地址'),make('p','服务器目录：'+(s.rootPath||'未配置'),'small'),make('p','内网访问地址：'+(s.publicUrl||'未配置'),'small'),make('p','公网下载地址：'+(s.upstreamUrl||'未配置'),'small'));article.appendChild(paths);
-  article.appendChild(make('p',state.activeEpochId?'有同步任务进行中，请先完成它。':'目前没有进行中的同步任务。','small'));
+  article.appendChild(make('p',state.activeEpochId?'有同步任务正在进行，部分维护操作暂不可用。':'当前没有同步任务。','small'));
   article.appendChild(make('p','同步位置：'+(state.liveCursor&&state.liveCursor.value?state.liveCursor.kind+' · '+state.liveCursor.value:'还没有同步记录'),'small'));
   const buttons=make('div','');buttons.className='row';
   const tasks=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];
@@ -208,7 +209,7 @@ async function refresh(){
   const inventory=tasks.find(j=>j.kind==='INVENTORY');
   if(inventory){const j=inventory;const projects=s.type==='pypi'?'已完成 '+number(j.completedProjects)+' / '+number(j.totalProjects)+' 个项目；最近完成：'+(j.lastProject||'尚无检查点')+'。':'';article.appendChild(taskCard(j,'最近一次文件清点',projects+'已记录 '+number(j.scannedObjects)+' 个文件，约 '+bytes(j.scannedBytes)+'。'+(s.type==='pypi'&&(j.status==='RUNNING'||j.status==='PAUSED'||j.status==='QUEUED')?'清点全部成功后才会更新正式文件账本。':'')));}
   if(repair)article.appendChild(taskCard(repair,repair.hashMiBPerSecond?'SHA256 完整校验（'+repair.hashMiBPerSecond+' MiB/s）':'缺失文件检查','已检查 '+number(repair.scannedObjects)+' 个文件，发现 '+number(repair.candidateObjects)+' 个异常。'));
-  const startButton=action('重新清点文件',async()=>{if(!confirm('将扫描服务器文件并更新文件账本，确认开始吗？'))return;await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');await refresh();});
+  const startButton=action(s.type==='pypi'?'全量清点':'重新清点文件',async()=>{if(!confirm('将扫描服务器上的仓库文件并更新文件账本。大型仓库可能需要较长时间，确认开始吗？'))return;await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');await refresh();});
   startButton.disabled=!!(running||paused||state.activeEpochId);
   buttons.appendChild(startButton);
   if(s.type==='pypi'){
@@ -225,7 +226,7 @@ async function refresh(){
     buttons.appendChild(action('继续'+taskName,async()=>{await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/resume',{method:'POST'});show('已请求从保存的检查点继续'+taskName+'。');await refresh();}));
     buttons.appendChild(action('放弃'+taskName,async()=>{if(!confirm('放弃当前'+taskName+'并删除检查点？正式文件账本不会改变。'))return;await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/cancel',{method:'POST'});show('已放弃本次'+taskName+'。');await refresh();}));
   }
-  buttons.appendChild(action('查看清点结果',async()=>{const jobs=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];const j=jobs.find(x=>x.kind==='INVENTORY');if(!j){show('还没有清点记录，请先点击“重新清点文件”。');return;}const statuses={QUEUED:'等待开始',RUNNING:'正在检查',PAUSED:'已暂停，可以继续',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消'};show('“'+s.name+'”最近一次清点：'+(statuses[j.status]||j.status)+'；已检查 '+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；记录 '+j.scannedObjects+' 个文件，约 '+bytes(j.scannedBytes)+(j.errorText?'。错误：'+j.errorText:''));if(j.status==='COMPLETED')await refresh();}));
+  buttons.appendChild(action('查看清点结果',async()=>{const jobs=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];const j=jobs.find(x=>x.kind==='INVENTORY');if(!j){show('还没有清点记录，请先开始文件清点。');return;}const statuses={QUEUED:'等待开始',RUNNING:'正在检查',PAUSED:'已暂停，可以继续',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消'};show('“'+s.name+'”最近一次清点：'+(statuses[j.status]||j.status)+'；'+(s.type==='pypi'?'已检查 '+number(j.completedProjects)+' / '+number(j.totalProjects)+' 个项目；':'')+'记录 '+j.scannedObjects+' 个文件，约 '+bytes(j.scannedBytes)+(j.errorText?'。错误：'+j.errorText:''));if(j.status==='COMPLETED')await refresh();}));
   if(s.type==='pypi'){
     const check=action('检查缺失文件',async()=>{await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/repair-check',{method:'POST'});show('已开始检查缺失文件及文件大小。');await refresh();});
     check.disabled=!!(running||paused||state.activeEpochId);
@@ -292,7 +293,7 @@ function openEditor(s){
  el('editor').scrollIntoView({behavior:'smooth'});
 }
 el('kind').addEventListener('change',()=>{if(editing)return;const d=definitions[el('kind').value];el('upstream').value=d.url;el('config').value=JSON.stringify(d.config,null,2);});
-el('save').addEventListener('click',async()=>{try{const d=definitions[el('kind').value];const input={name:el('name').value.trim(),type:d.type,provider:d.provider,upstreamUrl:el('upstream').value.trim(),rootPath:el('rootPath').value.trim(),publicUrl:el('publicUrl').value.trim(),enabled:el('enabled').checked,config:JSON.parse(el('config').value||'{}')};if(!input.name||!input.upstreamUrl||!input.publicUrl||!input.rootPath)throw Error('请完整填写名称、下载地址、内网访问地址和服务器目录。');await api(editing?'/api/v1/sources/'+encodeURIComponent(editing.id):'/api/v1/sources',{method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});el('editor').classList.add('hidden');show('软件源已经保存。');await refresh();}catch(e){show('保存失败：'+e.message,true);}});
+el('save').addEventListener('click',async()=>{if(el('save').disabled)return;el('save').disabled=true;try{const d=definitions[el('kind').value];const input={name:el('name').value.trim(),type:d.type,provider:d.provider,upstreamUrl:el('upstream').value.trim(),rootPath:el('rootPath').value.trim(),publicUrl:el('publicUrl').value.trim(),enabled:el('enabled').checked,config:JSON.parse(el('config').value||'{}')};if(!input.name||!input.upstreamUrl||!input.publicUrl||!input.rootPath)throw Error('请完整填写名称、下载地址、内网访问地址和服务器目录。');await api(editing?'/api/v1/sources/'+encodeURIComponent(editing.id):'/api/v1/sources',{method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});el('editor').classList.add('hidden');show('软件源已经保存。');await refresh();}catch(e){show('保存失败：'+e.message,true);}finally{el('save').disabled=false;}});
 el('cancelEdit').addEventListener('click',()=>el('editor').classList.add('hidden'));
 el('connect').addEventListener('click',async()=>{if(el('connect').disabled)return;token=el('token').value.trim();if(!token){show('请填写连接令牌。',true);return;}el('connect').disabled=true;show('正在连接服务器并读取软件源……');try{await refresh();el('login').classList.add('hidden');el('app').classList.remove('hidden');el('nav').classList.remove('hidden');el('token').value='';show('已连接服务器。请先核对仓库统计，再按需要导出状态文件。');refreshExports().catch(e=>show('读取导出任务失败：'+e.message,true));}catch(e){token='';show('连接失败，请检查服务器和令牌。\n'+e.message,true);}finally{el('connect').disabled=false;}});
 el('token').addEventListener('keydown',e=>{if(e.key==='Enter')el('connect').click();});
