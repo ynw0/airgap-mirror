@@ -31,12 +31,14 @@ type App struct {
 	opsMu           sync.Mutex
 	downloadCancels map[string]context.CancelFunc
 	transferCancels map[string]context.CancelFunc
+	reportCancels   map[string]context.CancelFunc
 }
 
 func NewApp() *App {
 	return &App{
 		downloadCancels: make(map[string]context.CancelFunc),
 		transferCancels: make(map[string]context.CancelFunc),
+		reportCancels:   make(map[string]context.CancelFunc),
 	}
 }
 
@@ -68,6 +70,10 @@ func (a *App) shutdown(context.Context) {
 	for _, cancel := range a.transferCancels {
 		cancel()
 	}
+	for _, cancel := range a.reportCancels {
+		cancel()
+	}
+	a.reportCancels = make(map[string]context.CancelFunc)
 	a.downloadCancels = make(map[string]context.CancelFunc)
 	a.transferCancels = make(map[string]context.CancelFunc)
 	a.opsMu.Unlock()
