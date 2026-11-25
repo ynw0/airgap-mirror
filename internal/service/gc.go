@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -31,7 +30,12 @@ func (r *MaintenanceRunner) StartGC(ctx context.Context, sourceID string, execut
 	if _, err = r.requireIdleSource(ctx, source.ID); err != nil {
 		return empty, err
 	}
-	if _, err = r.exclusiveRoot(ctx, source); err != nil {
+	if execute {
+		_, err = r.exclusiveRoot(ctx, source)
+	} else {
+		_, _, err = canonicalRepositoryRoot(source.RootPath)
+	}
+	if err != nil {
 		return empty, err
 	}
 	adapter, err := r.Registry.Get(source.Type, source.Provider)
@@ -120,17 +124,8 @@ func canonicalRepositoryRoot(raw string) (string, string, error) {
 	return abs, filepath.Clean(real), nil
 }
 
-func rootsOverlap(a, b string) bool {
-	rel, err := filepath.Rel(a, b)
-	if err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
-		return true
-	}
-	rel, err = filepath.Rel(b, a)
-	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
-}
-
 func (r *MaintenanceRunner) exclusiveRoot(ctx context.Context, source domain.Source) (string, error) {
-	currentAbs, currentReal, err := canonicalRepositoryRoot(source.RootPath)
+	_, root, err := canonicalRepositoryRoot(source.RootPath)
 	if err != nil {
 		return "", err
 	}
@@ -142,36 +137,15 @@ func (r *MaintenanceRunner) exclusiveRoot(ctx context.Context, source domain.Sou
 		if other.ID == source.ID {
 			continue
 		}
-		otherAbs, absErr := filepath.Abs(other.RootPath)
-		if absErr != nil {
-			return "", absErr
+		overlap, err := domain.RepositoryRootsOverlap(source.RootPath, other.RootPath)
+		if err != nil {
+			return "", err
 		}
-		otherAbs = filepath.Clean(otherAbs)
-		if rootsOverlap(currentAbs, otherAbs) {
+		if overlap {
 			return "", fmt.Errorf("软件源 %s 与 %s 的仓库目录重叠，已拒绝文件清理: %w", source.ID, other.ID, domain.ErrConflict)
 		}
-		// A missing, inaccessible, or dangling repository path is not proof
-		// that it is independent. Refuse GC until its ownership can be checked.
-		_, otherReal, resolveErr := canonicalRepositoryRoot(other.RootPath)
-		if resolveErr != nil {
-			return "", fmt.Errorf("无法确认软件源 %s 的仓库目录 %q 是否与当前仓库重叠，已拒绝文件清理: %v: %w", other.ID, other.RootPath, resolveErr, domain.ErrConflict)
-		}
-		if rootsOverlap(currentReal, otherReal) {
-			return "", fmt.Errorf("软件源 %s 与 %s 解析后的仓库目录重叠，已拒绝文件清理: %w", source.ID, other.ID, domain.ErrConflict)
-		}
-		currentInfo, statErr := os.Stat(currentReal)
-		if statErr != nil {
-			return "", statErr
-		}
-		otherInfo, statErr := os.Stat(otherReal)
-		if statErr != nil {
-			return "", statErr
-		}
-		if os.SameFile(currentInfo, otherInfo) {
-			return "", fmt.Errorf("软件源 %s 与 %s 指向同一个仓库目录，已拒绝文件清理: %w", source.ID, other.ID, domain.ErrConflict)
-		}
 	}
-	return currentReal, nil
+	return root, nil
 }
 
 func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob, source domain.Source, matcher ports.ManagedPathMatcher) {
@@ -188,7 +162,13 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 		return
 	}
 	membership := r.Catalog.(ports.CatalogMembership)
-	root, err := r.exclusiveRoot(ctx, source)
+	var root string
+	var err error
+	if job.Execute {
+		root, err = r.exclusiveRoot(ctx, source)
+	} else {
+		_, root, err = canonicalRepositoryRoot(source.RootPath)
+	}
 	if err != nil {
 		r.finishFailure(job.ID, err)
 		return
