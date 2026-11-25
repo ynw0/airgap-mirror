@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { app } from './backend'
+import { app, onEvent } from './backend'
 import { errorText, formatBytes, formatCount, formatDate, shortID } from './format'
 import { InternetSyncPage } from './pages/InternetSyncPage'
 import { ServerUpdatePage } from './pages/ServerUpdatePage'
@@ -40,6 +40,14 @@ export default function App() {
   const [capsules, setCapsules] = useState<StateCapsule[]>([])
   const [overview, setOverview] = useState<AgentOverview | null>(null)
   const [fatal, setFatal] = useState('')
+  const [activity, setActivity] = useState<{time: string; action: string; state: string}[]>([])
+  const [activityFilter, setActivityFilter] = useState('all')
+  const [activityMessage, setActivityMessage] = useState('')
+  function record(action: string, state: string) { setActivity(prev => [{time: new Date().toISOString(), action, state}, ...prev].slice(0, 200)) }
+  useEffect(() => onEvent<{state: string}>('download-state', event => { if (!event) return; const state = ({running: '开始下载', stopped: '下载已停止', ready: '下载完成'} as Record<string, string>)[event.state]; if (state) record('联网下载', state) }), [])
+  useEffect(() => { const handler = (event: Event) => { const detail = (event as CustomEvent<string>).detail; if (['开始导入', '导入完成', '导入已停止', '已请求暂停'].includes(detail)) record('离线导入', detail) }; window.addEventListener('airgap-transfer-activity', handler); return () => window.removeEventListener('airgap-transfer-activity', handler) }, [])
+  useEffect(() => { if (overview?.connected) record('服务器连接', '已连接'); else if (overview === null) record('服务器连接', '未连接') }, [overview?.connected])
+  async function exportActivity() { try { const path = await app().SaveDiagnosticReport(JSON.stringify({kind:'desktop-session-activity', exportedAt:new Date().toISOString(), items: activity}, null, 2)); if (path) setActivityMessage('操作记录已保存。') } catch { setActivityMessage('保存失败，请选择尚不存在的文件名。') } }
   function navigate(next: Tab) { setVisited(prev => new Set(prev).add(next)); setTab(next) }
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -87,7 +95,7 @@ export default function App() {
       {visited.has('sync') && <div hidden={tab !== 'sync'}><InternetSyncPage capsules={capsules} onCapsules={setCapsules} /></div>}
       {visited.has('server') && <div hidden={tab !== 'server'}><ServerUpdatePage overview={overview} /></div>}
       {visited.has('maintenance') && <div hidden={tab !== 'maintenance'} className="page-stack"><div className="page-header"><div><h2>仓库维护</h2><p>查看服务器的文件清点、校验、清理和状态文件导出任务。</p></div><button onClick={() => navigate('sources')}>连接服务器</button></div>{connected ? <MaintenancePanel overview={overview} /> : <div className="card guidance"><h3>尚未连接内网服务器</h3><p>请先建立连接，再选择需要维护的软件源。</p><div className="button-row home-maintenance"><button className="primary" onClick={() => navigate('sources')}>连接服务器</button></div></div>}</div>}
-      <div hidden={tab !== 'settings'} className="page-stack"><div className="page-header"><div><h2>应用设置</h2><p>调整界面外观，查看当前客户端的本机存储位置。</p></div></div><div className="card settings-card"><div><h3>界面主题</h3><p>主题仅影响本机界面，不会修改服务器配置。</p></div>{themePicker}</div><div className="card settings-card"><div><h3>本机工作目录</h3><p>保存状态文件索引、下载任务记录和其他本机工作数据。</p></div><code className="workspace-path">{bootstrap?.workspaceRoot ?? '正在读取……'}</code></div><div className="card"><h3>连接安全</h3><p>通过可信的 HTTPS 地址连接服务器。直接使用 HTTP 时，连接令牌不会受到传输加密保护，请仅在可信内网使用。</p></div></div>
+      <div hidden={tab !== 'settings'} className="page-stack"><div className="page-header"><div><h2>应用设置</h2><p>调整界面外观，查看当前客户端的本机存储位置。</p></div></div><div className="card settings-card"><div><h3>界面主题</h3><p>主题仅影响本机界面，不会修改服务器配置。</p></div>{themePicker}</div><div className="card settings-card"><div><h3>本机工作目录</h3><p>保存状态文件索引、下载任务记录和其他本机工作数据。</p></div><code className="workspace-path">{bootstrap?.workspaceRoot ?? '正在读取……'}</code></div><div className="card table-card"><div className="card-title"><span>本次运行的操作记录</span><button disabled={!activity.length} onClick={exportActivity}>导出记录</button></div><div className="table-toolbar"><label>类型<select value={activityFilter} onChange={e => setActivityFilter(e.target.value)}><option value="all">全部</option><option value="服务器连接">服务器连接</option><option value="联网下载">联网下载</option><option value="离线导入">离线导入</option></select></label><span>最多保留 200 条，退出程序后清空；不是 Agent 服务日志。</span><button disabled={!activity.length} onClick={() => { setActivity([]); setActivityMessage('已清空本机操作记录。') }}>清空</button></div>{activityMessage && <p className="activity-message" role="status">{activityMessage}</p>}<div className="table-wrap"><table><thead><tr><th>时间</th><th>操作</th><th>状态</th></tr></thead><tbody>{activity.filter(x => activityFilter === 'all' || x.action === activityFilter).map((x,i) => <tr key={x.time + i}><td>{formatDate(x.time)}</td><td>{x.action}</td><td>{x.state}</td></tr>)}</tbody></table></div>{!activity.filter(x => activityFilter === 'all' || x.action === activityFilter).length && <p className="empty">没有符合条件的操作记录。</p>}</div><div className="card"><h3>连接安全</h3><p>通过可信的 HTTPS 地址连接服务器。直接使用 HTTP 时，连接令牌不会受到传输加密保护，请仅在可信内网使用。</p></div></div>
     </main>
   </div>
 }
