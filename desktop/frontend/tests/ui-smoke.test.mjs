@@ -117,3 +117,14 @@ test('task center offers the appropriate maintenance actions', async () => {
   await paused.children[1].run()
   assert.equal(requests[2][0], '/api/v1/maintenance/job1/cancel')
 })
+
+
+test('cancelling a state file save dialog does not start a download', async () => {
+  let requests = 0
+  const download = vm.runInNewContext(functions('async function downloadExport(', 'async function refreshExports(') + ';downloadExport', {
+    window: {showSaveFilePicker: async () => { throw Object.assign(new Error('cancelled'), {name:'AbortError'}) }},
+    api: async () => { requests++; throw new Error('unexpected download') }
+  })
+  await download({name:'state.mstate', download:'/api/v1/state/exports/state.mstate'})
+  assert.equal(requests, 0)
+})
