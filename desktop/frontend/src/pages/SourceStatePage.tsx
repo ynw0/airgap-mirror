@@ -113,7 +113,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
     try {
       const target = destination || await app().PickStateDestination()
       if (!target) return
-      setDestination(target); setExporting(true); setMessage('服务器正在生成状态文件，生成后将下载到指定位置。大型仓库可能需要较长时间。')
+      setDestination(target); setExporting(true); setMessage('服务器正在生成状态文件，生成后会保存到选定的位置。大型仓库可能需要较长时间。')
       const result = await app().ExportStateCapsule(selectedIDs, target)
       setMessage(`状态文件已保存到：${result.path}。接下来把它带到联网电脑，在“联网下载”页面打开。`)
       await onCapsuleChanged()
@@ -122,7 +122,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
 
   return <section className="page-stack">
     <div className="page-header">
-      <div><h2>先从内网服务器导出状态文件</h2><p>连接服务器，勾选这次想更新的软件源，再把状态文件保存到移动硬盘。联网电脑会用它找出需要下载的更新。</p></div>
+      <div><h2>从内网服务器导出状态文件</h2><p>连接内网服务器，勾选要更新的软件源，将状态文件保存到移动硬盘。联网电脑可以根据这个文件检查需要下载的更新。</p></div>
       <span className={`connection ${overview?.connected ? 'ok' : ''}`}>{overview?.connected ? '已连接' : '未连接'}</span>
     </div>
 
@@ -137,16 +137,16 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
         </>}
       </div>
     </div>
-    {!overview && <div className="card connection-diagnostics"><div className="card-title"><span>连接诊断</span><button disabled={busy || diagnosing} onClick={diagnose}>{diagnosing ? '正在检查…' : '检查地址和访问权限'}</button></div><p>仅发送读取请求，不建立正式连接、不修改服务器配置。最多检查 15 秒。</p>{checks.map(check => <div className="check-row" key={check.stage}><span className={`status ${check.ok ? 'status-complete' : 'status-failed'}`}>{check.ok ? '通过' : '未通过'}</span><div><strong>{check.stage}</strong><p>{check.message}</p></div><small>{check.elapsedMs} ms（累计）</small></div>)}</div>}
+    {!overview && <div className="card connection-diagnostics"><div className="card-title"><span>连接诊断</span><button disabled={busy || diagnosing} onClick={diagnose}>{diagnosing ? '正在检查…' : '检查地址和访问权限'}</button></div><p>检查服务器地址、连接令牌和访问权限，不修改服务器配置，最多等待 15 秒。</p>{checks.map(check => <div className="check-row" key={check.stage}><span className={`status ${check.ok ? 'status-complete' : 'status-failed'}`}>{check.ok ? '通过' : '未通过'}</span><div><strong>{check.stage}</strong><p>{check.message}</p></div><small>{check.elapsedMs} ms（累计）</small></div>)}</div>}
 
 
-    {overview && <div className="metrics-grid"><div className="metric"><span>软件源总数</span><strong>{formatCount(overview.sources.length)}</strong></div><div className="metric"><span>已启用</span><strong>{formatCount(overview.sources.filter(x => x.source.enabled).length)}</strong></div><div className="metric"><span>正在同步</span><strong>{formatCount(overview.sources.filter(x => x.state.activeEpochId).length)}</strong></div><div className="metric"><span>已选择导出</span><strong>{formatCount(selectedIDs.length)}</strong></div></div>}
+    {overview && <div className="metrics-grid"><div className="metric"><span>软件源总数</span><strong>{formatCount(overview.sources.length)}</strong></div><div className="metric"><span>已启用</span><strong>{formatCount(overview.sources.filter(x => x.source.enabled).length)}</strong></div><div className="metric"><span>正在同步</span><strong>{formatCount(overview.sources.filter(x => x.state.activeEpochId).length)}</strong></div><div className="metric"><span>已选软件源</span><strong>{formatCount(selectedIDs.length)}</strong></div></div>}
     <div className="card table-card">
       <div className="card-title">
         <span>选择要更新的软件源</span>
         <div className="button-row">{overview ? <><span>{overview.sources.length} 个软件源</span><button disabled={busy} onClick={() => setEditor('create')}>添加软件源</button></> : <span>连接后可以选择</span>}</div>
       </div>
-      {overview && <div className="table-toolbar"><input type="search" aria-label="搜索软件源" placeholder="按名称、类型或目录搜索" value={search} onChange={e => setSearch(e.target.value)} /><span>显示 {visibleSources.length} / {overview.sources.length} 个软件源</span><div className="button-row"><button disabled={busy || !visibleSources.length} onClick={() => setSelected(prev => new Set([...prev, ...visibleSources.filter(x => x.source.enabled).map(x => x.source.id)]))}>选择当前列表中已启用的软件源</button><button disabled={busy || !selectedIDs.length} onClick={() => setSelected(new Set())}>取消全部选择</button></div></div>}
+      {overview && <div className="table-toolbar"><input type="search" aria-label="搜索软件源" placeholder="按名称、类型或目录搜索" value={search} onChange={e => setSearch(e.target.value)} /><span>显示 {visibleSources.length} / {overview.sources.length} 个软件源</span><div className="button-row"><button disabled={busy || !visibleSources.length} onClick={() => setSelected(prev => new Set([...prev, ...visibleSources.filter(x => x.source.enabled).map(x => x.source.id)]))}>选中当前列表中已启用的源</button><button disabled={busy || !selectedIDs.length} onClick={() => setSelected(new Set())}>取消全部选择</button></div></div>}
       <div className="table-wrap"><table><thead><tr><th>选择</th><th>软件源</th><th>类型</th><th>同步记录</th><th>现有文件</th><th>服务器空间</th><th>同步任务</th><th>更新时间</th><th></th></tr></thead>
         <tbody>{visibleSources.length ? visibleSources.map(row => {
           const valid = !row.capacityError && Number.isFinite(row.capacity.totalBytes) && row.capacity.totalBytes > 0 && Number.isFinite(row.capacity.freeBytes) && row.capacity.freeBytes >= 0 && row.capacity.freeBytes <= row.capacity.totalBytes
@@ -158,7 +158,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
             <td>{row.state.liveCursor.kind || '暂无同步记录'}<small className="mono clip" title={row.state.liveCursor.value}>{row.state.liveCursor.value || '—'}</small></td>
             <td>{formatCount(row.state.liveObjects)} 个<small>{formatBytes(row.state.liveBytes)}</small></td>
             <td>{valid ? <>剩余 {formatBytes(row.capacity.freeBytes)}<progress className={`disk-meter ${pct >= 95 ? 'critical' : pct >= 85 ? 'warning' : ''}`} max={100} value={pct} aria-label="所在磁盘已用比例"/><small>总计 {formatBytes(row.capacity.totalBytes)} · 已用 {pct.toFixed(1)}%</small>{pct >= 85 && <span className={`status ${pct >= 95 ? 'status-failed' : 'status-paused'}`}>{pct >= 95 ? '空间紧张' : '空间偏低'}</span>}</> : <small>无法读取磁盘容量{row.capacityError && <details><summary>错误详情</summary><span className="error-detail">{row.capacityError}</span></details>}</small>}</td>
-            <td>{row.state.activeEpochId ? '有任务进行中' : '无'}</td>
+            <td>{row.state.activeEpochId ? '正在同步' : '无'}</td>
             <td>{formatDate(row.state.updatedAt)}</td>
             <td><button disabled={busy} onClick={() => setEditor(row.source)}>编辑</button></td>
           </tr>
@@ -171,7 +171,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
     {overview && <details className="secondary-section"><summary>查看服务器同步任务记录</summary><div className="secondary-section-body"><div className="card table-card">
       <div className="card-title">
         <span>同步任务记录</span>
-        <span>{epochSource?.state.activeEpochId ? `有正在进行的任务` : '目前没有进行中的任务'}</span>
+        <span>{epochSource?.state.activeEpochId ? `有未完成的同步任务` : '没有未完成的同步任务'}</span>
       </div>
       <div className="form-grid">
         <label>软件源<select value={epochSourceID} onChange={e => setEpochSourceID(e.target.value)} disabled={busy}>
@@ -192,7 +192,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
     </div>
     </div></details>}
 
-    {overview && <div className="card settings-card"><div><h3>仓库维护</h3><p>如需清点、校验、修复文件或下载后台导出任务，请打开独立维护页面。</p></div><button onClick={onMaintenance}>打开维护工具</button></div>}
+    {overview && <div className="card settings-card"><div><h3>仓库维护</h3><p>可以在仓库维护页面清点、校验和修复文件，也可以下载服务器已经生成的状态文件。</p></div><button onClick={onMaintenance}>打开维护工具</button></div>}
     <div className="card export-row">
       <div><h3>把状态文件保存到移动硬盘</h3><p>状态文件包含服务器的仓库记录和软件源配置，不包含软件包。带到联网电脑后，用它检查和下载更新。{exporting && ' 如果中途断开，可在仓库维护页面查看服务器上的导出任务。'}</p></div>
       <div className="path-picker"><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="选择移动硬盘上的保存位置（.mstate）" /><button disabled={busy} onClick={chooseDestination}>浏览</button><button className="primary" disabled={!overview || busy || !selectedIDs.length} onClick={exportCapsule}>{exporting ? '正在生成或下载…' : `保存状态文件${selectedIDs.length ? `（${selectedIDs.length}）` : ''}`}</button></div>
