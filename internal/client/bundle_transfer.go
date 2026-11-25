@@ -244,17 +244,9 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 	if state.ActiveEpochID != "" && state.ActiveEpochID != d.EpochID {
 		return out, fmt.Errorf("server source has active epoch %s: %w", state.ActiveEpochID, domain.ErrConflict)
 	}
-	capacity, err := agent.Capacity(ctx, d.SourceID)
-	if err != nil {
-		return out, err
-	}
-	need := uint64(d.BatchBytes)
-	if max := maxPackSize(d); max > 0 {
-		need += uint64(max)
-	}
-	if capacity.FreeBytes < need {
-		return out, fmt.Errorf("server source free=%d required>=%d: %w", capacity.FreeBytes, need, domain.ErrConflict)
-	}
+	// The server distinguishes new reservations from existing sessions and
+	// checks capacity for new batches. A full-batch client estimate would
+	// prevent recovery after part of the batch is already installed.
 	requestID := strings.TrimSpace(opts.RequestID)
 	if requestID == "" {
 		requestID = "batch-" + d.BatchID
@@ -262,6 +254,9 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 	session, err := agent.CreateImport(ctx, requestID, d)
 	if err != nil {
 		return out, err
+	}
+	if session.ID == "" || session.SourceID != d.SourceID || session.EpochID != d.EpochID || session.BatchID != d.BatchID || session.ManifestSize != d.ManifestSize || !strings.EqualFold(session.ManifestSHA256, d.ManifestSHA256) {
+		return out, fmt.Errorf("server import session identity mismatch: %w", domain.ErrConflict)
 	}
 	status, err := agent.ImportStatus(ctx, session.ID)
 	if err != nil {
