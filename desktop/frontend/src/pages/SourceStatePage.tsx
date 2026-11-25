@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { app } from '../backend'
-import { MaintenancePanel } from '../components/MaintenancePanel'
 import { SourceEditor } from '../components/SourceEditor'
 import { errorText, formatBytes, formatCount, formatDate, shortID, statusLabel } from '../format'
 import type { AgentOverview, Epoch, Source, SourceInput } from '../types'
@@ -9,9 +8,10 @@ type Props = {
   overview: AgentOverview | null
   onOverview: (value: AgentOverview | null) => void
   onCapsuleChanged: () => Promise<void>
+  onMaintenance: () => void
 }
 
-export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Props) {
+export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMaintenance }: Props) {
   const [baseURL, setBaseURL] = useState('')
   const [token, setToken] = useState('')
   const [search, setSearch] = useState('')
@@ -157,7 +157,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
 
     {overview && editor && <SourceEditor key={editor === 'create' ? 'new' : editor.id} source={editor === 'create' ? null : editor} busy={busy} onCancel={() => setEditor(null)} onSubmit={saveSource} />}
 
-    {overview && <details className="secondary-section"><summary>查看同步任务和维护工具（需要时再打开）</summary><div className="secondary-section-body"><div className="card table-card">
+    {overview && <details className="secondary-section"><summary>查看服务器同步任务记录</summary><div className="secondary-section-body"><div className="card table-card">
       <div className="card-title">
         <span>同步任务记录</span>
         <span>{epochSource?.state.activeEpochId ? `有正在进行的任务` : '目前没有进行中的任务'}</span>
@@ -179,9 +179,9 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged }: Prop
         </tr>) : <tr><td colSpan={7} className="empty">这个软件源还没有同步任务。</td></tr>}</tbody>
       </table></div>
     </div>
-    <MaintenancePanel overview={overview} />
     </div></details>}
 
+    {overview && <div className="card settings-card"><div><h3>仓库维护</h3><p>如需清点、校验、修复文件或下载后台导出任务，请打开独立维护页面。</p></div><button onClick={onMaintenance}>打开维护工具</button></div>}
     <div className="card export-row">
       <div><h3>把状态文件保存到移动硬盘</h3><p>状态文件包含服务器的仓库记录和软件源配置，不包含软件包。带到联网电脑后，用它检查和下载更新。</p></div>
       <div className="path-picker"><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="选择移动硬盘上的保存位置（.mstate）" /><button onClick={chooseDestination}>浏览</button><button className="primary" disabled={!overview || busy || !selectedIDs.length} onClick={exportCapsule}>保存状态文件 {selectedIDs.length ? `(${selectedIDs.length})` : ''}</button></div>
