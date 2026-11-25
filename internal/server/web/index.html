@@ -1,42 +1,15 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AirGap Mirror · 内网服务器</title>
-<style>
-:root{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;font-size:15px;color:#243247;background:#f5f7fb}
-*{box-sizing:border-box}body{margin:0}main{max-width:1050px;margin:0 auto;padding:24px 18px 64px}
-h1{font-size:27px;margin:0 0 8px}h2{font-size:19px;margin:0 0 12px}h3{font-size:16px;margin:4px 0}
-p{line-height:1.65;color:#596a80}header{padding:24px 0 12px}
-.panel{background:#fff;border:1px solid #dee6ef;border-radius:14px;padding:20px;margin:16px 0;box-shadow:0 4px 18px #23334908}
-.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.grow{flex:1}.small{font-size:13px}
-input,select,textarea{font:inherit;width:100%;padding:10px;border:1px solid #c6d1df;border-radius:8px}
-label{display:block;font-size:13px;color:#495b72;margin:6px 0}.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-button,a.button{font:inherit;border:1px solid #c9d5e3;border-radius:8px;padding:9px 12px;background:#fff;color:#243247;cursor:pointer;text-decoration:none;display:inline-block}
-button.primary{background:#215cba;color:#fff;border-color:#215cba}button:hover,a.button:hover{filter:brightness(.95)}
-.source{border-top:1px solid #e1e8f0;padding:17px 0}.tag{font-size:12px;color:#315d8e;background:#edf3fc;border-radius:50px;padding:3px 8px}
-#message{white-space:pre-wrap;background:#e9f2ff;color:#184b89;padding:13px;border-radius:8px}
-#message.error{background:#ffecef;color:#aa333e}.hidden{display:none!important}
-details{border:1px solid #dfe7f0;border-radius:8px;padding:12px;margin-top:12px}
-summary{cursor:pointer;color:#26599e}code{font:12px Consolas,monospace;overflow-wrap:anywhere}
-@media(max-width:650px){main{padding:12px}.panel{padding:14px}}
-</style>
-</head>
-<body><main>
-<header><h1>AirGap Mirror · 内网服务器</h1><p>先核对仓库文件和统计结果，然后把状态文件带出去下载更新。带回内网导入后，可重新清点并给 APT 仓库签名。</p></header>
-<section class="panel" id="login"><h2>连接这台服务器</h2>
-<p>请输入安装 Agent 时生成的连接令牌。令牌只留在本页面的内存中，刷新后需要重新输入。</p>
-<div class="row"><label class="grow">连接令牌<input type="password" id="token" autocomplete="off" placeholder="服务器管理员提供"></label><button id="connect" class="primary">连接</button></div>
-<p class="small">请直接使用服务器管理员提供的地址。通过 Apache 代理访问时，可以使用 <code>https://mirror.example.internal/mirror-control/</code>；不需要改成服务器的 IP。直连 HTTP 不加密令牌，请仅在可信内网使用。</p>
-</section>
-<div id="app" class="hidden">
-<section class="panel"><div class="row"><h2 class="grow">仓库文件和同步状态</h2><button id="refresh">刷新</button></div>
-<p>“文件账本”记录服务器已有的文件，“同步位置”记录上次同步到哪里。如果磁盘上的文件有变化，先“重新清点”再继续。</p>
-<div id="sources"></div>
-<div class="row"><button id="add">添加软件源</button><button id="exportAll">导出全部软件源状态</button><button id="key">下载 APT 签名公钥</button></div>
-</section>
-<section class="panel"><div class="row"><h2 class="grow">状态文件导出任务</h2><button id="refreshExports">刷新任务</button></div><p class="small">导出在服务器上执行，关闭页面不会取消任务。完成后可以再次连接并下载。支持文件保存接口的浏览器将直接写入磁盘；其他浏览器可使用 Windows 客户端下载大型文件。</p><div id="exportJobs"></div></section>
-<section class="panel hidden" id="editor"><h2 id="editorTitle">添加软件源</h2>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AirGap Mirror · 内网服务器</title><style>
+:root{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;font-size:14px;color:#1c293b;background:#f3f6fa;--nav:#13243a;--blue:#245cc5;--line:#dce4ef;--muted:#61738a}
+*{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}button,a.button{cursor:pointer;text-decoration:none;background:white;color:#26384d;border:1px solid #ccd8e6;border-radius:7px;padding:9px 13px;display:inline-block;line-height:1.4}button:hover:not(:disabled),a.button:hover{background:#eef4ff;border-color:#9cb7e5}button:disabled{opacity:.45;cursor:not-allowed}button.primary{background:var(--blue);border-color:var(--blue);color:white}button.primary:hover:not(:disabled){background:#194ca9}button.danger{color:#a12c36;border-color:#e6bbc1}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #91b7fa;outline-offset:2px}
+h1,h2,h3,p{margin:0}h1{font-size:25px;letter-spacing:-.4px}h2{font-size:18px}h3{font-size:15px}p{line-height:1.65;color:var(--muted)}.small{font-size:12px}.muted{color:var(--muted)}.hidden{display:none!important}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.grow{flex:1;min-width:0}.stack{display:grid;gap:14px}.panel{background:white;border:1px solid var(--line);border-radius:12px;padding:20px;min-width:0}.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}.section-head p{margin-top:4px}.subhead{margin:16px 0 10px}.shell{display:grid;grid-template-columns:222px minmax(0,1fr);min-height:100vh}.sidebar{background:var(--nav);color:white;position:sticky;top:0;height:100vh;padding:25px 16px;display:flex;flex-direction:column;gap:28px}.brand{display:flex;gap:12px;align-items:center;padding:0 5px}.brand-mark{width:36px;height:36px;background:#3978db;color:white;display:grid;place-items:center;border-radius:9px;font-weight:750;letter-spacing:-1px}.brand strong{font-size:16px;display:block}.brand small{color:#9eb1c9;font-size:11px}.nav-label{font-size:11px;color:#92a8c4;padding:0 10px;margin-bottom:9px}.nav{display:grid;gap:5px}.nav button{border:0;background:transparent;text-align:left;color:#c9d7e7;padding:12px 10px;font-weight:500;display:flex;align-items:center;gap:12px}.nav button:hover:not(:disabled){background:#223d5d;color:white}.nav button[aria-current="page"]{background:#2a4870;color:white;box-shadow:inset 3px 0 #79a8ff}.nav-icon{width:20px;text-align:center;font-size:17px;color:#9dbdf0}.side-foot{margin-top:auto;border-top:1px solid #30455d;padding:16px 8px 0;display:grid;gap:10px;color:#aec0d6;font-size:12px}.side-foot button{background:transparent;color:#e0e9f5;border-color:#465d79}.content{min-width:0}.topbar{background:white;border-bottom:1px solid var(--line);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:5}.crumb{color:#677b92;font-size:13px}.connection{font-size:12px;color:#18724e;background:#edf7f0;padding:6px 10px;border-radius:20px}.workspace{max-width:1560px;margin:auto;padding:28px;display:grid;gap:20px}.page-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.page-head p{margin-top:6px}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.metric{background:white;border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:9px}.metric span{color:var(--muted);font-size:12px}.metric strong{font-size:26px;font-weight:650;letter-spacing:-.6px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.metric small{font-size:12px;color:#74859a}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}th{background:#f4f7fb;color:#54667d;font-size:12px;font-weight:600;white-space:nowrap}th,td{padding:13px 12px;border-bottom:1px solid #e8edf4;vertical-align:middle}td{overflow-wrap:anywhere}tr:last-child td{border-bottom:0}td small{display:block;margin-top:5px;color:var(--muted)}.mono,code{font-family:Consolas,monospace;font-size:12px;overflow-wrap:anywhere}.tag{font-size:11px;font-weight:600;padding:4px 8px;border-radius:5px;background:#edf3fc;color:#315d8e;display:inline-block;white-space:nowrap}.tag.good{background:#e7f5ec;color:#16633e}.tag.wait{background:#fff2dc;color:#885700}.tag.bad{background:#fbe9eb;color:#9e3040}.source{border:1px solid var(--line);border-radius:9px;padding:17px;display:grid;gap:12px}.source-list{display:grid;gap:12px}.source h3{font-size:16px}.action-group{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.action-group button{font-size:12px;padding:7px 10px}.progress{height:7px;width:100%;background:#e5ebf4;border-radius:8px;overflow:hidden;margin-top:8px}.progress>div{height:100%;background:#3978db;border-radius:8px}.progress.low>div{background:#b36b20}.empty{padding:24px;text-align:center;color:var(--muted);background:#f8fafc;border:1px dashed var(--line);border-radius:8px}.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}label{display:block;color:#475b72;font-size:13px;line-height:1.6}input,select,textarea{width:100%;padding:10px 11px;border:1px solid #cbd7e6;border-radius:7px;background:white;color:#26384d}label input,label select,label textarea{margin-top:4px}textarea{resize:vertical}input[type=checkbox]{width:auto}details{border:1px solid var(--line);border-radius:8px;padding:13px;margin-top:12px}summary{cursor:pointer;color:#245cc5}details p{margin:8px 0}#message{padding:12px 15px;border:1px solid #cbdff9;background:#edf5ff;border-radius:8px;color:#24528c;white-space:pre-wrap;overflow-wrap:anywhere}#message.error{background:#fff0f0;color:#a12c36;border-color:#f1c9cf}.login-wrap{max-width:560px;margin:9vh auto;padding:24px;display:grid;gap:18px}.login-wrap h1{font-size:28px}.login-wrap .panel{display:grid;gap:18px;padding:28px}.login-wrap button{width:100%}.login-wrap .brand{color:#20334b}.login-wrap .brand small{color:var(--muted)}.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.file-detail{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fb;border:1px solid var(--line);border-radius:8px;padding:12px;max-height:420px;overflow:auto}.dialog{width:min(850px,calc(100% - 28px));max-height:88vh;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:22px;box-shadow:0 12px 60px #13243a33}.dialog::backdrop{background:#13243a66}.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.toolbar input,.toolbar select{width:auto;max-width:100%;min-width:140px}.error-text{color:#a12c36;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:1050px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:1fr}.workspace{padding:20px}.topbar{padding:13px 20px}.shell{grid-template-columns:190px minmax(0,1fr)}}@media(max-width:700px){.shell{display:block}.sidebar{position:static;height:auto;padding:14px;gap:13px}.nav{display:flex;overflow:auto;gap:5px}.nav button{white-space:nowrap;padding:10px}.nav-label,.side-foot{display:none}.topbar{position:static;padding:12px 14px}.workspace{padding:14px;gap:14px}.panel{padding:14px}.metric{padding:13px}.metric strong{font-size:21px}th,td{padding:10px}.page-head h1{font-size:22px}}
+</style></head><body>
+<div id="login" class="login-wrap"><div class="brand"><span class="brand-mark">AM</span><div><strong>AirGap Mirror</strong><small>内网镜像管理</small></div></div><section class="panel"><div><h1>连接内网服务器</h1><p>通过 Agent 连接令牌访问管理控制台。</p></div><form id="loginForm" class="stack"><label>连接令牌<input type="password" id="token" required autocomplete="off" placeholder="服务器管理员提供"></label><button id="connect" class="primary" type="submit">连接服务器</button></form><p class="small">令牌仅保存在当前页面内存中，刷新后需要重新连接。建议使用 HTTPS，通过 Apache 的 /mirror-control/ 路径访问。</p><p id="loginError" role="alert" class="error-text"></p></section></div>
+<div id="app" class="shell hidden"><aside class="sidebar"><div class="brand"><span class="brand-mark">AM</span><div><strong>AirGap Mirror</strong><small>内网镜像管理控制台</small></div></div><div><div class="nav-label">运维管理</div><nav class="nav" aria-label="主导航"><button type="button" data-page="overview"><span class="nav-icon" aria-hidden="true">▦</span>总览</button><button type="button" data-page="repositories"><span class="nav-icon" aria-hidden="true">▤</span>软件源管理</button><button type="button" data-page="maintenance"><span class="nav-icon" aria-hidden="true">◷</span>维护任务</button><button type="button" data-page="sync"><span class="nav-icon" aria-hidden="true">⇄</span>同步记录</button><button type="button" data-page="exports"><span class="nav-icon" aria-hidden="true">↓</span>状态文件导出</button><button type="button" data-page="storage"><span class="nav-icon" aria-hidden="true">▥</span>存储空间</button><button type="button" data-page="settings"><span class="nav-icon" aria-hidden="true">⚙</span>系统配置</button></nav></div><div class="side-foot"><span>离线仓库运维</span><button id="disconnect">断开连接</button></div></aside><main class="content"><div class="topbar"><span class="crumb">管理控制台 / <strong id="currentPage">总览</strong></span><div class="row"><span id="connection" class="connection">已连接</span><span id="lastRefresh" class="small muted"></span><button id="refresh">刷新</button><button id="logout">退出</button></div></div>
+<div class="workspace"><div id="message" role="status" aria-live="polite" class="hidden"></div>
+<section id="page-overview" class="stack"><div class="page-head"><div><h1>仓库总览</h1><p>查看已登记的软件源、文件账本及当前维护状态。</p></div><button id="overviewAdd" class="primary">添加软件源</button></div><div id="metrics" class="metrics"></div><section class="panel"><div class="section-head"><div><h2>软件源状态</h2><p class="small">账本统计不等于磁盘实际文件清点结果。</p></div><button id="overviewRepositories">管理软件源</button></div><div id="overviewTable" class="table-wrap"></div></section><div class="split"><section class="panel"><div class="section-head"><h2>正在进行的维护</h2><button id="overviewTasks">全部任务</button></div><div id="activeTasks" class="stack"></div></section><section class="panel"><div class="section-head"><h2>离线同步流程</h2></div><div class="stack"><p>1. 在内网核对账本并导出状态文件。</p><p>2. 使用联网客户端分析上游并下载软件包。</p><p>3. 将离线传输包带回内网，通过 Windows 客户端导入。</p><p>4. 查看同步记录，按需执行清点和校验。</p></div><div class="subhead"><button id="overviewExport" class="primary">导出全部软件源状态</button></div></section></div></section>
+<section id="page-repositories" class="stack hidden"><div class="page-head"><div><h1>软件源管理</h1><p>管理 APT、PyPI、npm 和 Maven 仓库及上游配置。</p></div><button id="add" class="primary">添加软件源</button></div><div class="toolbar"><input id="sourceSearch" type="search" placeholder="搜索名称、路径、类型" aria-label="搜索软件源"><select id="sourceType" aria-label="软件类型"><option value="">全部类型</option><option value="apt">APT</option><option value="pypi">PyPI</option><option value="npm">npm</option><option value="maven">Maven</option></select></div><div id="sources" class="source-list"></div><section class="panel hidden" id="editor"><h2 id="editorTitle">添加软件源</h2>
 <div class="form">
 <label>名称<input id="name" placeholder="例如 Debian"></label>
 <label>软件类型<select id="kind"><option value="apt">APT</option><option value="pypi">PyPI</option><option value="npm">npm</option><option value="maven-generic">Maven 通用仓库</option><option value="maven-central">Maven Central 指定依赖</option></select></label>
@@ -48,13 +21,18 @@ summary{cursor:pointer;color:#26599e}code{font:12px Consolas,monospace;overflow-
 <details><summary>软件源详细配置（有需要时再改）</summary><p class="small">APT 要填写真实发行版代号，例如 bookworm 或 jammy，并在 trustedKeyringBase64 中配置可信发行版二进制 OpenPGP 公钥环的 Base64 内容。requireValidUntil 为 true 时要求上游必须声明有效期。未配置公钥环时联网分析会失败。Maven Central 需要明确指定要同步的依赖。</p><textarea id="config" rows="5" spellcheck="false"></textarea></details>
 <div class="row" style="margin-top:14px"><button class="primary" id="save">保存软件源</button><button id="cancelEdit">取消</button></div>
 </section>
-<section class="panel"><h2>Linux 服务器配置与签名</h2>
+</section>
+<section id="page-maintenance" class="stack hidden"><div class="page-head"><div><h1>维护任务</h1><p>按软件源启动清点、完整性校验及账本回收，查看最近任务。</p></div></div><section class="panel"><div class="section-head"><h2>启动维护操作</h2><select id="maintSource" aria-label="选择软件源" style="width:auto;max-width:100%"></select></div><div id="maintActions"></div></section><section class="panel"><div class="section-head"><h2>任务记录</h2><div class="toolbar"><select id="taskStatus" aria-label="任务状态"><option value="">全部状态</option><option value="ACTIVE">进行中 / 暂停</option><option value="COMPLETED">已完成</option><option value="FAILED">失败</option><option value="CANCELLED">已取消</option></select></div></div><p class="small">每个软件源最近 20 条维护任务；选择软件源后可查看相应记录。</p><div id="taskTable" class="table-wrap"></div></section></section>
+<section id="page-sync" class="stack hidden"><div class="page-head"><div><h1>同步记录</h1><p>查看内网已登记的同步任务和导入批次。离线传输包仍通过 Windows 客户端导入。</p></div><button id="refreshSync">刷新记录</button></div><section class="panel"><div class="section-head"><h2>同步任务</h2><select id="syncSource" aria-label="选择软件源" style="width:auto;max-width:100%"></select></div><div id="syncTable" class="table-wrap"></div></section><section class="panel hidden" id="batchPanel"><div class="section-head"><h2>导入批次</h2><button id="closeBatches">收起</button></div><p id="batchEpoch" class="small"></p><div id="batchTable" class="table-wrap"></div></section></section>
+<section id="page-exports" class="stack hidden"><div class="page-head"><div><h1>状态文件导出</h1><p>服务器后台生成状态文件，可重新连接后下载。</p></div><button id="exportAll" class="primary">导出全部软件源状态</button></div><section class="panel"><div class="section-head"><h2>导出任务</h2><button id="refreshExports">刷新任务</button></div><p class="small">支持文件保存接口的浏览器可直接写入磁盘；其他浏览器请使用 Windows 客户端下载大型文件。</p><div id="exportJobs" class="table-wrap"></div></section></section>
+<section id="page-storage" class="stack hidden"><div class="page-head"><div><h1>存储空间</h1><p>按仓库所在文件系统查看可用空间，不将共享文件系统的容量重复累加。</p></div></div><div id="storageCards" class="source-list"></div></section>
+<section id="page-settings" class="stack hidden"><div class="page-head"><div><h1>系统配置</h1><p>连接信息、Agent 配置脚本及 APT 本地签名管理。</p></div></div><section class="panel stack"><h2>连接信息</h2><p>当前地址：<code id="serverAddress"></code></p><p class="small">访问令牌不写入浏览器本地存储。断开连接后清空页面状态。</p></section><section class="panel"><h2>Linux 服务器配置与签名</h2>
 <p>下面的脚本可下载到已安装 Agent 的 Linux 服务器运行。第一个脚本设置访问地址，不会修改 Apache 或现有仓库；第二个脚本为本地 APT 仓库准备专用 GPG 密钥。<strong>重新签名前，请先完成文件清点并确认结果。</strong></p>
 <div class="row"><a class="button" href="downloads/configure-agent.sh" download>下载服务器配置脚本</a><a class="button" href="downloads/configure-apt-signing.sh" download>下载 APT 签名配置脚本</a></div>
 <p class="small">如果已经通过 Apache 的 <code>/mirror-control/</code> 代理访问，请保留 Agent 默认的 <code>127.0.0.1:8787</code>，无需修改监听地址。只有需要局域网 IP 直连时才运行 <code>configure-agent.sh --listen 您的服务器IP:8787</code>；签名配置执行 <code>sudo bash configure-apt-signing.sh</code>。</p>
-</section></div>
-<p id="message" role="status" aria-live="polite">请先输入连接令牌，以查看服务器状态。</p>
-</main>
+</section><section class="panel stack"><h2>APT 内网签名公钥</h2><p>下载专用公钥并配置到信任该内网仓库的客户端。</p><div><button id="key">下载 APT 签名公钥</button></div></section></section>
+</div></main></div>
+<dialog id="detailDialog" class="dialog"><div class="section-head"><h2 id="detailTitle">任务详情</h2><button id="detailClose">关闭</button></div><div id="detailBody" class="stack"></div><div id="detailActions" class="action-group subhead"></div></dialog>
 <script>
 (function(){
 'use strict';
@@ -69,171 +47,69 @@ const definitions={
 // 当前页面可能位于 /（Agent 直连）或 /mirror-control/（Apache 子路径代理）。
 // 所有 API 请求必须相对于当前管理页面构造；绝对根路径会绕过 Apache 代理。
 const basePath=window.location.pathname.replace(/\/$/,'');
-let token='',sources=[],editing=null;
-function show(message,error){el('message').textContent=message;el('message').className=error?'error':'';}
-async function api(path,opt){
- const options=opt||{};
- const response=await fetch(basePath+path,Object.assign({},options,{headers:Object.assign({Authorization:'Bearer '+token},options.headers||{})}));
- if(!response.ok){let reason='请求失败（'+response.status+'）';try{reason=(await response.json()).error||reason;}catch(_){}throw Error(reason);}
- return response;
-}
-function make(tag,value,cls){const x=document.createElement(tag);x.textContent=String(value);if(cls)x.className=cls;return x;}
-function action(label,fn){const b=make('button',label);b.addEventListener('click',()=>Promise.resolve(fn()).catch(e=>show(e.message,true)));return b;}
-function bytes(v){let x=Number(v)||0,i=0;const u=['B','KiB','MiB','GiB','TiB'];while(x>=1024&&i<4){x/=1024;i++;}return x.toFixed(i?1:0)+' '+u[i];}
-async function download(path,name){const data=await (await api(path)).blob();const url=URL.createObjectURL(data);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}
-async function exportState(ids,repairJobId){
- const j=await(await api('/api/v1/state/export-jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sourceIds:ids,repairJobId:repairJobId||''})})).json();
- show('状态文件导出任务已提交：'+j.id+'。可在下方查看进度，完成后下载。');
- await refreshExports();
-}
-async function downloadExport(j){
- if(typeof window.showSaveFilePicker==='function'){
-  const handle=await window.showSaveFilePicker({suggestedName:j.name});
-  const response=await api(j.download);
-  const stream=await handle.createWritable();
-  try{await response.body.pipeTo(stream);}catch(e){try{await stream.abort();}catch(_){}throw e;}
- }else{
-  const response=await api(j.download);
-  const size=Number(response.headers.get('Content-Length'));
-  if(size>512*1024*1024){await response.body.cancel();throw Error('状态文件超过 512 MiB，当前浏览器不支持直接写入磁盘。请使用支持文件保存接口的 HTTPS 浏览器或 Windows 客户端。');}
-  const data=await response.blob();const url=URL.createObjectURL(data);
-  const a=document.createElement('a');a.href=url;a.download=j.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
- }
- show('状态文件已保存。');
-}
-let refreshingExports=false;
-async function refreshExports(){
- if(!token||refreshingExports)return;
- refreshingExports=true;
- try{
-  const jobs=await(await api('/api/v1/state/export-jobs')).json();
-  const holder=el('exportJobs');holder.replaceChildren();
-  if(!jobs.length){holder.appendChild(make('p','暂无导出任务。','small'));return;}
-  const labels={QUEUED:'排队中',RUNNING:'生成中',COMPLETED:'已完成',FAILED:'失败'};
-  for(const j of jobs){
-   const row=make('div','');row.className='row';
-   row.appendChild(make('span',(labels[j.status]||j.status)+' · '+j.stage+' · '+j.completedSources+'/'+j.totalSources+' 个软件源 · '+j.id,'grow'));
-   if(j.errorText)row.appendChild(make('p',j.errorText,'small'));
-   if(j.status==='COMPLETED')row.appendChild(action('下载状态文件',()=>downloadExport(j)));
-   holder.appendChild(row);
-  }
- }finally{refreshingExports=false;}
-}
-async function refresh(){
- const list=await (await api('/api/v1/sources')).json();sources=Array.isArray(list)?list:[];
- const holder=el('sources');holder.replaceChildren();
- if(!sources.length){holder.appendChild(make('p','还没有软件源，请先点击“添加软件源”。'));return;}
- for(const s of sources){
-  const article=make('article','');article.className='source';
-  const head=make('div','');head.className='row';head.appendChild(make('h3',s.name,'grow'));head.appendChild(make('span',s.type+' · '+s.provider,'tag'));article.appendChild(head);
-  const state=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/state')).json();
-  let freeSpace='当前无法读取（请检查仓库目录是否存在、Agent 是否有权限）';
-  try {
-    const capacity=await (await api('/api/v1/capacity?sourceId='+encodeURIComponent(s.id))).json();
-    freeSpace=bytes(capacity.freeBytes);
-  } catch (_) {}
-  article.appendChild(make('p','文件账本：'+(state.liveObjects||0)+' 个文件，约 '+bytes(state.liveBytes)+'；剩余空间：'+freeSpace));
-  article.appendChild(make('p',state.activeEpochId?'有同步任务进行中，请先完成它。':'目前没有进行中的同步任务。','small'));
-  article.appendChild(make('p','同步位置：'+(state.liveCursor&&state.liveCursor.value?state.liveCursor.kind+' · '+state.liveCursor.value:'还没有同步记录'),'small'));
-  const buttons=make('div','');buttons.className='row';
-  const tasks=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];
-  const running=tasks.find(j=>(j.kind==='INVENTORY'||j.kind==='REPAIR')&&(j.status==='RUNNING'||j.status==='QUEUED'));
-  const paused=tasks.find(j=>(j.kind==='INVENTORY'||j.kind==='REPAIR')&&j.status==='PAUSED');
-  const repair=tasks.find(j=>j.kind==='REPAIR');
-  if(repair)article.appendChild(make('p',(repair.hashMiBPerSecond?'SHA256 完整校验（'+repair.hashMiBPerSecond+' MiB/s）：':'缺失文件检查：')+repair.status+'；已检查 '+repair.scannedObjects+' 个文件，异常 '+repair.candidateObjects+' 个。'+(repair.errorText||''),'small'));
-  if(s.type==='pypi' && (running||paused) && (running||paused).kind==='INVENTORY'){
-    const j=running||paused;
-    article.appendChild(make('p','PyPI 检查进度：'+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；已记录 '+bytes(j.scannedBytes)+'，最近完成：'+(j.lastProject||'尚无检查点'),'small'));
-  }
-  const startButton=action('重新清点文件',async()=>{if(!confirm('将扫描服务器文件并更新文件账本，确认开始吗？'))return;await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');await refresh();});
-  startButton.disabled=!!(running||paused);
-  buttons.appendChild(startButton);
-  if(s.type==='pypi'){
-    const incremental=action('增量清点',async()=>{
-      if(!confirm('复用未变化项目的已验证引用记录，并重新检查所有引用文件是否存在、大小是否一致。确认开始？'))return;
-      await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/incremental-inventory',{method:'POST'});
-      show('已开始增量清点；没有可用缓存的项目将重新解析。');await refresh();
-    });
-    incremental.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(incremental);
-  }
-  if(s.type==='pypi' && running)buttons.appendChild(action('暂停清点',async()=>{await api('/api/v1/maintenance/'+encodeURIComponent(running.id)+'/pause',{method:'POST'});show('已请求暂停。最近一批项目完成后将保留检查点。');await refresh();}));
-  if(s.type==='pypi' && paused){
-    buttons.appendChild(action('继续清点',async()=>{await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/resume',{method:'POST'});show('已请求从上次完成的位置继续清点。');await refresh();}));
-    buttons.appendChild(action('放弃清点',async()=>{if(!confirm('放弃当前清点并删除检查点？旧文件账本不会改变。'))return;await api('/api/v1/maintenance/'+encodeURIComponent(paused.id)+'/cancel',{method:'POST'});show('已放弃本次清点。');await refresh();}));
-  }
-  buttons.appendChild(action('查看清点结果',async()=>{const jobs=await (await api('/api/v1/maintenance?sourceId='+encodeURIComponent(s.id)+'&limit=20')).json()||[];const j=jobs.find(x=>x.kind==='INVENTORY');if(!j){show('还没有清点记录，请先点击“重新清点文件”。');return;}const statuses={QUEUED:'等待开始',RUNNING:'正在检查',PAUSED:'已暂停，可以继续',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消'};show('“'+s.name+'”最近一次清点：'+(statuses[j.status]||j.status)+'；已检查 '+(j.completedProjects||0)+' / '+(j.totalProjects||0)+' 个项目；记录 '+j.scannedObjects+' 个文件，约 '+bytes(j.scannedBytes)+(j.errorText?'。错误：'+j.errorText:''));if(j.status==='COMPLETED')await refresh();}));
-  if(s.type==='pypi'){
-    const check=action('检查缺失文件',async()=>{await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/repair-check',{method:'POST'});show('已开始检查缺失文件及文件大小。');await refresh();});
-    check.disabled=!!(running||paused||state.activeEpochId);
-    buttons.appendChild(check);
-    const integrity=action('SHA256 完整校验',async()=>{
-      const input=prompt('完整校验会读取所有已入账文件。请输入读取上限（1–1024 MiB/s）。','64');
-      if(input===null)return;
-      const speed=Number(input);
-      if(!Number.isInteger(speed)||speed<1||speed>1024)throw Error('请输入 1 至 1024 的整数。');
-      await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/integrity-check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mibPerSecond:speed})});
-      show('已开始 SHA256 完整校验，可暂停后继续。');await refresh();
-    });
-    integrity.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(integrity);
-    if(repair && repair.status==='COMPLETED'){
-      const detail=make('pre','');detail.className='small';article.appendChild(detail);
-      let after='';
-      const showIssues=action('查看异常文件',async()=>{
-        const page=await(await api('/api/v1/maintenance/'+encodeURIComponent(repair.id)+'/repair-issues?limit=100&after='+encodeURIComponent(after))).json();
-        detail.textContent=(page.items||[]).map(i=>(i.kind==='MISSING'?'缺失：':i.kind==='HASH_MISMATCH'?'SHA256 不符：':'大小不符：')+i.logicalPath+(i.actualSha256?'\n预期：'+i.sha256+'\n实际：'+i.actualSha256:'')).join('\n')||'没有更多异常文件';
-        after=page.next||'';showIssues.textContent=after?'下一页异常文件':'查看异常文件';
-      });buttons.appendChild(showIssues);
-      if(repair.candidateObjects>0){
-        const exportRepair=action('导出修复状态',()=>exportState([s.id],repair.id));exportRepair.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(exportRepair);
-        if(repair.hashMiBPerSecond){
-          const approved=!!repair.replacementApproved;
-          const approval=action(approved?'撤销损坏文件修复授权':'授权损坏文件修复',async()=>{
-            if(!confirm(approved?'撤销本报告的损坏文件替换授权？已完成的替换不会回滚。':'授权经过 SHA256 校验的损坏 PyPI 软件包修复。导入时再次核对原账本和旧文件，保留损坏文件后才替换。确认继续？'))return;
-            await api('/api/v1/maintenance/'+encodeURIComponent(repair.id)+'/repair-approval',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approve:!approved})});
-            show(approved?'已撤销授权。':'授权已保存，请导出修复状态文件，再联网下载并离线导入。');await refresh();
-          });
-          approval.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(approval);
-        }
-      }
-    }
-  }
-  buttons.appendChild(action('导出状态文件',()=>exportState([s.id])));
-  const reclaim=action('回收历史账本',async()=>{
-    if(!confirm('仅回收已退役或已放弃的 Catalog 数据库记录，不删除软件包文件，也不修改正式账本。回收后历史账本不可恢复，SQLite 空闲页将留作后续写入。确认继续？'))return;
-    reclaim.disabled=true;let count=0,versions=0;
-    try{
-      for(;;){
-        const v=await(await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/catalog/reclaim',{method:'POST'})).json();
-        count+=v.removedEntries;versions+=v.removedGenerations;
-        show('已回收 '+count+' 条历史记录、'+versions+' 个历史版本。'+(v.more?'仍在处理，可关闭页面后重新继续。':'已完成。'));
-        if(!v.more)break;
-        await new Promise(resolve=>setTimeout(resolve,100));
-      }
-    }finally{reclaim.disabled=false;}
-  });reclaim.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(reclaim);
-  buttons.appendChild(action('编辑设置',()=>openEditor(s)));
-  if(s.type==='apt')buttons.appendChild(action('检查后重新签名',async()=>{if(!confirm('确认已查看清点结果，并且内网 APT 客户端会信任此次使用的专用公钥？'))return;const v=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/sign',{method:'POST'})).json();show('“'+s.name+'”已重新签名（'+v.suite+'）。请确认客户端已安装相应公钥。');await refresh();}));
-  article.appendChild(buttons);holder.appendChild(article);
- }
-}
-function openEditor(s){
- editing=s||null;el('editor').classList.remove('hidden');el('editorTitle').textContent=s?'修改软件源':'添加软件源';
- const kind=s?Object.keys(definitions).find(k=>definitions[k].type===s.type&&definitions[k].provider===s.provider)||'apt':'apt';
- const d=definitions[kind];el('kind').value=kind;el('kind').disabled=!!s;
- el('name').value=s?s.name:'';el('upstream').value=s?s.upstreamUrl:d.url;el('rootPath').value=s?s.rootPath:'';
- el('publicUrl').value=s?s.publicUrl:'';el('enabled').checked=s?s.enabled:true;el('config').value=JSON.stringify(s?s.config:d.config,null,2);
- el('editor').scrollIntoView({behavior:'smooth'});
-}
+
+const labels={overview:'总览',repositories:'软件源管理',maintenance:'维护任务',sync:'同步记录',exports:'状态文件导出',storage:'存储空间',settings:'系统配置'};
+const statuses={QUEUED:'等待开始',RUNNING:'运行中',PAUSED:'已暂停',COMPLETED:'已完成',FAILED:'失败',CANCELLED:'已取消',PLANNED:'已计划',TRANSFERRING:'传输中',IMPORTING:'导入中',IMPORTED:'已导入',PUBLISHABLE:'待发布',PUBLISHED:'已发布',COMPLETE:'已完成',READY:'就绪',DOWNLOADING:'下载中',CREATED:'已创建',WAITING:'等待中'};
+let token='',session=0,sources=[],records=[],editing=null,page='overview',busy=false,refreshing=false,exportBusy=false,syncSerial=0,detailSerial=0;
+const active=j=>['QUEUED','RUNNING','PAUSED'].includes(j.status);
+const number=v=>(Number(v)||0).toLocaleString('zh-CN');
+function bytes(v){let x=Number(v)||0,i=0;const u=['B','KiB','MiB','GiB','TiB','PiB'];while(x>=1024&&i<u.length-1){x/=1024;i++;}return x.toFixed(i?1:0)+' '+u[i];}
+function date(v){return v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';}
+function make(tag,value,cls){const x=document.createElement(tag);if(value!==undefined)x.textContent=String(value);if(cls)x.className=cls;return x;}
+function show(message,error=false){if(!token)return;const n=el('message');n.textContent=message;n.className=error?'error':'';}
+function empty(holder,msg){holder.replaceChildren(make('div',msg,'empty'));}
+function tag(status){const c=['COMPLETED','COMPLETE','PUBLISHED','IMPORTED','ENABLED'].includes(status)?'good':['FAILED','CANCELLED','ERROR'].includes(status)?'bad':['RUNNING','QUEUED','PAUSED','TRANSFERRING','IMPORTING'].includes(status)?'wait':'';return make('span',statuses[status]||({ENABLED:'已启用',DISABLED:'已停用',ERROR:'读取失败'}[status])||status,'tag '+c);}
+function action(label,fn,disabled=false,cls=''){const b=make('button',label,cls);b.type='button';b.disabled=disabled;b.addEventListener('click',()=>perform(async()=>{b.disabled=true;try{await fn();}finally{if(b.isConnected)b.disabled=disabled;}}));return b;}
+async function perform(fn){if(busy||!token)return;const gen=session;busy=true;try{await fn();}catch(e){if(gen===session)show(e.message,true);}finally{if(gen===session)busy=false;}}
+function table(holder,heads,rows){if(!rows.length){empty(holder,'暂无记录');return;}const t=make('table'),head=make('thead'),hr=make('tr');for(const h of heads)hr.appendChild(make('th',h));head.appendChild(hr);t.appendChild(head);const body=make('tbody');for(const row of rows){const tr=make('tr');for(const value of row){const td=make('td');if(value instanceof Node)td.appendChild(value);else td.textContent=String(value??'—');tr.appendChild(td);}body.appendChild(tr);}t.appendChild(body);holder.replaceChildren(t);}
+function pair(value,sub){const d=make('div',value);if(sub)d.appendChild(make('small',sub));return d;}
+function progress(done,total,low=false){const bar=make('div',undefined,'progress'+(low?' low':''));const fill=make('div');fill.style.width=Math.min(100,Math.max(0,total?100*done/total:0))+'%';bar.appendChild(fill);bar.setAttribute('role','progressbar');bar.setAttribute('aria-valuenow',String(total?Math.round(100*done/total):0));bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax','100');return bar;}
+function kind(j){return j.kind==='REPAIR'?(j.hashMiBPerSecond?'SHA256 完整校验':'缺失文件检查'):j.kind==='INVENTORY'?(j.incrementalInventory?'增量清点':'全量清点'):j.kind==='GC'?(j.execute?'清理文件':'清理预览'):j.kind;}
+function getRecord(id){return records.find(r=>r.source.id===id);}
+const srcPath=id=>'/api/v1/sources/'+encodeURIComponent(id);
+const jobPath=id=>'/api/v1/maintenance/'+encodeURIComponent(id);
+async function api(path,opt){const gen=session,options=opt||{};if(!token)throw Error('请先连接服务器。');const response=await fetch(basePath+path,Object.assign({},options,{headers:Object.assign({Authorization:'Bearer '+token},options.headers||{})}));if(gen!==session)throw Error('连接已变化');if(!response.ok){let reason='请求失败（'+response.status+'）';try{reason=(await response.json()).error||reason;}catch(_){}throw Error(reason);}return response;}
+async function json(path,opt){const gen=session,data=await(await api(path,opt)).json();if(gen!==session)throw Error('连接已变化');return data;}
+const post=(path,body)=>json(path,{method:'POST',...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})});
+function navigate(next){if(!Object.hasOwn(labels,next))return;page=next;for(const name of Object.keys(labels))el('page-'+name).classList.toggle('hidden',name!==next);for(const b of document.querySelectorAll('[data-page]')){if(b.dataset.page===next)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}el('currentPage').textContent=labels[next];if(next==='exports')refreshExports().catch(e=>show(e.message,true));if(next==='sync')refreshSync().catch(e=>show(e.message,true));}
+function selectSources(id){const n=el(id),prev=n.value;n.replaceChildren();for(const r of records){const o=make('option',r.source.name+' · '+r.source.type.toUpperCase());o.value=r.source.id;n.appendChild(o);}if(records.some(r=>r.source.id===prev))n.value=prev;}
+function logout(){if(busy){if(!confirm('操作仍在执行。断开连接不会取消服务器端任务，确认退出？'))return;}session++;token='';sources=[];records=[];editing=null;busy=false;refreshing=false;exportBusy=false;syncSerial++;detailSerial++;if(el('detailDialog').open)el('detailDialog').close();el('editor').classList.add('hidden');for(const id of ['metrics','overviewTable','activeTasks','sources','maintActions','taskTable','syncTable','batchTable','exportJobs','storageCards','maintSource','syncSource','detailBody','detailActions'])el(id).replaceChildren();el('batchPanel').classList.add('hidden');el('config').value='';el('sourceSearch').value='';el('sourceType').value='';el('taskStatus').value='';el('lastRefresh').textContent='';el('connection').textContent='已断开';for(const id of ['name','upstream','rootPath','publicUrl'])el(id).value='';el('token').value='';el('loginError').textContent='';el('message').textContent='';el('message').className='hidden';el('app').classList.add('hidden');el('login').classList.remove('hidden');el('token').focus();}
+async function refresh(){if(refreshing||!token)return;const gen=session;refreshing=true;el('refresh').disabled=true;try{const list=await json('/api/v1/sources');const next=[];for(const source of (list||[])){if(gen!==session)return;const [state,tasks,capacity]=await Promise.allSettled([json(srcPath(source.id)+'/state'),json('/api/v1/maintenance?sourceId='+encodeURIComponent(source.id)+'&limit=20'),json('/api/v1/capacity?sourceId='+encodeURIComponent(source.id))]);next.push({source,state:state.status==='fulfilled'?state.value:null,tasks:tasks.status==='fulfilled'?(tasks.value||[]):null,capacity:capacity.status==='fulfilled'?capacity.value:null});}if(gen!==session)return;sources=list||[];records=next;selectSources('maintSource');selectSources('syncSource');renderOverview();renderSources();renderMaintenance();renderStorage();el('lastRefresh').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN',{hour12:false});el('connection').textContent=next.some(r=>!r.state||!r.tasks)?'部分数据读取失败':'已连接';}catch(e){if(gen===session)el('connection').textContent='连接异常';throw e;}finally{if(gen===session){refreshing=false;el('refresh').disabled=false;}}}
+function metric(label,value,note){const d=make('div',undefined,'metric');d.append(make('span',label),make('strong',value),make('small',note));return d;}
+function renderOverview(){const known=records.filter(r=>r.state),tasks=records.flatMap(r=>(r.tasks||[]).filter(active).map(j=>({r,j}))),m=el('metrics');m.replaceChildren(metric('软件源',number(records.length),number(records.filter(r=>r.source.enabled).length)+' 个已启用'),metric('账本文件数',number(known.reduce((a,r)=>a+(r.state.liveObjects||0),0)),known.length===records.length?'已登记文件':'仅统计成功读取的仓库'),metric('账本容量',bytes(known.reduce((a,r)=>a+(r.state.liveBytes||0),0)),'不等于磁盘实际占用'),metric('活跃维护任务',number(tasks.length),(records.some(r=>!r.tasks)?'部分记录读取失败 · ':'')+number(tasks.filter(x=>x.j.status==='PAUSED').length)+' 个已暂停'));table(el('overviewTable'),['软件源','类型','文件数量','账本容量','同步状态','操作'],records.map(r=>[pair(r.source.name,r.source.enabled?'已启用':'已停用'),r.source.type.toUpperCase(),r.state?number(r.state.liveObjects):'未知',r.state?bytes(r.state.liveBytes):'未知',r.state?(r.state.activeEpochId?tag('TRANSFERRING'):make('span','空闲','tag good')):tag('ERROR'),action('管理',()=>{navigate('repositories');el('sourceType').value='';el('sourceSearch').value=r.source.name;renderSources();})]));const h=el('activeTasks');h.replaceChildren();if(!tasks.length)empty(h,'当前没有已知的活跃维护任务');else for(const {r,j} of tasks){const d=make('div',undefined,'source');d.append(pair(r.source.name+' · '+kind(j),statusText(j)),tag(j.status));if(j.totalProjects)d.append(progress(j.completedProjects,j.totalProjects));d.append(action('查看任务',()=>{navigate('maintenance');el('maintSource').value=r.source.id;renderMaintenance();}));h.append(d);}}
+function renderSources(){const term=el('sourceSearch').value.toLowerCase().trim(),type=el('sourceType').value,h=el('sources');const filtered=records.filter(({source:s})=>(!type||s.type===type)&&(!term||[s.name,s.type,s.provider,s.rootPath,s.publicUrl].join(' ').toLowerCase().includes(term)));h.replaceChildren();if(!filtered.length){empty(h,records.length?'没有符合条件的软件源':'尚未添加软件源');return;}for(const r of filtered){const s=r.source,st=r.state,d=make('article',undefined,'source');const head=make('div',undefined,'row');head.append(make('h3',s.name,'grow'),make('span',s.type.toUpperCase()+' · '+s.provider,'tag'),tag(s.enabled?'ENABLED':'DISABLED'));d.append(head,make('p','内网地址：'+s.publicUrl,'small'),make('p','存放目录：'+s.rootPath,'small'),make('p','文件账本：'+(st?number(st.liveObjects)+' 个 · '+bytes(st.liveBytes):'读取失败')+'　可用空间：'+(r.capacity?bytes(r.capacity.freeBytes):'未知')),make('p','同步位置：'+(st?.liveCursor?.value?st.liveCursor.kind+' · '+st.liveCursor.value:'尚无同步记录或读取失败'),'small mono'));const g=make('div',undefined,'action-group');g.append(action('维护操作',()=>{navigate('maintenance');el('maintSource').value=s.id;renderMaintenance();}),action('同步记录',()=>{navigate('sync');el('syncSource').value=s.id;return refreshSync();}),action('导出状态文件',()=>exportState([s.id])),action('编辑设置',()=>openEditor(s)));d.append(g);h.append(d);}}
+function statusText(j){return '已检查 '+number(j.scannedObjects)+' 个文件 · '+bytes(j.scannedBytes)+(j.totalProjects?' · '+number(j.completedProjects)+' / '+number(j.totalProjects)+' 个项目':'')+(j.kind==='REPAIR'?' · 异常 '+number(j.candidateObjects)+' 个':'');}
+async function startTask(r,kindPath,label,body){if(!confirm('确认开始“'+r.source.name+'”的'+label+'？'))return;await post(srcPath(r.source.id)+'/'+kindPath,body);show('已提交'+label+'任务。');await refresh();}
+function renderMaintenance(){const h=el('maintActions'),r=getRecord(el('maintSource').value);if(!r){empty(h,'请先添加软件源');empty(el('taskTable'),'暂无任务');return;}const s=r.source,locked=!r.state||!r.tasks||!!r.state.activeEpochId||r.tasks.some(active);h.replaceChildren(make('p',locked?'当前有同步或维护任务，或状态无法读取。新任务暂不可启动。':'软件源空闲，可以启动维护任务。'));const g=make('div',undefined,'action-group subhead');g.append(action('全量清点',()=>startTask(r,'inventory','全量清点'),locked,'primary'));if(s.type==='pypi'){g.append(action('增量清点',()=>startTask(r,'incremental-inventory','增量清点'),locked),action('检查缺失文件',()=>startTask(r,'repair-check','缺失文件检查'),locked),action('SHA256 完整校验',async()=>{const input=prompt('完整校验读取全部已入账文件。请输入读取上限（1–1024 MiB/s）。','64');if(input===null)return;const speed=Number(input);if(!Number.isInteger(speed)||speed<1||speed>1024)throw Error('请输入 1 至 1024 的整数。');await startTask(r,'integrity-check','SHA256 完整校验',{mibPerSecond:speed});},locked));}g.append(action('回收历史账本',async()=>{if(!confirm('仅删除已退役或放弃的 Catalog 数据库记录，不删除软件包。此操作不可撤销，确认继续？'))return;let count=0,versions=0;for(;;){const v=await post(srcPath(s.id)+'/catalog/reclaim');count+=v.removedEntries;versions+=v.removedGenerations;show('已回收 '+number(count)+' 条记录、'+number(versions)+' 个历史版本。'+(v.more?'仍在处理。':'已完成。'));if(!v.more)break;await new Promise(resolve=>setTimeout(resolve,100));}await refresh();},locked,'danger'));if(s.type==='apt')g.append(action('检查后重新签名',async()=>{if(!confirm('确认已查看清点结果，客户端会信任本地专用公钥？'))return;const v=await post(srcPath(s.id)+'/sign');show('已重新签名：'+v.suite);await refresh();},locked));h.append(g);const filter=el('taskStatus').value;if(!r.tasks){empty(el('taskTable'),'任务记录读取失败，请刷新');return;}table(el('taskTable'),['任务 / 创建时间','状态','检查进度','操作'],r.tasks.filter(j=>!filter||(filter==='ACTIVE'?active(j):j.status===filter)).map(j=>{const pr=pair(statusText(j),j.lastProject?'最近完成：'+j.lastProject:'');if(j.totalProjects)pr.append(progress(j.completedProjects,j.totalProjects));const g=make('div',undefined,'action-group');g.append(action('详情',()=>openTask(r,j)));if(s.type==='pypi'&&['INVENTORY','REPAIR'].includes(j.kind)){if(['RUNNING','QUEUED'].includes(j.status))g.append(action('暂停',()=>taskCommand(j,'pause')));if(j.status==='PAUSED')g.append(action('继续',()=>taskCommand(j,'resume')));}if(active(j))g.append(action('取消',async()=>{if(confirm('确认取消该任务？'))await taskCommand(j,'cancel');},false,'danger'));return[pair(kind(j),date(j.createdAt)),tag(j.status),pr,g];}));}
+async function taskCommand(j,cmd){await post(jobPath(j.id)+'/'+cmd);show('已提交任务操作。');await refresh();}
+function openTask(r,j){const d=el('detailDialog'),h=el('detailBody'),g=el('detailActions');detailSerial++;el('detailTitle').textContent=r.source.name+' · '+kind(j);h.replaceChildren(pair(statuses[j.status]||j.status,statusText(j)),make('p','任务编号：'+j.id,'mono'),make('p','创建时间：'+date(j.createdAt)+'　完成时间：'+date(j.completedAt),'small'));g.replaceChildren();if(j.errorText)h.append(make('p',j.errorText,'error-text'));if(j.kind==='REPAIR'&&j.status==='COMPLETED'){let after='',serial=detailSerial;const detail=make('pre','点击“查看异常文件”加载报告。','file-detail');h.append(detail);const load=action('查看异常文件',async()=>{const v=await json(jobPath(j.id)+'/repair-issues?limit=100&after='+encodeURIComponent(after));if(serial!==detailSerial)return;detail.textContent=(v.items||[]).map(i=>({MISSING:'缺失',SIZE_MISMATCH:'大小不符',HASH_MISMATCH:'SHA256 不符'}[i.kind]||i.kind)+'：'+i.logicalPath+(i.actualSha256?'\n预期：'+i.sha256+'\n实际：'+i.actualSha256:'')).join('\n')||'没有更多异常文件';after=v.next||'';load.textContent=after?'下一页异常文件':'返回第一页';});g.append(load);const locked=!r.state||!r.tasks||!!r.state.activeEpochId||r.tasks.some(active);if(j.candidateObjects>0){g.append(action('导出修复状态',async()=>{d.close();await exportState([r.source.id],j.id);},locked));if(j.hashMiBPerSecond)g.append(action(j.replacementApproved?'撤销损坏文件修复授权':'授权损坏文件修复',async()=>{if(!confirm(j.replacementApproved?'撤销授权？已完成替换不会回滚。':'确认授权报告中的损坏软件包修复？导入前会再次校验并保留损坏原件。'))return;await post(jobPath(j.id)+'/repair-approval',{approve:!j.replacementApproved});d.close();show('修复授权已更新。');await refresh();},locked));}}if(!d.open)d.showModal();}
+async function refreshSync(){const sid=el('syncSource').value,gen=session,serial=++syncSerial;el('batchPanel').classList.add('hidden');if(!sid){empty(el('syncTable'),'请先添加软件源');return;}const list=await json('/api/v1/epochs?sourceId='+encodeURIComponent(sid));if(gen!==session||serial!==syncSerial)return;table(el('syncTable'),['同步任务','状态','计划文件','计划容量','批次','操作'],(list||[]).map(j=>[pair(j.id,date(j.createdAt)),tag(j.status),number(j.totalObjects),bytes(j.totalBytes),number(j.totalBatches),action('查看批次',async()=>{const rows=await json('/api/v1/epochs/'+encodeURIComponent(j.id)+'/batches');if(gen!==session||serial!==syncSerial)return;el('batchEpoch').textContent=j.id+(j.errorText?' · '+j.errorText:'');table(el('batchTable'),['批次','状态','文件数','计划容量','Pack 数'],(rows||[]).map(b=>[pair('第 '+b.sequence+' 批',b.errorText||b.id),tag(b.status),number(b.objectCount),bytes(b.plannedBytes),number(b.packCount)]));el('batchPanel').classList.remove('hidden');})]));}
+function renderStorage(){const h=el('storageCards');h.replaceChildren();if(!records.length){empty(h,'暂无软件源');return;}for(const r of records){const c=r.capacity,d=make('section',undefined,'panel stack');d.append(make('h2',r.source.name),make('p',r.source.rootPath,'small mono'));if(c){const used=Math.max(0,c.totalBytes-c.freeBytes),percent=c.totalBytes?100*used/c.totalBytes:0;d.append(pair(bytes(c.freeBytes)+' 可用 / '+bytes(c.totalBytes)+' 总容量','文件系统不可用比例 '+percent.toFixed(1)+'%（含预留空间）'),progress(used,c.totalBytes,c.freeBytes/c.totalBytes<.1));}else d.append(make('p','容量读取失败，请检查仓库路径和 Agent 权限。','error-text'));d.append(make('p','账本容量：'+(r.state?bytes(r.state.liveBytes):'未知')+'。多个仓库可能位于同一文件系统。','small'));h.append(d);}}
+async function download(path,name){const data=await(await api(path)).blob();const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}
+async function exportState(ids,repairJobId){if(!ids.length)throw Error('没有可导出的软件源。');const j=await post('/api/v1/state/export-jobs',{sourceIds:ids,repairJobId:repairJobId||''});show('状态文件导出任务已提交：'+j.id);navigate('exports');await refreshExports();}
+async function downloadExport(j){if(typeof window.showSaveFilePicker==='function'){const handle=await window.showSaveFilePicker({suggestedName:j.name});const response=await api(j.download),stream=await handle.createWritable();try{await response.body.pipeTo(stream);}catch(e){try{await stream.abort();}catch(_){}throw e;}}else{const response=await api(j.download),raw=response.headers.get('Content-Length'),size=Number(raw);if(!raw||!Number.isFinite(size)||size>512*1024*1024){await response.body.cancel();throw Error('状态文件大小未知或超过 512 MiB。请使用支持文件保存接口的 HTTPS 浏览器或 Windows 客户端。');}const data=await response.blob(),url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=j.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}show('状态文件已保存。');}
+async function refreshExports(){if(!token||exportBusy)return;const gen=session;exportBusy=true;try{const jobs=await json('/api/v1/state/export-jobs');if(gen!==session)return;table(el('exportJobs'),['任务 / 创建时间','状态','进度','操作'],(jobs||[]).map(j=>{const pr=pair(j.stage||'等待处理',j.completedSources+'/'+j.totalSources+' 个软件源');if(j.totalSources)pr.append(progress(j.completedSources,j.totalSources));if(j.errorText)pr.append(make('p',j.errorText,'error-text small'));return[pair(j.name||j.id,date(j.createdAt)),tag(j.status),pr,j.status==='COMPLETED'&&j.download?action('下载状态文件',()=>downloadExport(j)): '—'];}));}finally{if(gen===session)exportBusy=false;}}
+function openEditor(s){if(busy&&editing)return;navigate('repositories');editing=s||null;el('editor').classList.remove('hidden');el('editorTitle').textContent=s?'修改软件源':'添加软件源';const kind=s?Object.keys(definitions).find(k=>definitions[k].type===s.type&&definitions[k].provider===s.provider)||'apt':'apt';const d=definitions[kind];el('kind').value=kind;el('kind').disabled=!!s;el('name').value=s?s.name:'';el('upstream').value=s?s.upstreamUrl:d.url;el('rootPath').value=s?s.rootPath:'';el('publicUrl').value=s?s.publicUrl:'';el('enabled').checked=s?s.enabled:true;el('config').value=JSON.stringify(s?s.config:d.config,null,2);el('editor').scrollIntoView({behavior:'smooth'});el('name').focus();}
 el('kind').addEventListener('change',()=>{if(editing)return;const d=definitions[el('kind').value];el('upstream').value=d.url;el('config').value=JSON.stringify(d.config,null,2);});
-el('save').addEventListener('click',async()=>{try{const d=definitions[el('kind').value];const input={name:el('name').value.trim(),type:d.type,provider:d.provider,upstreamUrl:el('upstream').value.trim(),rootPath:el('rootPath').value.trim(),publicUrl:el('publicUrl').value.trim(),enabled:el('enabled').checked,config:JSON.parse(el('config').value||'{}')};if(!input.name||!input.upstreamUrl||!input.publicUrl||!input.rootPath)throw Error('请完整填写名称、下载地址、内网访问地址和服务器目录。');await api(editing?'/api/v1/sources/'+encodeURIComponent(editing.id):'/api/v1/sources',{method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});el('editor').classList.add('hidden');show('软件源已经保存。');await refresh();}catch(e){show('保存失败：'+e.message,true);}});
-el('cancelEdit').addEventListener('click',()=>el('editor').classList.add('hidden'));
-el('connect').addEventListener('click',async()=>{token=el('token').value.trim();if(!token){show('请填写连接令牌。',true);return;}try{await refresh();el('login').classList.add('hidden');el('app').classList.remove('hidden');el('token').value='';show('已经连接服务器。请先核对统计信息，再按需要导出状态文件。');}catch(e){token='';show('连接失败，请检查服务器和令牌。\n'+e.message,true);}});
-el('refresh').addEventListener('click',()=>refresh().then(()=>show('状态已更新。')).catch(e=>show(e.message,true)));
-el('refreshExports').addEventListener('click',()=>refreshExports().catch(e=>show(e.message,true)));
-setInterval(()=>{if(token)refreshExports().catch(()=>{});},3000);
-el('add').addEventListener('click',()=>openEditor(null));
-el('exportAll').addEventListener('click',()=>exportState(sources.map(s=>s.id)).catch(e=>show(e.message,true)));
-el('key').addEventListener('click',()=>download('/api/v1/signing-key','airgap-mirror-apt-key.asc').then(()=>show('公钥已下载，请在客户端配置为内网 APT 仓库的受信任密钥。')).catch(e=>show('公钥下载失败：'+e.message,true)));
+el('save').addEventListener('click',()=>perform(async()=>{const d=definitions[el('kind').value],input={name:el('name').value.trim(),type:d.type,provider:d.provider,upstreamUrl:el('upstream').value.trim(),rootPath:el('rootPath').value.trim(),publicUrl:el('publicUrl').value.trim(),enabled:el('enabled').checked,config:JSON.parse(el('config').value||'{}')};if(!input.name||!input.upstreamUrl||!input.publicUrl||!input.rootPath)throw Error('请完整填写名称、下载地址、内网访问地址和服务器目录。');await json(editing?srcPath(editing.id):'/api/v1/sources',{method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});el('editor').classList.add('hidden');editing=null;show('软件源已保存。');await refresh();}));
+el('cancelEdit').addEventListener('click',()=>{editing=null;el('editor').classList.add('hidden');});
+el('loginForm').addEventListener('submit',async e=>{e.preventDefault();if(token||!el('token').value.trim())return;const gen=++session;token=el('token').value.trim();el('connect').disabled=true;el('loginError').textContent='';try{await refresh();if(gen!==session)return;el('login').classList.add('hidden');el('app').classList.remove('hidden');el('token').value='';el('serverAddress').textContent=location.origin+basePath+'/';navigate('overview');document.activeElement?.blur();}catch(err){if(gen===session){logout();el('loginError').textContent='连接失败：'+err.message;}}finally{el('connect').disabled=false;}});
+for(const b of document.querySelectorAll('[data-page]'))b.addEventListener('click',()=>navigate(b.dataset.page));
+el('disconnect').onclick=el('logout').onclick=logout;
+el('refresh').onclick=()=>perform(async()=>{await refresh();if(page==='sync')await refreshSync();if(page==='exports')await refreshExports();show('状态已更新。');el('refresh').blur();});
+el('overviewAdd').onclick=el('add').onclick=()=>openEditor(null);
+el('overviewRepositories').onclick=()=>{el('sourceSearch').value='';el('sourceType').value='';navigate('repositories');renderSources();};
+el('overviewTasks').onclick=()=>navigate('maintenance');
+el('sourceSearch').oninput=el('sourceType').onchange=renderSources;
+el('maintSource').onchange=el('taskStatus').onchange=renderMaintenance;
+el('syncSource').onchange=el('refreshSync').onclick=()=>perform(refreshSync);
+el('closeBatches').onclick=()=>el('batchPanel').classList.add('hidden');
+el('detailClose').onclick=()=>el('detailDialog').close();
+el('detailDialog').addEventListener('close',()=>{detailSerial++;});
+el('overviewExport').onclick=el('exportAll').onclick=()=>perform(()=>exportState(sources.map(s=>s.id)));
+el('refreshExports').onclick=()=>perform(refreshExports);
+el('key').onclick=()=>perform(async()=>{await download('/api/v1/signing-key','airgap-mirror-apt-key.asc');show('公钥已下载。');});
+setInterval(()=>{if(!token||busy||document.hidden||el('detailDialog').open||!el('editor').classList.contains('hidden')||document.activeElement?.matches('input,select,textarea,button:focus-visible'))return;if(page==='exports')refreshExports().catch(e=>show(e.message,true));else if(page==='overview'||page==='maintenance'||page==='storage')refresh().catch(e=>show(e.message,true));},5000);
 })();
 </script>
 </body></html>
