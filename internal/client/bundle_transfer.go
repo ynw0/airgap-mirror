@@ -262,9 +262,11 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 	if err != nil {
 		return out, err
 	}
-	if status.Session.Status == "BATCH_IMPORTED" {
-		out.Status, err = finalizeTransferredBatch(ctx, agent, session.ID)
-		return out, err
+	report := func(kind, packID, path string, size int64) error {
+		if progress == nil {
+			return nil
+		}
+		return progress(TransferProgress{Kind: kind, SessionID: session.ID, PackID: packID, Path: path, Transferred: size, Total: size})
 	}
 	if status.Session.Status == "UPLOADING_MANIFEST" {
 		if err = agent.UploadManifestVerified(ctx, session.ID, bundle.ManifestPath, d.ManifestSHA256, opts.ChunkSize, progress); err != nil {
@@ -281,8 +283,7 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 	if status.Session.Status != "MANIFEST_READY" && status.Session.Status != "IMPORTING" && status.Session.Status != "BATCH_IMPORTED" {
 		return out, fmt.Errorf("import session %s cannot accept packs in status %s: %w", session.ID, status.Session.Status, domain.ErrConflict)
 	}
-	if status.Session.Status == "BATCH_IMPORTED" {
-		out.Status, err = finalizeTransferredBatch(ctx, agent, session.ID)
+	if err = report("manifest-ready", "", bundle.ManifestPath, d.ManifestSize); err != nil {
 		return out, err
 	}
 
@@ -302,26 +303,28 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 		}
 		switch remote.Status {
 		case domain.PackImported:
-			continue
+			// Recovered packs count toward total batch progress too.
 		case domain.PackUploading:
 			if err = agent.UploadPackVerified(ctx, session.ID, spec.ID, bundle.PackPaths[spec.ID], spec.SHA256, opts.ChunkSize, progress); err != nil {
 				return out, err
 			}
-			if err = agent.CommitPack(ctx, session.ID, spec.ID); err != nil {
+			fallthrough
+		case domain.PackUploaded:
+			if err = report("pack-installing", spec.ID, bundle.PackPaths[spec.ID], spec.Size); err != nil {
 				return out, err
 			}
-		case domain.PackUploaded:
 			if err = agent.CommitPack(ctx, session.ID, spec.ID); err != nil {
 				return out, err
 			}
 		default:
 			return out, fmt.Errorf("server pack %s is in unsupported resumable status %s: %w", spec.ID, remote.Status, domain.ErrConflict)
 		}
-		if progress != nil {
-			if err = progress(TransferProgress{Kind: "pack-committed", SessionID: session.ID, PackID: spec.ID, Path: bundle.PackPaths[spec.ID], Transferred: spec.Size, Total: spec.Size}); err != nil {
-				return out, err
-			}
+		if err = report("pack-committed", spec.ID, bundle.PackPaths[spec.ID], spec.Size); err != nil {
+			return out, err
 		}
+	}
+	if err = report("finalizing", "", "", 0); err != nil {
+		return out, err
 	}
 	out.Status, err = finalizeTransferredBatch(ctx, agent, session.ID)
 	return out, err
