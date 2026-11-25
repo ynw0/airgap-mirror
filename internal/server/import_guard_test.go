@@ -13,7 +13,6 @@ func TestImportSourceGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
 	if _, err = api.acquireImportSource("source-a"); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("second import mutation must conflict: %v", err)
 	}
