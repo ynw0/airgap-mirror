@@ -158,3 +158,52 @@ td small { max-width: 320px; }
 .secondary-section { border: 1px solid #27364a; border-radius: 12px; background: #101720; padding: 14px 16px; }
 .secondary-section > summary { cursor: pointer; color: #c5d5ec; font-weight: 600; line-height: 1.6; }
 .secondary-section-body { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+
+/* Desktop management: align the operational hierarchy with the Linux UI. */
+:root { color-scheme: dark; font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif; }
+body { background: #101722; }
+.sidebar { background: #101a28; backdrop-filter: none; }
+.brand-mark { background: #315b93; box-shadow: none; }
+.brand small { font-size: 12px; letter-spacing: normal; }
+.sidebar nav button small { font-size: 12px; color: #9dabbc; }
+.sidebar-status code { font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.content { scrollbar-gutter: stable; }
+.page-header { border-bottom: 1px solid #2d394a; padding-bottom: 16px; }
+.page-header h2 { font-size: 25px; }
+.page-header p { max-width: 850px; }
+.card, .metric { background: #17212e; border-color: #324154; box-shadow: none; }
+.card-title { font-size: 15px; flex-wrap: wrap; }
+.card-title > span:last-child { font-size: 12px; }
+.metric > span { color: #a8b6c7; font-size: 12px; letter-spacing: normal; }
+.metric strong { font-size: 21px; font-variant-numeric: tabular-nums; }
+.metric small { color: #a8b6c7; }
+p, small, .empty { color: #a8b6c7; }
+button.primary { background: #215cba; border-color: #427ed5; font-weight: 600; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid #83b4ff; outline-offset: 3px; }
+input[type=checkbox] { accent-color: #528cf0; width: 17px; height: 17px; }
+textarea { font: inherit; background: #101722; color: #e6edf7; border: 1px solid #41516a; border-radius: 8px; padding: 9px; }
+.notice { overflow-wrap: anywhere; }
+.table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 0 17px 14px; color: #a8b6c7; font-size: 12px; }
+.table-toolbar input { max-width: 320px; }
+.table-toolbar .button-row { margin-left: auto; }
+.table-card .form-grid { padding: 0 17px 14px; }
+.table-wrap table { min-width: 680px; }
+th { background: #1b2736; color: #b5c2d2; font-size: 12px; letter-spacing: normal; }
+td { font-size: 13px; border-color: #2d394a; }
+tbody tr:hover { background: #1c293a; }
+.status, .pill { font-size: 12px; border-radius: 5px; }
+.status-completed { color: #73dba6; background: #123024; border-color: #2d6a4c; }
+.status-paused { color: #efca85; border-color: #795e31; background: #372b1a; }
+.batch-card { background: #121c29; border-color: #35465b; }
+.batch-stats, .progress-caption { color: #a8b6c7; font-size: 12px; flex-wrap: wrap; }
+.progress { height: 9px; }
+.progress > div { background: #528cf0; }
+.maintenance-actions { grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid #35465b; }
+.maintenance-progress { width: 100%; min-width: 90px; height: 9px; accent-color: #528cf0; display: block; margin: 8px 0 3px; }
+.error-detail { white-space: pre-wrap; overflow-wrap: anywhere; color: #ffb1b1; max-width: 340px; }
+.guidance { color: #b8cce5; border-left: 3px solid #528cf0; }
+.connection { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.path-picker input { min-width: 0; flex: 1; }
+@media (max-width: 1250px) { .table-toolbar .button-row { margin-left: 0; } }
+@media (max-width: 620px) { .batch-grid { grid-template-columns: minmax(0, 1fr); } .sidebar nav button small { display: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
