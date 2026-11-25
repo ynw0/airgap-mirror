@@ -52,6 +52,19 @@ func scanMaintenanceJob(row interface{ Scan(...any) error }) (domain.Maintenance
 const maintenanceSelect = `SELECT id,source_id,kind,status,execute,incremental_inventory,hash_mib_per_second,EXISTS(SELECT 1 FROM repair_replacement_approvals ap JOIN repair_scans r ON r.job_id=ap.job_id JOIN sources src ON src.id=maintenance_jobs.source_id JOIN source_states st ON st.source_id=src.id WHERE ap.job_id=maintenance_jobs.id AND st.catalog_version=r.catalog_version AND src.updated_at=r.source_updated_at),scanned_objects,scanned_bytes,completed_projects,total_projects,last_project,candidate_objects,candidate_bytes,affected_objects,affected_bytes,temp_catalog_path,created_at,started_at,completed_at,error_text FROM maintenance_jobs`
 
 func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.MaintenanceJob) error {
+	return s.createMaintenanceJob(ctx, job, nil)
+}
+
+// CreateMaintenanceJobForSource reserves the source only if the configuration
+// used for preflight still matches. The check and INSERT are one SQL statement.
+func (s *ServerStore) CreateMaintenanceJobForSource(ctx context.Context, job domain.MaintenanceJob, source domain.Source) error {
+	if source.ID != job.SourceID {
+		return domain.ErrInvalid
+	}
+	return s.createMaintenanceJob(ctx, job, &source)
+}
+
+func (s *ServerStore) createMaintenanceJob(ctx context.Context, job domain.MaintenanceJob, source *domain.Source) error {
 	if job.ID == "" || job.SourceID == "" {
 		return fmt.Errorf("maintenance job id/sourceId are required: %w", domain.ErrInvalid)
 	}
@@ -74,7 +87,17 @@ func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.Maint
 	if job.Execute {
 		execute = 1
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO maintenance_jobs(id,source_id,kind,status,execute,incremental_inventory,hash_mib_per_second,created_at) VALUES(?,?,?,?,?,?,?,?)`, job.ID, job.SourceID, job.Kind, job.Status, execute, job.IncrementalInventory, job.HashMiBPerSecond, timeString(job.CreatedAt))
+	query := `INSERT INTO maintenance_jobs(id,source_id,kind,status,execute,incremental_inventory,hash_mib_per_second,created_at)`
+	args := []any{job.ID, job.SourceID, job.Kind, job.Status, execute, job.IncrementalInventory, job.HashMiBPerSecond, timeString(job.CreatedAt)}
+	if source == nil {
+		query += ` VALUES(?,?,?,?,?,?,?,?)`
+	} else {
+		query += ` SELECT ?,?,?,?,?,?,?,? FROM sources
+WHERE id=? AND type=? AND provider=? AND root_path=? AND upstream_url=? AND public_url=?
+  AND config_json IS ? AND updated_at=?`
+		args = append(args, source.ID, source.Type, source.Provider, source.RootPath, source.UpstreamURL, source.PublicURL, []byte(source.ConfigJSON), timeString(source.UpdatedAt))
+	}
+	result, err := s.DB.ExecContext(ctx, query, args...)
 	if err != nil {
 		lower := strings.ToLower(err.Error())
 		if strings.Contains(lower, "unique constraint") {
@@ -84,6 +107,11 @@ func (s *ServerStore) CreateMaintenanceJob(ctx context.Context, job domain.Maint
 			return fmt.Errorf("source has an active epoch; maintenance is blocked: %w", domain.ErrConflict)
 		}
 		return err
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return fmt.Errorf("软件源配置已变化，请刷新后重新启动维护任务: %w", domain.ErrConflict)
 	}
 	return nil
 }
