@@ -323,7 +323,7 @@ curl -fsS "$BASE/api/v1/maintenance/<job-id>/candidates?limit=100" \
 安全边界：
 
 - Active Epoch 与 Active Maintenance Job 互斥；
-- 实际文件清理要求仓库根目录不与其他软件源相同、嵌套或解析后重叠；其他软件源目录无法解析时也拒绝清理。执行期间不能新增软件源或修改仓库目录；
+- 实际文件清理要求仓库根目录不与其他软件源相同、嵌套或解析后重叠；独立的其他仓库暂未挂载不影响清理。执行期间仅禁止新增或修改与当前清理目录重叠的仓库目录；预览只根据当前软件源的 Catalog 列出候选，不代表允许实际删除共享目录中的文件；
 - repository tree 出现 symlink 时 physical GC 拒绝继续；
 - physical delete 仅在 Linux 实现；
 - APT `pool/` 只有 `gcOwnsPool=true` 才进入删除范围。
