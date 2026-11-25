@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -178,6 +179,38 @@ func (a *App) DisconnectAgent() {
 	a.mu.Lock()
 	a.agent = nil
 	a.mu.Unlock()
+}
+
+// SaveDiagnosticReport saves a bounded, explicitly selected UI report, not repository data.
+func (a *App) SaveDiagnosticReport(report string) (string, error) {
+	if len(report) == 0 || len(report) > 16*1024*1024 || !json.Valid([]byte(report)) {
+		return "", fmt.Errorf("invalid diagnostic report or report exceeds 16 MiB: %w", domain.ErrInvalid)
+	}
+	destination, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "保存诊断报告",
+		DefaultFilename: "airgap-diagnostics.json",
+		Filters:         []runtime.FileFilter{{DisplayName: "JSON (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || destination == "" {
+		return "", err
+	}
+	if filepath.Ext(destination) == "" {
+		destination += ".json"
+	}
+	// Do not overwrite existing files, including symlinks.
+	f, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return "", err
+	}
+	if _, err = f.WriteString(report); err != nil {
+		_ = f.Close()
+		_ = os.Remove(destination)
+		return "", err
+	}
+	if err = f.Close(); err != nil {
+		return "", err
+	}
+	return destination, nil
 }
 
 func (a *App) PickStateDestination() (string, error) {
