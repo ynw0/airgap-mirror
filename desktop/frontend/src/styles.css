@@ -225,3 +225,24 @@ button:not(.primary),input,select,textarea{background:var(--app-surface);border-
 
 /* Hidden pages remain mounted to preserve active work, but must not enter layout. */
 [hidden] { display: none !important; }
+
+/* Repository forms and large task lists. */
+.editor-section-heading{border-top:1px solid var(--app-line);padding-top:16px;margin:8px 0 12px}
+.editor-section-heading h3{font-size:16px;margin-bottom:5px}
+.editor-fieldset{border:0;margin:0;padding:0;min-width:0}
+.editor-fieldset .source-form{align-items:start}
+.editor-fieldset .coord-block{margin-top:18px}
+.editor-fieldset textarea{width:100%;resize:vertical}
+.editor-footer{border-top:1px solid var(--app-line);padding-top:14px;justify-content:flex-end}
+.editor-error{color:var(--app-danger);background:var(--app-danger-bg);border-left:3px solid var(--app-danger)}
+.batch-overview{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:10px;margin:14px 0}
+.batch-overview>div{display:grid;gap:7px;padding:13px;background:var(--app-subtle);border:1px solid var(--app-line);border-radius:8px;min-width:0}
+.batch-overview span{font-size:12px;color:var(--app-muted)}
+.batch-overview strong{font-size:21px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.batch-toolbar,.batch-pagination{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;color:var(--app-muted);font-size:13px;margin:12px 0}
+.batch-toolbar label,.table-toolbar label{display:flex;flex-direction:row;align-items:center;gap:8px}.batch-toolbar select,.table-toolbar select{width:auto}
+.batch-pagination{justify-content:center;padding-top:10px;border-top:1px solid var(--app-line)}
+.batch-telemetry{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-size:12px;color:var(--app-accent-ink);margin:10px 0}
+.telemetry-note{font-size:12px;margin-top:12px}
+.current-task{border-left:3px solid var(--app-accent)}
+.export-empty{padding:0 17px 12px}
