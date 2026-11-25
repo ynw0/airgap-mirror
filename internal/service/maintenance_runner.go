@@ -48,11 +48,34 @@ type snapshotMaintenanceStore interface {
 }
 
 func (r *MaintenanceRunner) reserveMaintenance(ctx context.Context, job domain.MaintenanceJob, source domain.Source) error {
+	if r.root.Err() != nil {
+		return fmt.Errorf("Agent 正在停止，不能启动维护任务: %w", domain.ErrConflict)
+	}
 	store, ok := r.Jobs.(snapshotMaintenanceStore)
 	if !ok {
 		return fmt.Errorf("maintenance store does not support configuration snapshot reservation: %w", domain.ErrInvalid)
 	}
 	return store.CreateMaintenanceJobForSource(ctx, job, source)
+}
+
+// WaitForIdle is called after stopping HTTP requests and cancelling the root
+// context. A worker stays registered until its checkpoint and cleanup finish.
+func (r *MaintenanceRunner) WaitForIdle(ctx context.Context) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		r.mu.Lock()
+		idle := len(r.cancels) == 0
+		r.mu.Unlock()
+		if idle {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r *MaintenanceRunner) now() time.Time {
@@ -128,6 +151,9 @@ func (r *MaintenanceRunner) startInventory(ctx context.Context, sourceID string,
 func (r *MaintenanceRunner) ResumeInventory(ctx context.Context, id string) (domain.MaintenanceJob, error) {
 	r.controlMu.Lock()
 	defer r.controlMu.Unlock()
+	if r.root.Err() != nil {
+		return domain.MaintenanceJob{}, fmt.Errorf("Agent 正在停止，不能继续维护任务: %w", domain.ErrConflict)
+	}
 	job, err := r.Jobs.GetMaintenanceJob(ctx, id)
 	if err != nil {
 		return job, err
