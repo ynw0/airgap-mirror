@@ -223,7 +223,6 @@ func (s *ServerStore) RegisterImportBundle(ctx context.Context, d domain.BatchDe
 		}
 	}
 
-
 	_, err = tx.ExecContext(ctx, `INSERT INTO import_sessions(id,request_id,source_id,epoch_id,batch_id,manifest_expected_size,manifest_expected_sha256,manifest_uploaded_size,manifest_path,staging_path,status,created_at,updated_at,error_text) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, session.ID, session.RequestID, d.SourceID, d.EpochID, d.BatchID, d.ManifestSize, d.ManifestSHA256, session.ManifestUploaded, session.ManifestPath, session.StagingPath, session.Status, timeString(session.CreatedAt), timeString(session.UpdatedAt), session.ErrorText)
 	if err != nil {
 		return domain.ImportSession{}, err
