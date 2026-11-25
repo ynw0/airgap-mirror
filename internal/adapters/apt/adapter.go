@@ -29,8 +29,10 @@ import (
 const Provider = "apt-generic"
 
 type Config struct {
-	Suite       string `json:"suite"`
-	ReleaseMode string `json:"releaseMode"`
+	Suite                string `json:"suite"`
+	ReleaseMode          string `json:"releaseMode"`
+	TrustedKeyringBase64 string `json:"trustedKeyringBase64,omitempty"`
+	RequireValidUntil    bool   `json:"requireValidUntil,omitempty"`
 }
 
 type Adapter struct{ Client *http.Client }
@@ -60,6 +62,11 @@ func parseConfig(source domain.Source) (Config, error) {
 	}
 	if cfg.ReleaseMode != "inrelease" && cfg.ReleaseMode != "detached" {
 		return cfg, fmt.Errorf("releaseMode must be inrelease or detached: %w", domain.ErrInvalid)
+	}
+	if cfg.TrustedKeyringBase64 != "" {
+		if _, err := decodeTrustedKeyring(cfg.TrustedKeyringBase64); err != nil {
+			return cfg, err
+		}
 	}
 	return cfg, nil
 }
@@ -93,6 +100,10 @@ func joinURL(base string, elems ...string) string {
 
 func (a *Adapter) release(ctx context.Context, source domain.Source, cfg Config) (releaseSnapshot, error) {
 	var snap releaseSnapshot
+	keyring, err := decodeTrustedKeyring(cfg.TrustedKeyringBase64)
+	if err != nil {
+		return snap, err
+	}
 	var releaseURL string
 	if cfg.ReleaseMode == "inrelease" {
 		releaseURL = joinURL(source.UpstreamURL, "dists", cfg.Suite, "InRelease")
@@ -110,8 +121,11 @@ func (a *Adapter) release(ctx context.Context, source domain.Source, cfg Config)
 	}
 	snap.Release = body
 	if cfg.ReleaseMode == "inrelease" {
-		plain, err := clearSignedBody(body)
+		plain, err := verifyUpstreamRelease(ctx, keyring, body, nil, true)
 		if err != nil {
+			return snap, err
+		}
+		if err = validateReleaseFreshness(plain, cfg, time.Now()); err != nil {
 			return snap, err
 		}
 		snap.Plain = plain
@@ -130,6 +144,14 @@ func (a *Adapter) release(ctx context.Context, source domain.Source, cfg Config)
 		return snap, err
 	}
 	snap.Signature = sig
+	plain, err := verifyUpstreamRelease(ctx, keyring, body, sig, false)
+	if err != nil {
+		return snap, err
+	}
+	if err = validateReleaseFreshness(plain, cfg, time.Now()); err != nil {
+		return snap, err
+	}
+	snap.Plain = plain
 	h := sha256.New()
 	_, _ = h.Write([]byte(releaseSHA))
 	_, _ = h.Write([]byte{0})

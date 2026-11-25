@@ -35,6 +35,8 @@ jobs:
           set -euo pipefail
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      - name: Verify GnuPG is available for APT signature tests
+        run: gpg --version
       - name: Test Go control plane
         run: go test ./internal/... ./cmd/...
       - name: Build Go control plane

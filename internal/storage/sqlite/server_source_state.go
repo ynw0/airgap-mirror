@@ -37,7 +37,14 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,s.public_url,s.config_json,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &oldPublic, &oldConfig, &cursorKind, &cursorValue, &active); err != nil {
 		return mapNotFound(err)
 	}
-	identityChanged := oldType != v.Type || oldProvider != v.Provider || oldRoot != v.RootPath || oldUpstream != v.UpstreamURL || !sameSyncConfig(oldConfig, v.ConfigJSON)
+	configSame := sameSyncConfig(oldConfig, v.ConfigJSON)
+	trustChanged := false
+	if oldType == domain.SourceAPT && v.Type == domain.SourceAPT {
+		withoutTrust := sameSyncConfigIgnoring(oldConfig, v.ConfigJSON, "trustedKeyringBase64", "requireValidUntil")
+		trustChanged = withoutTrust && !configSame
+		configSame = withoutTrust
+	}
+	identityChanged := oldType != v.Type || oldProvider != v.Provider || oldRoot != v.RootPath || oldUpstream != v.UpstreamURL || !configSame
 	if identityChanged || oldPublic != v.PublicURL || !reflect.DeepEqual(oldConfig, []byte(v.ConfigJSON)) {
 		var maintenance int
 		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM maintenance_jobs WHERE source_id=? AND status IN('QUEUED','RUNNING','PAUSED'))`, v.ID).Scan(&maintenance); err != nil {
@@ -47,7 +54,7 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 			return fmt.Errorf("软件源正在维护或暂停维护，不能修改仓库地址、类型和配置: %w", domain.ErrConflict)
 		}
 	}
-	if active.Valid && active.String != "" && identityChanged {
+	if active.Valid && active.String != "" && (identityChanged || trustChanged) {
 		return fmt.Errorf("正在同步，不能修改软件源地址、类型或仓库目录: %w", domain.ErrConflict)
 	}
 	if identityChanged {
@@ -125,6 +132,10 @@ func (s *ServerStore) PutState(ctx context.Context, v domain.SourceState) error 
 }
 
 func sameSyncConfig(oldConfig, newConfig []byte) bool {
+	return sameSyncConfigIgnoring(oldConfig, newConfig)
+}
+
+func sameSyncConfigIgnoring(oldConfig, newConfig []byte, extra ...string) bool {
 	// 不把清理策略或翻页大小当成新的软件源；其它配置变化仍要求使用新的源。
 	var oldValue, newValue map[string]any
 	if len(oldConfig) == 0 {
@@ -136,7 +147,7 @@ func sameSyncConfig(oldConfig, newConfig []byte) bool {
 	if json.Unmarshal(oldConfig, &oldValue) != nil || json.Unmarshal(newConfig, &newValue) != nil {
 		return false
 	}
-	for _, key := range []string{"gcOwnsPool", "changePageSize", "allDocsPageSize", "inventoryMode"} {
+	for _, key := range append([]string{"gcOwnsPool", "changePageSize", "allDocsPageSize", "inventoryMode"}, extra...) {
 		delete(oldValue, key)
 		delete(newValue, key)
 	}
