@@ -76,3 +76,27 @@ func TestSecureRemoveRejectsReplacedRepositoryRoot(t *testing.T) {
 		t.Fatalf("replacement repository file was removed: %v", err)
 	}
 }
+
+func TestSecureRemoveUnchangedRepositoryFile(t *testing.T) {
+	root := t.TempDir()
+	logical := "package.whl"
+	path := filepath.Join(root, logical)
+	if err := os.WriteFile(path, []byte("unused"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := domain.GCCandidate{LogicalPath: logical, Size: info.Size(), ModTimeUnixNano: info.ModTime().UnixNano()}
+	if err = secureRemoveCandidate(root, logical, candidate, rootInfo); err != nil {
+		t.Fatalf("unchanged root and candidate must allow deletion: %v", err)
+	}
+	if _, err = os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("candidate was not deleted: %v", err)
+	}
+}
