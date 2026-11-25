@@ -118,3 +118,40 @@ func TestAPTTrustRotationPreservesCatalogAndRequiresIdleSource(t *testing.T) {
 		t.Fatalf("changed keys during maintenance: %v", err)
 	}
 }
+
+func TestMaintenanceReservationRejectsStaleSourceConfiguration(t *testing.T) {
+	ctx := context.Background()
+	store := openServerDB(t)
+	src := testSource(t)
+	if err := store.CreateSource(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.GetSource(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep the timestamp unchanged to prove that comparing only a source
+	// revision timestamp would not catch this change.
+	src.RootPath = t.TempDir()
+	if err = store.UpdateSource(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	job := domain.MaintenanceJob{ID: mustID(t), SourceID: src.ID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, CreatedAt: time.Now()}
+	if err = store.CreateMaintenanceJobForSource(ctx, job, snapshot); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("stale source reservation must conflict: %v", err)
+	}
+	if _, err = store.GetMaintenanceJob(ctx, job.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("failed reservation left a job: %v", err)
+	}
+	fresh, err := store.GetSource(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CreateMaintenanceJobForSource(ctx, job, fresh); err != nil {
+		t.Fatalf("fresh reservation failed: %v", err)
+	}
+	fresh.RootPath = t.TempDir()
+	if err = store.UpdateSource(ctx, fresh); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("reserved source must reject a repository path change: %v", err)
+	}
+}
