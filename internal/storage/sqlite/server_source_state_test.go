@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -156,10 +157,10 @@ func TestMaintenanceReservationRejectsStaleSourceConfiguration(t *testing.T) {
 	}
 }
 
-func TestPhysicalGCFreezesRepositoryRoots(t *testing.T) {
+func TestPhysicalGCOnlyBlocksOverlappingRoots(t *testing.T) {
 	ctx := context.Background()
 	store := openServerDB(t)
-	first, second, third := testSource(t), testSource(t), testSource(t)
+	first, second, third, fourth := testSource(t), testSource(t), testSource(t), testSource(t)
 	for _, src := range []domain.Source{first, second} {
 		if err := store.CreateSource(ctx, src); err != nil {
 			t.Fatal(err)
@@ -171,21 +172,19 @@ func TestPhysicalGCFreezesRepositoryRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalRoot := second.RootPath
-	second.RootPath = t.TempDir()
+	second.RootPath = filepath.Join(first.RootPath, "nested")
+	third.RootPath = first.RootPath
 	checkBlocked := func() {
 		t.Helper()
 		if err := store.CreateSource(ctx, third); !errors.Is(err, domain.ErrConflict) {
-			t.Fatalf("source creation during physical GC must conflict: %v", err)
+			t.Fatalf("overlapping source creation must conflict: %v", err)
 		}
 		if err := store.UpdateSource(ctx, second); !errors.Is(err, domain.ErrConflict) {
-			t.Fatalf("root change during physical GC must conflict: %v", err)
+			t.Fatalf("overlapping root change must conflict: %v", err)
 		}
 		actual, err := store.GetSource(ctx, second.ID)
 		if err != nil || actual.RootPath != originalRoot {
 			t.Fatalf("rejected root change was persisted: %+v, %v", actual, err)
-		}
-		if _, err = store.GetSource(ctx, third.ID); !errors.Is(err, domain.ErrNotFound) {
-			t.Fatalf("rejected source creation was persisted: %v", err)
 		}
 	}
 	checkBlocked()
@@ -193,11 +192,13 @@ func TestPhysicalGCFreezesRepositoryRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkBlocked()
-	rename := second
-	rename.RootPath = originalRoot
-	rename.Name = "renamed during cleanup"
-	if err := store.UpdateSource(ctx, rename); err != nil {
-		t.Fatalf("unrelated rename should be allowed: %v", err)
+	if err := store.CreateSource(ctx, fourth); err != nil {
+		t.Fatalf("independent source creation should be allowed: %v", err)
+	}
+	independent := second
+	independent.RootPath = t.TempDir()
+	if err := store.UpdateSource(ctx, independent); err != nil {
+		t.Fatalf("independent root change should be allowed: %v", err)
 	}
 	if err := store.TransitionMaintenanceJob(ctx, job.ID, domain.MaintenanceCompleted, "", now); err != nil {
 		t.Fatal(err)
@@ -213,9 +214,5 @@ func TestPhysicalGCFreezesRepositoryRoots(t *testing.T) {
 	}
 	if err := store.CreateSource(ctx, third); err != nil {
 		t.Fatalf("preview must not block source creation: %v", err)
-	}
-	second.RootPath = t.TempDir()
-	if err := store.UpdateSource(ctx, second); err != nil {
-		t.Fatalf("preview must not block other source root changes: %v", err)
 	}
 }
