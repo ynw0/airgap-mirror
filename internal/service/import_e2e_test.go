@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -38,11 +41,15 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 	store := storesqlite.NewServerStore(db)
 
 	now := time.Now().UTC()
+	deb := []byte("fake-deb")
+	pkgIndex := []byte(fmt.Sprintf("Package: demo\nVersion: 1\nFilename: pool/main/a.deb\nSize: %d\nSHA256: %s\n\n", len(deb), shaHex(string(deb))))
+	release := []byte(fmt.Sprintf("Suite: bookworm\nDate: %s\nSHA256:\n %s %d main/binary-amd64/Packages\n", now.Format(time.RFC1123), shaHex(string(pkgIndex)), len(pkgIndex)))
+	keyring, inrelease := signedImportFixture(t, release)
 	src := domain.Source{
 		ID: mustE2EID(t), Name: "debian", Type: domain.SourceAPT, Provider: apt.Provider,
 		UpstreamURL: "https://deb.debian.org/debian", PublicURL: "https://repo.internal/apt",
 		RootPath: root, Enabled: true,
-		ConfigJSON: json.RawMessage(`{"suite":"bookworm","releaseMode":"inrelease"}`),
+		ConfigJSON: json.RawMessage(fmt.Sprintf(`{"suite":"bookworm","releaseMode":"inrelease","trustedKeyringBase64":%q}`, keyring)),
 		CreatedAt:  now, UpdatedAt: now,
 	}
 	if err = store.CreateSource(ctx, src); err != nil {
@@ -51,10 +58,8 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 
 	epochID, batchID, packID := mustE2EID(t), mustE2EID(t), mustE2EID(t)
 	unitID, artID, metaID := mustE2EID(t), mustE2EID(t), mustE2EID(t)
-	deb := []byte("fake-deb")
-	inrelease := []byte("InRelease-body")
 	base := domain.Cursor{}
-	target := domain.Cursor{Kind: "apt-release", Value: "frozen-1"}
+	target := domain.Cursor{Kind: "apt-release-snapshot-sha256", Value: shaHex(string(inrelease))}
 
 	packPath := filepath.Join(staging, "000001.agp")
 	w, err := pack.Create(packPath, domain.PackHeader{PackID: packID, EpochID: epochID, BatchID: batchID})
@@ -76,6 +81,15 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 		Operation: domain.ArtifactAdd, Metadata: true,
 	}
 	metaLoc, err := w.Append(ctx, domain.PackEntry{Artifact: meta}, bytes.NewReader(inrelease))
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := domain.Artifact{
+		ID: mustE2EID(t), EpochID: epochID, SourceID: src.ID, PublishUnitID: unitID,
+		LogicalPath: "dists/bookworm/main/binary-amd64/Packages", Size: int64(len(pkgIndex)), SHA256: shaHex(string(pkgIndex)),
+		Operation: domain.ArtifactAdd, Metadata: true,
+	}
+	indexLoc, err := w.Append(ctx, domain.PackEntry{Artifact: index}, bytes.NewReader(pkgIndex))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +121,7 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 	if err = pack.PutManifestMeta(ctx, mdb, "batch_id", batchID); err != nil {
 		t.Fatal(err)
 	}
-	unit := domain.PublishUnit{ID: unitID, EpochID: epochID, SourceID: src.ID, Key: "bookworm", Required: 2, MetadataPath: "dists/bookworm/InRelease"}
+	unit := domain.PublishUnit{ID: unitID, EpochID: epochID, SourceID: src.ID, Key: "bookworm", Required: 3, MetadataPath: "dists/bookworm/InRelease"}
 	if err = pack.PutPublishUnit(ctx, mdb, unit); err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +129,9 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = pack.PutManifestEntry(ctx, mdb, domain.ManifestEntry{EntryID: metaID, Artifact: meta, PackID: packID, PackOffset: metaLoc.Offset, RecordLength: metaLoc.RecordLength}); err != nil {
+		t.Fatal(err)
+	}
+	if err = pack.PutManifestEntry(ctx, mdb, domain.ManifestEntry{EntryID: index.ID, Artifact: index, PackID: packID, PackOffset: indexLoc.Offset, RecordLength: indexLoc.RecordLength}); err != nil {
 		t.Fatal(err)
 	}
 	if err = mdb.Close(); err != nil {
@@ -127,10 +144,10 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 
 	desc := domain.BatchDescriptor{
 		SchemaVersion: 1, SourceID: src.ID, EpochID: epochID, BatchID: batchID,
-		BatchSequence: 1, EpochTotalBytes: int64(len(deb) + len(inrelease)), EpochTotalObjects: 2,
-		EpochTotalBatches: 1, EpochPublishUnitCount: 1, BatchBytes: packSize, BatchObjects: 2,
+		BatchSequence: 1, EpochTotalBytes: int64(len(deb) + len(inrelease) + len(pkgIndex)), EpochTotalObjects: 3,
+		EpochTotalBatches: 1, EpochPublishUnitCount: 1, BatchBytes: packSize, BatchObjects: 3,
 		BaseCursor: base, TargetCursor: target, ManifestSHA256: manifestSHA, ManifestSize: manifestSize,
-		Packs:     []domain.PackSpec{{ID: packID, Sequence: 1, Size: packSize, SHA256: packSHA, EntryCount: 2}},
+		Packs:     []domain.PackSpec{{ID: packID, Sequence: 1, Size: packSize, SHA256: packSHA, EntryCount: 3}},
 		CreatedAt: now,
 	}
 	session := domain.ImportSession{
@@ -208,9 +225,47 @@ func TestPackImportPublishEpochComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !state.LiveCursor.Equal(target) || state.ActiveEpochID != "" || state.LiveObjects != 2 {
+	if !state.LiveCursor.Equal(target) || state.ActiveEpochID != "" || state.LiveObjects != 3 {
 		t.Fatalf("source state after complete: %+v", state)
 	}
+}
+
+func signedImportFixture(t *testing.T, body []byte) (string, []byte) {
+	t.Helper()
+	gpg, err := exec.LookPath("gpg")
+	if err != nil {
+		t.Skip("GnuPG required")
+	}
+	dir, err := os.MkdirTemp("", "agp-import-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if gpgconf, e := exec.LookPath("gpgconf"); e == nil {
+			_ = exec.Command(gpgconf, "--homedir", dir, "--kill", "gpg-agent").Run()
+		}
+		_ = os.RemoveAll(dir)
+	})
+	run := func(args ...string) []byte {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, gpg, append([]string{"--no-options", "--homedir", dir, "--batch", "--no-tty", "--pinentry-mode", "loopback", "--passphrase", ""}, args...)...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, e := cmd.Output()
+		if e != nil {
+			t.Fatalf("gpg fixture: %v: %s", e, stderr.String())
+		}
+		return out
+	}
+	run("--quick-gen-key", "Airgap import fixture <fixture@example.invalid>", "ed25519", "sign", "1d")
+	keys := run("--export")
+	file := filepath.Join(dir, "Release")
+	if err = os.WriteFile(file, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(keys), run("--output", "-", "--clearsign", file)
 }
 
 func mustE2EID(t *testing.T) string {

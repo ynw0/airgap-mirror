@@ -113,6 +113,9 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 		if m.Artifact.Operation == domain.ArtifactDelete && !m.Artifact.Metadata {
 			return fmt.Errorf("physical artifact deletion is reserved for GC: %w", domain.ErrInvalid)
 		}
+		if source.Type == domain.SourceAPT && !m.Artifact.Metadata && !strings.HasPrefix(rec.LogicalPath, "pool/") {
+			return fmt.Errorf("APT 非元数据文件必须位于 pool/ 目录: %w", domain.ErrInvalid)
+		}
 		var staged string
 		switch {
 		case m.Artifact.Metadata && m.Artifact.Operation == domain.ArtifactDelete:
