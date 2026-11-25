@@ -101,7 +101,6 @@ function taskName(j){return j.kind==='INVENTORY'?(j.incrementalInventory?'增量
 function compareReportPaths(a,b){const encoder=new TextEncoder(),x=encoder.encode(a),y=encoder.encode(b);for(let i=0;i<Math.min(x.length,y.length);i++){if(x[i]!==y[i])return x[i]-y[i];}return x.length-y.length;}
 async function exportFullRepair(job,source,progressBox){
  if(typeof window.showSaveFilePicker!=='function')throw Error('当前浏览器不支持直接写入磁盘。请使用支持文件保存接口的 HTTPS 浏览器，或 Windows 客户端导出完整报告。');
- if(!confirm('将逐页读取已完成任务的全部异常记录，不会重新扫描仓库。报告可能包含内网文件路径，请妥善保管。继续吗？'))return;
  let handle;try{handle=await window.showSaveFilePicker({suggestedName:'airgap-repair-full.json',types:[{description:'JSON 报告',accept:{'application/json':['.json']}}]});}catch(e){if(e.name==='AbortError')return;throw e;}
  const controller=new AbortController(),cancel=make('button','取消导出'),label=make('p','正在读取任务信息……','small'),meter=document.createElement('progress');
  meter.className='task-progress';meter.setAttribute('aria-label','完整异常报告导出进度');progressBox.replaceChildren(label,meter,cancel);progressBox.classList.remove('hidden');cancel.addEventListener('click',()=>{controller.abort();cancel.disabled=true;label.textContent='正在取消……';});
@@ -223,7 +222,7 @@ async function refresh(){
   const inventory=tasks.find(j=>j.kind==='INVENTORY');
   if(inventory){const j=inventory;const projects=s.type==='pypi'?'已完成 '+number(j.completedProjects)+' / '+number(j.totalProjects)+' 个项目；最近完成：'+(j.lastProject||'尚无检查点')+'。':'';article.appendChild(taskCard(j,'最近一次文件清点',projects+'已记录 '+number(j.scannedObjects)+' 个文件，约 '+bytes(j.scannedBytes)+'。'+(s.type==='pypi'&&(j.status==='RUNNING'||j.status==='PAUSED'||j.status==='QUEUED')?'清点全部成功后才会更新正式文件账本。':'')));}
   if(repair)article.appendChild(taskCard(repair,repair.hashMiBPerSecond?'SHA256 完整校验（'+repair.hashMiBPerSecond+' MiB/s）':'缺失文件检查','已检查 '+number(repair.scannedObjects)+' 个文件，发现 '+number(repair.candidateObjects)+' 个异常。'));
-  const startButton=action(s.type==='pypi'?'全量清点':'重新清点文件',async()=>{if(!confirm('将扫描服务器上的仓库文件并更新文件账本。大型仓库可能需要较长时间，确认开始吗？'))return;await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');await refresh();});
+  const startButton=action(s.type==='pypi'?'全量清点':'重新清点文件',async()=>{await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/inventory',{method:'POST'});show('已经开始清点“'+s.name+'”。完成后请点击“查看清点结果”。');await refresh();});
   startButton.disabled=!!(running||paused||state.activeEpochId);
   buttons.appendChild(startButton);
   if(s.type==='pypi'){
@@ -291,7 +290,7 @@ async function refresh(){
       }
     }finally{reclaim.disabled=false;}
   });reclaim.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(reclaim);
-  const edit=action('编辑设置',()=>openEditor(s));edit.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(edit);
+  const edit=action('编辑设置',()=>openEditor(s));buttons.appendChild(edit);
   if(s.type==='apt'){const sign=action('检查后重新签名',async()=>{if(!confirm('确认已查看清点结果，并且内网 APT 客户端会信任此次使用的专用公钥？'))return;const v=await (await api('/api/v1/sources/'+encodeURIComponent(s.id)+'/sign',{method:'POST'})).json();show('“'+s.name+'”已重新签名（'+v.suite+'）。请确认客户端已安装相应公钥。');await refresh();});sign.disabled=!!(running||paused||state.activeEpochId);buttons.appendChild(sign);}
   const groups=[['清点与校验',/清点|校验|检查缺失文件/],['异常处理',/异常文件|修复/],['离线更新',/导出状态文件/],['仓库维护',/./]];const grid=make('div','','actions');for(const [name,pattern] of groups){const matching=Array.from(buttons.children).filter(b=>pattern.test(b.textContent));if(!matching.length)continue;const g=make('div','','actiongroup');g.appendChild(make('h4',name));const row=make('div','','row');for(const b of matching){if(/^(放弃|回收|授权|撤销)/.test(b.textContent))b.classList.add('danger');if(b.textContent==='导出状态文件')b.classList.add('primary');row.appendChild(b);}g.appendChild(row);grid.appendChild(g);}article.appendChild(grid);
   }catch(e){article.appendChild(make('p','暂时无法读取此软件源的状态：'+(e.message||String(e)),'small'));}
