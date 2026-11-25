@@ -11,9 +11,10 @@ type Bootstrap struct {
 }
 
 type AgentSourceView struct {
-	Source   domain.Source      `json:"source"`
-	State    domain.SourceState `json:"state"`
-	Capacity domain.Capacity    `json:"capacity"`
+	Source        domain.Source      `json:"source"`
+	State         domain.SourceState `json:"state"`
+	Capacity      domain.Capacity    `json:"capacity"`
+	CapacityError string             `json:"capacityError,omitempty"`
 }
 
 type AgentOverview struct {
