@@ -85,11 +85,11 @@ function diskCard(c){const usage=diskUsage(c),box=make('div','','disk-card');if(
 function renderOverview(){
  const known=sources.map(s=>repositorySnapshots.get(s.id)).filter(Boolean),complete=known.length===sources.length;
  const total=known.reduce((n,s)=>n+(Number(s.liveObjects)||0),0),size=known.reduce((n,s)=>n+(Number(s.liveBytes)||0),0);
- const busy=known.filter(s=>s.activeEpochId).length;const low=sources.filter(s=>{const u=diskUsage(capacitySnapshots.get(s.id));return u&&u.level!=='normal';}).length;
- el('overview').replaceChildren(metric('软件源总数',number(sources.length)),metric('已启用',number(sources.filter(s=>s.enabled).length)),metric(complete?'账本文件总数':'已读取的文件数量',number(total)),metric(complete?'账本记录总容量':'已读取的账本容量',bytes(size)),metric(complete?'正在同步的软件源':'已读取的同步中软件源',number(busy)),metric('空间预警的软件源',number(low)));
+ const busy=known.filter(s=>s.activeEpochId).length;const capacities=sources.map(s=>diskUsage(capacitySnapshots.get(s.id))),low=capacities.filter(u=>u&&u.level!=='normal').length,unknown=capacities.filter(u=>!u).length;
+ el('overview').replaceChildren(metric('软件源总数',number(sources.length)),metric('已启用',number(sources.filter(s=>s.enabled).length)),metric(complete?'账本文件总数':'已读取的文件数量',number(total)),metric(complete?'账本记录总容量':'已读取的账本容量',bytes(size)),metric(complete?'正在同步的软件源':'已读取的同步中软件源',number(busy)),metric('空间预警的软件源',number(low)+(unknown?'（'+number(unknown)+' 个未读取）':'')));
  el('exportAll').disabled=el('dashboardExport').disabled=!sources.length;
  const list=el('repositorySummary');list.replaceChildren();
- for(const s of sources){const st=repositorySnapshots.get(s.id),row=make('div','','overview-row'),info=make('div','');info.append(make('strong',s.name),make('small',s.type.toUpperCase()+' · '+(s.enabled?'已启用':'已停用')+(st?.activeEpochId?' · 正在同步':'')));const usage=diskUsage(capacitySnapshots.get(s.id));if(usage&&usage.level!=='normal')info.appendChild(make('span',usage.level==='critical'?'磁盘空间紧张':'磁盘空间偏低','tag '+(usage.level==='critical'?'bad':'warn')));row.append(info,make('span',st?bytes(st.liveBytes):'状态未读取','small'),action('查看仓库',()=>openRepository(s.id)));list.appendChild(row);}
+ for(const s of sources){const st=repositorySnapshots.get(s.id),row=make('div','','overview-row'),info=make('div','');info.append(make('strong',s.name),make('small',s.type.toUpperCase()+' · '+(s.enabled?'已启用':'已停用')+(st?.activeEpochId?' · 正在同步':'')));const usage=diskUsage(capacitySnapshots.get(s.id));if(!usage)info.appendChild(make('span','磁盘容量未读取','tag muted'));else if(usage.level!=='normal')info.appendChild(make('span',usage.level==='critical'?'磁盘空间紧张':'磁盘空间偏低','tag '+(usage.level==='critical'?'bad':'warn')));row.append(info,make('span',st?bytes(st.liveBytes):'状态未读取','small'),action('查看仓库',()=>openRepository(s.id)));list.appendChild(row);}
  if(!sources.length)list.appendChild(make('p','尚未添加软件源。','empty'));
  el('overviewTime').textContent=(complete?'':'部分软件源读取失败，统计不完整。')+'更新时间：'+new Date().toLocaleTimeString('zh-CN');
 }
