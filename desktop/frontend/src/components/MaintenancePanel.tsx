@@ -35,7 +35,9 @@ export function MaintenancePanel({ overview }: Props) {
   const [message, setMessage] = useState('')
   const [filter, setFilter] = useState('all')
   const [lastRead, setLastRead] = useState('')
+  const [loadedSource, setLoadedSource] = useState('')
   const [readError, setReadError] = useState('')
+  const ready = !!sourceID && loadedSource === sourceID && !readError
   const [exportError, setExportError] = useState('')
   const [reportProgress, setReportProgress] = useState<{jobId: string; done: number; total: number} | null>(null)
   const [reportJob, setReportJob] = useState('')
@@ -64,9 +66,9 @@ export function MaintenancePanel({ overview }: Props) {
       pending = true
       try {
         const value = await app().ListMaintenance(sourceID, 50)
-        if (!disposed) { setJobs(value ?? []); setLastRead(new Date().toLocaleTimeString('zh-CN')); setReadError('') }
+        if (!disposed) { setJobs(value ?? []); setLoadedSource(sourceID); setLastRead(new Date().toLocaleTimeString('zh-CN')); setReadError('') }
       } catch (e) {
-        if (!disposed) setReadError(errorText(e))
+        if (!disposed) { setLoadedSource(''); setReadError(errorText(e)) }
       } finally { pending = false }
     }
     void refresh()
@@ -75,7 +77,7 @@ export function MaintenancePanel({ overview }: Props) {
   }, [overview, sourceID])
 
   useEffect(() => {
-    setSelectedJobID(''); setCandidates(null); setRepairIssues(null); setMessage(''); setLastRead(''); setReadError(''); setFilter('all')
+    setSelectedJobID(''); setCandidates(null); setRepairIssues(null); setMessage(''); setLoadedSource(''); setLastRead(''); setReadError(''); setFilter('all')
   }, [sourceID])
 
   useEffect(() => {
@@ -126,10 +128,8 @@ export function MaintenancePanel({ overview }: Props) {
 
   async function refreshJobs() {
     if (!sourceID) return
-    setBusy(true)
-    try { setJobs(await app().ListMaintenance(sourceID, 50) ?? []) }
-    catch (e) { setMessage(errorText(e)) }
-    finally { setBusy(false) }
+    try { setJobs(await app().ListMaintenance(sourceID, 50) ?? []); setLoadedSource(sourceID); setLastRead(new Date().toLocaleTimeString('zh-CN')); setReadError('') }
+    catch (e) { setLoadedSource(''); setReadError(errorText(e)); setMessage(errorText(e)) }
   }
 
   async function startInventory(incremental = false) {
@@ -305,17 +305,17 @@ export function MaintenancePanel({ overview }: Props) {
           {(overview?.sources ?? []).map(x => <option key={x.source.id} value={x.source.id}>{x.source.name} · {x.source.type}/{x.source.provider}</option>)}
         </select></label>
         <div className="span-2"><p>如果服务器里的文件数量不对，可以先重新清点。PyPI 的大型仓库每检查一批项目会保存进度，暂停或 Agent 重启后可继续；整个任务完成前，不会替换原来的文件账本。</p>{source?.source.type === 'apt' && <small>APT 的共享包目录默认不会被清理。只有明确设为该软件源独占时，才允许删除其中的废弃文件。</small>}</div>
-        <div className="button-row align-end maintenance-actions">
-          <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(false)}>全量清点</button>
-          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(true)}>增量清点</button>}
-          <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startGC(false)}>查看可清理文件</button>
-          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startRepair}>检查缺失文件</button>}
-          {source?.source.type === 'pypi' && <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startIntegrity}>SHA256 完整校验</button>}
-          {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={busy} onClick={pauseJob}>{activeJob.kind === 'REPAIR' ? '暂停校验' : '暂停清点'}</button>}
-          {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>{pausedJob.kind === 'REPAIR' ? '继续校验' : '继续清点'}</button>}
-          {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? (pausedJob.kind === 'REPAIR' ? '放弃校验' : '放弃清点') : '取消任务'}</button>}
-          <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={reclaimHistory}>回收历史账本</button>
-          <button disabled={!sourceID || busy} onClick={() => { setMessage(''); void refreshJobs() }}>刷新</button>
+        <div className="button-row align-end maintenance-actions">{!ready && sourceID && <p className="small">尚未成功读取此软件源的最新维护状态，暂不可启动、暂停或取消维护任务。</p>}
+          <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(false)}>全量清点</button>
+          {source?.source.type === 'pypi' && <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startInventory(true)}>增量清点</button>}
+          <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={() => startGC(false)}>查看可清理文件</button>
+          {source?.source.type === 'pypi' && <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startRepair}>检查缺失文件</button>}
+          {source?.source.type === 'pypi' && <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={startIntegrity}>SHA256 完整校验</button>}
+          {(activeJob?.kind === 'INVENTORY' || activeJob?.kind === 'REPAIR') && source?.source.type === 'pypi' && <button disabled={!ready || busy} onClick={pauseJob}>{activeJob.kind === 'REPAIR' ? '暂停校验' : '暂停清点'}</button>}
+          {pausedJob && <button className="primary" disabled={!ready || busy} onClick={resumeJob}>{pausedJob.kind === 'REPAIR' ? '继续校验' : '继续清点'}</button>}
+          {(activeJob || pausedJob) && <button className="danger-ghost" disabled={!ready || busy} onClick={cancelJob}>{pausedJob ? (pausedJob.kind === 'REPAIR' ? '放弃校验' : '放弃清点') : '取消任务'}</button>}
+          <button disabled={!ready || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={reclaimHistory}>回收历史账本</button>
+          <button disabled={!sourceID || busy} onClick={async () => { setMessage(''); setBusy(true); try { await refreshJobs() } finally { setBusy(false) } }}>刷新</button>
         </div>
       </div>
     </div>
@@ -333,14 +333,14 @@ export function MaintenancePanel({ overview }: Props) {
           <td>{job.kind === 'GC' || job.kind === 'REPAIR' ? <>{formatCount(job.candidateObjects)}<small>{formatBytes(job.candidateBytes)}</small></> : '—'}</td>
           <td>{job.kind === 'GC' && job.execute ? <>{formatCount(job.affectedObjects)}<small>{formatBytes(job.affectedBytes)}</small></> : '—'}</td>
           <td>{formatDate(job.createdAt)}<small>{job.completedAt ? `完成 ${formatDate(job.completedAt)}` : job.startedAt ? `开始 ${formatDate(job.startedAt)}` : ''}</small></td>
-          <td><div className="button-row">{job.kind === 'REPAIR' && terminal(job) && <button disabled={busy} onClick={() => showRepair(job)}>查看异常</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && job.candidateObjects > 0 && <button disabled={busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => exportRepair(job)}>导出修复状态</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && !!job.hashMiBPerSecond && job.candidateObjects > 0 && <button disabled={busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => approveRepair(job, !job.replacementApproved)}>{job.replacementApproved ? '撤销损坏文件修复授权' : '授权损坏文件修复'}</button>}{job.kind === 'GC' && terminal(job) && job.tempCatalogPath && <button disabled={busy} onClick={() => showCandidates(job)}>查看列表</button>}{job.kind === 'GC' && job.status === 'COMPLETED' && !job.execute && <button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => { setSelectedJobID(job.id); void showCandidates(job).then(() => undefined) }}>选中本次预览</button>}</div></td>
+          <td><div className="button-row">{job.kind === 'REPAIR' && terminal(job) && <button disabled={busy} onClick={() => showRepair(job)}>查看异常</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && job.candidateObjects > 0 && <button disabled={!ready || busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => exportRepair(job)}>导出修复状态</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && !!job.hashMiBPerSecond && job.candidateObjects > 0 && <button disabled={!ready || busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => approveRepair(job, !job.replacementApproved)}>{job.replacementApproved ? '撤销损坏文件修复授权' : '授权损坏文件修复'}</button>}{job.kind === 'GC' && terminal(job) && job.tempCatalogPath && <button disabled={busy} onClick={() => showCandidates(job)}>查看列表</button>}{job.kind === 'GC' && job.status === 'COMPLETED' && !job.execute && <button className="danger-ghost" disabled={!ready || busy || !!activeJob || !!pausedJob} onClick={() => { setSelectedJobID(job.id); void showCandidates(job).then(() => undefined) }}>选中本次预览</button>}</div></td>
         </tr>) : <tr><td colSpan={8} className="empty">{readError ? '未能读取维护记录，请检查连接后刷新。' : '没有符合条件的近期维护记录。'}</td></tr>}</tbody>
       </table></div>
     </div>
 
     {selectedJob?.kind === 'GC' && selectedJob.status === 'COMPLETED' && !selectedJob.execute && <div className="card">
       <div className="card-title"><span>确认清理</span><span>{shortID(selectedJob.id)}</span></div>
-      <div className="button-row"><button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
+      <div className="button-row"><button className="danger-ghost" disabled={!ready || busy || !!activeJob || !!pausedJob} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
     </div>}
 
     <div className="card table-card">
