@@ -193,6 +193,11 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 		r.finishFailure(job.ID, err)
 		return
 	}
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		r.finishFailure(job.ID, err)
+		return
+	}
 	writer, err := r.Candidates.Create(ctx, job.ID)
 	if err != nil {
 		r.finishFailure(job.ID, err)
@@ -351,7 +356,7 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 		if err = ctx.Err(); err != nil {
 			return err
 		}
-		if err = secureRemoveCandidate(root, candidate.LogicalPath, candidate); err != nil {
+		if err = secureRemoveCandidate(root, candidate.LogicalPath, candidate, rootInfo); err != nil {
 			return err
 		}
 		affectedObjects++
