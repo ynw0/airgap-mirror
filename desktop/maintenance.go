@@ -190,22 +190,37 @@ func (a *App) ExportCompleteRepairReport(jobID string) (RepairReportResult, erro
 		delete(a.reportCancels, jobID)
 		a.opsMu.Unlock()
 	}()
-	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	// Write beside the destination so a crash cannot leave a partial report
+	// with the final name, and publication does not cross filesystems.
+	if _, err = os.Lstat(destination); err == nil {
+		return result, fmt.Errorf("report destination already exists: %w", os.ErrExist)
+	} else if !os.IsNotExist(err) {
+		return result, err
+	}
+	file, err := os.CreateTemp(filepath.Dir(destination), ".airgap-repair-*.partial")
 	if err != nil {
 		return result, err
 	}
+	staged := file.Name()
+	defer os.Remove(staged)
 	count, writeErr := agent.WriteRepairReport(ctx, jobID, file, func(done, total int64) {
 		runtime.EventsEmit(a.ctx, "repair-report-progress", map[string]any{"jobId": jobID, "done": done, "total": total})
 	})
+	if writeErr == nil {
+		writeErr = file.Sync()
+	}
 	closeErr := file.Close()
-	if writeErr != nil || closeErr != nil {
-		if removeErr := os.Remove(destination); removeErr != nil {
-			return result, fmt.Errorf("报告未完成，请删除不完整文件 %s: %v (write: %v, close: %v)", destination, removeErr, writeErr, closeErr)
-		}
-		if writeErr != nil {
-			return result, writeErr
-		}
+	if writeErr != nil {
+		return result, writeErr
+	}
+	if closeErr != nil {
 		return result, closeErr
+	}
+	if err = ctx.Err(); err != nil {
+		return result, err
+	}
+	if err = publishReportFile(staged, destination); err != nil {
+		return result, fmt.Errorf("publish completed report: %w", err)
 	}
 	return RepairReportResult{Path: destination, Count: count}, nil
 }
