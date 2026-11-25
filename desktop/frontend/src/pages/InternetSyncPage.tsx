@@ -123,7 +123,10 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     setBusy(true); setMessage('')
     try { const next = await app().ResumeEpoch(epochID); setPlan(null); setProbe(null); setEpochView(next); setMessage('之前的下载任务已打开。没下载完的批次可以继续。') } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
-  async function chooseDestination() { const value = await app().PickDownloadDirectory(); if (value) setDestination(value) }
+  async function chooseDestination() {
+    try { const value = await app().PickDownloadDirectory(); if (value) setDestination(value) }
+    catch (e) { setMessage('无法选择保存目录：' + errorText(e)) }
+  }
   async function refreshBatchProgress(batchID: string) {
     try { const p = await app().BatchProgress(batchID); setProgress(prev => ({ ...prev, [batchID]: p })) } catch { /* batch may not exist after workspace rotation */ }
   }
@@ -131,14 +134,18 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     if (downloadOperation.current || locked || !historyReady) return
     downloadOperation.current = true
     setBusy(true)
-    try { await performDownload(batch, false) } finally { downloadOperation.current = false; setBusy(false) }
+    try { await performDownload(batch, false) }
+    catch (e) { setMessage(errorText(e)) }
+    finally { downloadOperation.current = false; setBusy(false) }
   }
   async function redownload(batch: Batch) {
     if (downloadOperation.current || locked || !historyReady) return
     if (!window.confirm(`确定重新下载第 ${batch.sequence} 批吗？这会清理这批文件原来的下载内容，其它批次不受影响。`)) return
     downloadOperation.current = true
     setBusy(true)
-    try { await performDownload(batch, true) } finally { downloadOperation.current = false; setBusy(false) }
+    try { await performDownload(batch, true) }
+    catch (e) { setMessage(errorText(e)) }
+    finally { downloadOperation.current = false; setBusy(false) }
   }
   async function performDownload(batch: Batch, replace: boolean) {
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) { setMessage('同时下载的文件数必须为 1 至 16 的整数。'); return }
