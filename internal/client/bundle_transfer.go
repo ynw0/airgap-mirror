@@ -268,17 +268,8 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 		return out, err
 	}
 	if status.Session.Status == "BATCH_IMPORTED" {
-		// The batch flag precedes metadata publication and final Epoch
-		// completion. Retry finalization even when the payload is committed.
-		if err = agent.CompleteBatch(ctx, session.ID); err != nil {
-			return out, err
-		}
-		status, err = agent.ImportStatus(ctx, session.ID)
-		if err != nil {
-			return out, err
-		}
-		out.Status = status
-		return out, nil
+		out.Status, err = finalizeTransferredBatch(ctx, agent, session.ID)
+		return out, err
 	}
 	if status.Session.Status == "UPLOADING_MANIFEST" {
 		if err = agent.UploadManifestVerified(ctx, session.ID, bundle.ManifestPath, d.ManifestSHA256, opts.ChunkSize, progress); err != nil {
@@ -296,17 +287,8 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 		return out, fmt.Errorf("import session %s cannot accept packs in status %s: %w", session.ID, status.Session.Status, domain.ErrConflict)
 	}
 	if status.Session.Status == "BATCH_IMPORTED" {
-		// The batch flag precedes metadata publication and final Epoch
-		// completion. Retry finalization even when the payload is committed.
-		if err = agent.CompleteBatch(ctx, session.ID); err != nil {
-			return out, err
-		}
-		status, err = agent.ImportStatus(ctx, session.ID)
-		if err != nil {
-			return out, err
-		}
-		out.Status = status
-		return out, nil
+		out.Status, err = finalizeTransferredBatch(ctx, agent, session.ID)
+		return out, err
 	}
 
 	specs := append([]domain.PackSpec(nil), d.Packs...)
@@ -346,16 +328,22 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 			}
 		}
 	}
-	if err = agent.CompleteBatch(ctx, session.ID); err != nil {
-		return out, err
+	out.Status, err = finalizeTransferredBatch(ctx, agent, session.ID)
+	return out, err
+}
+
+// The batch flag precedes metadata publication and final Epoch completion.
+// Retry finalization even when the payload is committed.
+func finalizeTransferredBatch(ctx context.Context, agent *AgentClient, sessionID string) (ImportStatus, error) {
+	if err := agent.CompleteBatch(ctx, sessionID); err != nil {
+		return ImportStatus{}, err
 	}
-	status, err = agent.ImportStatus(ctx, session.ID)
+	status, err := agent.ImportStatus(ctx, sessionID)
 	if err != nil {
-		return out, err
+		return ImportStatus{}, err
 	}
-	if status.Session.Status != "BATCH_IMPORTED" {
-		return out, fmt.Errorf("server did not complete batch; session status=%s: %w", status.Session.Status, domain.ErrConflict)
+	if status.Session.ID != sessionID || status.Session.Status != "BATCH_IMPORTED" {
+		return ImportStatus{}, fmt.Errorf("server did not complete batch; session status=%s: %w", status.Session.Status, domain.ErrConflict)
 	}
-	out.Status = status
-	return out, nil
+	return status, nil
 }
