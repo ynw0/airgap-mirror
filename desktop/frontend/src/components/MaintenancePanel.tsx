@@ -16,6 +16,10 @@ function statusClass(status: string) {
   }
 }
 
+function taskName(job: MaintenanceJob) {
+  return job.kind === 'GC' ? (job.execute ? '清理文件' : '预览可清理文件') : job.kind === 'REPAIR' ? (job.hashMiBPerSecond ? 'SHA256 完整校验' : '缺失文件检查') : job.incrementalInventory ? '增量清点' : '全量清点'
+}
+
 function terminal(job: MaintenanceJob) {
   return job.status === 'COMPLETED' || job.status === 'FAILED' || job.status === 'CANCELLED'
 }
@@ -29,6 +33,10 @@ export function MaintenancePanel({ overview }: Props) {
   const [exports, setExports] = useState<ExportJob[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [filter, setFilter] = useState('all')
+  const [lastRead, setLastRead] = useState('')
+  const [readError, setReadError] = useState('')
+  const [exportError, setExportError] = useState('')
 
   const source = useMemo(() => overview?.sources.find(x => x.source.id === sourceID), [overview, sourceID])
   const selectedJob = useMemo(() => jobs.find(x => x.id === selectedJobID), [jobs, selectedJobID])
@@ -52,9 +60,9 @@ export function MaintenancePanel({ overview }: Props) {
       pending = true
       try {
         const value = await app().ListMaintenance(sourceID, 50)
-        if (!disposed) setJobs(value ?? [])
+        if (!disposed) { setJobs(value ?? []); setLastRead(new Date().toLocaleTimeString('zh-CN')); setReadError('') }
       } catch (e) {
-        if (!disposed) setMessage(errorText(e))
+        if (!disposed) setReadError(errorText(e))
       } finally { pending = false }
     }
     void refresh()
@@ -63,7 +71,7 @@ export function MaintenancePanel({ overview }: Props) {
   }, [overview, sourceID])
 
   useEffect(() => {
-    setSelectedJobID(''); setCandidates(null); setRepairIssues(null); setMessage('')
+    setSelectedJobID(''); setCandidates(null); setRepairIssues(null); setMessage(''); setLastRead(''); setReadError(''); setFilter('all')
   }, [sourceID])
 
   useEffect(() => {
@@ -74,8 +82,8 @@ export function MaintenancePanel({ overview }: Props) {
       pending = true
       try {
         const jobs = await app().ListExportJobs()
-        if (!disposed) setExports(jobs ?? [])
-      } catch (_) { /* older Agents do not have the export queue */ }
+        if (!disposed) { setExports(jobs ?? []); setExportError('') }
+      } catch (e) { if (!disposed) setExportError(errorText(e)) }
       finally { pending = false }
     }
     void refresh()
@@ -266,6 +274,8 @@ export function MaintenancePanel({ overview }: Props) {
     finally { setBusy(false) }
   }
 
+  const current = activeJob ?? pausedJob
+  const visibleJobs = jobs.filter(j => filter === 'all' || (filter === 'active' && !terminal(j)) || (filter === 'failed' && j.status === 'FAILED') || (filter === 'completed' && j.status === 'COMPLETED'))
   return <>
     {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
     <div className="card">
@@ -290,10 +300,12 @@ export function MaintenancePanel({ overview }: Props) {
       </div>
     </div>
 
+    {current && <div className="card current-task"><div className="card-title"><span>当前维护任务</span><span className={statusClass(current.status)}>{statusLabel(current.status)}</span></div><h3>{taskName(current)}</h3><p>任务编号：<code>{current.id}</code></p><div className="batch-overview"><div><span>已检查文件</span><strong>{formatCount(current.scannedObjects)}</strong></div><div><span>已登记检查容量</span><strong>{formatBytes(current.scannedBytes)}</strong></div><div><span>{current.kind === 'REPAIR' ? '异常文件' : current.kind === 'GC' ? '可清理文件' : '已完成项目'}</span><strong>{formatCount(current.kind === 'INVENTORY' ? current.completedProjects : current.candidateObjects)}</strong></div></div>{current.kind === 'INVENTORY' && current.totalProjects > 0 && <><progress className="maintenance-progress" aria-label="当前项目清点进度" max={current.totalProjects} value={Math.min(current.totalProjects, Math.max(0, current.completedProjects))}/><p>{formatCount(current.completedProjects)} / {formatCount(current.totalProjects)} 个项目{current.lastProject ? `；最近完成：${current.lastProject}` : ''}</p></>}<p>开始时间：{formatDate(current.startedAt)}</p>{current.status === 'PAUSED' && <p>任务已暂停，可从服务器保存的检查点继续。</p>}{current.errorText && <p className="error-detail">{current.errorText}</p>}</div>}
     <div className="card table-card">
-      <div className="card-title"><span>维护记录</span><span>{jobs.length ? `${jobs.length} 条` : '暂无记录'}</span></div>
+      <div className="card-title"><span>维护记录</span><span>{lastRead ? `最近查询 ${lastRead}` : '尚未读取'}</span></div>
+      <div className="table-toolbar"><label>筛选任务<select value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部近期任务</option><option value="active">未结束</option><option value="failed">失败</option><option value="completed">已完成</option></select></label><span>显示 {visibleJobs.length} / {jobs.length} 条近期记录</span>{readError && <span className="error-detail">读取失败：{readError}（列表可能不是最新状态）</span>}</div>
       <div className="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>状态</th><th>已检查</th><th>异常或可清理文件</th><th>实际删除</th><th>时间</th><th></th></tr></thead>
-        <tbody>{jobs.length ? jobs.map(job => <tr key={job.id}>
+        <tbody>{visibleJobs.length ? visibleJobs.map(job => <tr key={job.id}>
           <td><code>{shortID(job.id)}</code>{job.errorText && <small className="error-detail">{job.errorText}</small>}</td>
           <td>{job.kind === 'GC' ? '清理文件' : job.kind === 'REPAIR' ? (job.hashMiBPerSecond ? `完整性校验（${job.hashMiBPerSecond} MiB/s）` : '缺失文件检查') : job.incrementalInventory ? '增量清点' : '全量清点'}{job.kind === 'GC' && <small>{job.execute ? '执行删除' : '仅预览'}</small>}</td>
           <td><span className={statusClass(job.status)}>{statusLabel(job.status)}</span></td>
@@ -302,7 +314,7 @@ export function MaintenancePanel({ overview }: Props) {
           <td>{job.kind === 'GC' && job.execute ? <>{formatCount(job.affectedObjects)}<small>{formatBytes(job.affectedBytes)}</small></> : '—'}</td>
           <td>{formatDate(job.createdAt)}<small>{job.completedAt ? `完成 ${formatDate(job.completedAt)}` : job.startedAt ? `开始 ${formatDate(job.startedAt)}` : ''}</small></td>
           <td><div className="button-row">{job.kind === 'REPAIR' && terminal(job) && <button disabled={busy} onClick={() => showRepair(job)}>查看异常</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && job.candidateObjects > 0 && <button disabled={busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => exportRepair(job)}>导出修复状态</button>}{job.kind === 'REPAIR' && job.status === 'COMPLETED' && !!job.hashMiBPerSecond && job.candidateObjects > 0 && <button disabled={busy || !!activeJob || !!pausedJob || !!source?.state.activeEpochId} onClick={() => approveRepair(job, !job.replacementApproved)}>{job.replacementApproved ? '撤销损坏文件修复授权' : '授权损坏文件修复'}</button>}{job.kind === 'GC' && terminal(job) && job.tempCatalogPath && <button disabled={busy} onClick={() => showCandidates(job)}>查看列表</button>}{job.kind === 'GC' && job.status === 'COMPLETED' && !job.execute && <button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => { setSelectedJobID(job.id); void showCandidates(job).then(() => undefined) }}>选中本次预览</button>}</div></td>
-        </tr>) : <tr><td colSpan={8} className="empty">选择软件源后，可以查看以前的检查和清理记录。</td></tr>}</tbody>
+        </tr>) : <tr><td colSpan={8} className="empty">{readError ? '未能读取维护记录，请检查连接后刷新。' : '没有符合条件的近期维护记录。'}</td></tr>}</tbody>
       </table></div>
     </div>
 
@@ -311,12 +323,12 @@ export function MaintenancePanel({ overview }: Props) {
       <div className="button-row"><button className="danger-ghost" disabled={busy || !!activeJob || !!pausedJob} onClick={() => startGC(true)}>重新检查并永久删除</button><p>删除前会再次检查文件是否还被仓库使用，不会直接按旧清单删除。</p></div>
     </div>}
 
-    {exports.length > 0 && <div className="card table-card">
-      <div className="card-title"><span>状态文件导出任务</span><span>中断下载后选择同一任务和目标路径可继续</span></div>
+    <div className="card table-card">
+      <div className="card-title"><span>状态文件导出任务</span><span>中断下载后选择同一任务和目标路径可继续</span></div>{exportError && <p className="error-detail export-empty">暂时无法读取导出任务：{exportError}。旧版 Agent 可能不支持此功能。</p>}{!exports.length && !exportError && <p className="empty">暂无状态文件导出任务。</p>}
       <div className="table-wrap"><table><thead><tr><th>任务</th><th>状态</th><th>进度</th><th>时间</th><th></th></tr></thead><tbody>
         {exports.map(job => <tr key={job.id}><td><code>{shortID(job.id)}</code>{job.repairJobId && <small>缺失文件修复</small>}</td><td>{statusLabel(job.status)}</td><td>{job.stage}<small>{job.completedSources}/{job.totalSources} 个软件源</small>{job.errorText && <small>{job.errorText}</small>}</td><td>{formatDate(job.createdAt)}</td><td>{job.status === 'COMPLETED' && <button disabled={busy} onClick={() => downloadExport(job)}>下载或继续下载</button>}</td></tr>)}
       </tbody></table></div>
-    </div>}
+    </div>
     {repairIssues && <div className="card table-card">
       <div className="card-title"><span>文件异常</span><span>缺失文件可离线补回；损坏软件包须经过 SHA256 校验并明确授权后才能替换</span></div>
       <div className="table-wrap"><table><thead><tr><th>文件路径</th><th>类型</th><th>账本大小</th><th>实际大小</th></tr></thead><tbody>
