@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { app } from '../backend'
 import { SourceEditor } from '../components/SourceEditor'
 import { errorText, formatBytes, formatCount, formatDate, shortID, statusLabel } from '../format'
-import type { AgentOverview, Epoch, Source, SourceInput } from '../types'
+import type { ConnectionCheck, AgentOverview, Epoch, Source, SourceInput } from '../types'
 
 type Props = {
   overview: AgentOverview | null
@@ -14,6 +14,8 @@ type Props = {
 export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMaintenance }: Props) {
   const [baseURL, setBaseURL] = useState('')
   const [token, setToken] = useState('')
+  const [checks, setChecks] = useState<ConnectionCheck[]>([])
+  const [diagnosing, setDiagnosing] = useState(false)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [destination, setDestination] = useState('')
@@ -53,9 +55,15 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
     return () => { disposed = true }
   }, [overview, epochSourceID])
 
+  async function diagnose() {
+    setDiagnosing(true); setChecks([]); setMessage('')
+    try { setChecks(await app().DiagnoseAgent(baseURL, token)) }
+    catch { setMessage('无法执行连接诊断，请检查客户端版本。') }
+    finally { setDiagnosing(false) }
+  }
   async function connect() {
     if (!baseURL.trim()) { setMessage('请填写内网服务器地址，例如 http://192.168.21.4:8787'); return }
-    setBusy(true); setMessage('')
+    setBusy(true); setMessage(''); setChecks([])
     try {
       const value = await app().ConnectAgent(baseURL, token)
       onOverview(value)
@@ -120,14 +128,16 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
     {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
     <p>请使用管理员提供的 Agent 地址和连接令牌。可以直接连接 <code>http://192.168.21.4:8787</code>，也可以使用已配置的 HTTPS 反向代理地址，例如 <code>https://mirror.costar.com/mirror-control</code>。</p>
     <div className="card form-grid agent-form">
-      <label>内网服务器地址<input value={baseURL} onChange={e => setBaseURL(e.target.value)} disabled={!!overview || busy} placeholder="例如 http://192.168.21.4:8787" /></label>
-      <label>连接令牌<input type="password" value={token} onChange={e => setToken(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !busy && !overview) void connect() }} disabled={!!overview || busy} placeholder="服务器管理员提供的连接令牌" /></label>
+      <label>内网服务器地址<input value={baseURL} onChange={e => { setBaseURL(e.target.value); setChecks([]) }} disabled={!!overview || busy || diagnosing} placeholder="例如 http://192.168.21.4:8787" /></label>
+      <label>连接令牌<input type="password" value={token} onChange={e => { setToken(e.target.value); setChecks([]) }} onKeyDown={e => { if (e.key === 'Enter' && !busy && !diagnosing && !overview) void connect() }} disabled={!!overview || busy || diagnosing} placeholder="服务器管理员提供的连接令牌" /></label>
       <div className="button-row align-end">
-        {!overview ? <button className="primary" disabled={busy} onClick={connect}>连接服务器</button> : <>
+        {!overview ? <button className="primary" disabled={busy || diagnosing} onClick={connect}>连接服务器</button> : <>
           <button disabled={busy} onClick={refresh}>刷新</button><button className="danger-ghost" disabled={busy} onClick={disconnect}>断开连接</button>
         </>}
       </div>
     </div>
+    {!overview && <div className="card connection-diagnostics"><div className="card-title"><span>连接诊断</span><button disabled={busy || diagnosing} onClick={diagnose}>{diagnosing ? '正在检查…' : '检查地址和访问权限'}</button></div><p>仅发送读取请求，不建立正式连接、不修改服务器配置。最多检查 15 秒。</p>{checks.map(check => <div className="check-row" key={check.stage}><span className={`status ${check.ok ? 'status-complete' : 'status-failed'}`}>{check.ok ? '通过' : '未通过'}</span><div><strong>{check.stage}</strong><p>{check.message}</p></div><small>{check.elapsedMs} ms（累计）</small></div>)}</div>}
+
 
     {overview && <div className="metrics-grid"><div className="metric"><span>软件源总数</span><strong>{formatCount(overview.sources.length)}</strong></div><div className="metric"><span>已启用</span><strong>{formatCount(overview.sources.filter(x => x.source.enabled).length)}</strong></div><div className="metric"><span>正在同步</span><strong>{formatCount(overview.sources.filter(x => x.state.activeEpochId).length)}</strong></div><div className="metric"><span>已选择导出</span><strong>{formatCount(selectedIDs.length)}</strong></div></div>}
     <div className="card table-card">
