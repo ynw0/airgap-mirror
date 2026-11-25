@@ -32,6 +32,7 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
   const [historyRetry, setHistoryRetry] = useState(0)
   const downloadOperation = useRef(false)
   const [message, setMessage] = useState('')
+  const [pendingAction, setPendingAction] = useState<'probe' | 'analyze' | 'open' | ''>('')
   const historyKey = capsuleID + '\u0000' + sourceID
   const validSource = !!capsule?.sources.some(x => x.source.id === sourceID)
   const historyReady = validSource && historyState.key === historyKey && historyState.ok
@@ -95,29 +96,29 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
 
   async function reloadCapsules() { const items = await app().ListCapsules(); onCapsules(items); if (!capsuleID && items[0]) setCapsuleID(items[0].id) }
   async function importCapsule() {
-    setBusy(true); setMessage('')
+    setBusy(true); setPendingAction('open'); setMessage('')
     try {
       const path = await app().PickCapsuleFile(); if (!path) return
       const imported = await app().ImportCapsule(path)
       await reloadCapsules(); setCapsuleID(imported.capsule.id); setMessage('已打开状态文件。请选择要更新的软件源。')
-    } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
+    } catch (e) { setMessage(errorText(e)) } finally { setBusy(false); setPendingAction('') }
   }
   async function probeSource() {
     if (!validSource || locked) return
-    setBusy(true); setMessage('')
-    try { setProbe(await app().ProbeSource(capsuleID, sourceID)); setMessage('已获取上游状态。点击“查看需要下载的更新”即可继续。') } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
+    setBusy(true); setPendingAction('probe'); setMessage('')
+    try { setProbe(await app().ProbeSource(capsuleID, sourceID)); setMessage('已获取上游状态。点击“查看需要下载的更新”即可继续。') } catch (e) { setMessage(errorText(e)) } finally { setBusy(false); setPendingAction('') }
   }
   async function analyze() {
     if (!historyReady || locked) return
     if (!Number.isSafeInteger(batchGiB) || !Number.isSafeInteger(packGiB) || batchGiB < 1 || packGiB < 1 || packGiB > batchGiB || !Number.isSafeInteger(batchGiB * GIB)) { setMessage('请输入大于 0 的整数。单个文件包的目标大小不能超过每批的目标大小。'); return }
-    setBusy(true); setMessage('')
+    setBusy(true); setPendingAction('analyze'); setMessage('')
     try {
       const result = await app().AnalyzeSource(capsuleID, sourceID, { maxBatchBytes: Math.round(batchGiB * GIB), targetPackBytes: Math.round(packGiB * GIB), pageSize: 1000 })
       setPlan(result)
       setEpochView(result.noChanges ? null : { epoch: result.plan.epoch, batches: result.batches })
       setHistory(await app().ListEpochs(capsuleID, sourceID))
       setMessage(result.noChanges ? '这次没有新文件需要下载。' : `本次更新分为 ${result.batches.length} 批。请选择保存位置，再逐批下载。`)
-    } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
+    } catch (e) { setMessage(errorText(e)) } finally { setBusy(false); setPendingAction('') }
   }
   async function resume(epochID: string) {
     setBusy(true); setMessage('')
@@ -174,9 +175,25 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
   const filteredBatches = batches.filter(b => batchFilter === 'all' || (batchFilter === 'pending' && !isFinished(b)) || (batchFilter === 'finished' && isFinished(b)) || (batchFilter === 'failed' && batchState(b) === 'FAILED'))
   const maxPage = Math.max(1, Math.ceil(filteredBatches.length / PAGE_SIZE))
   const page = Math.min(batchPage, maxPage)
+  const visibleBatches = filteredBatches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  // Read saved progress for visible unfinished batches, not every batch in a large plan.
+  const visibleResumeIDs = visibleBatches.filter(b => ['DOWNLOADING', 'VERIFYING'].includes(b.status)).map(b => b.id).join(',')
+  useEffect(() => {
+    if (!visibleResumeIDs || running.size) return
+    let disposed = false
+    async function restoreProgress() {
+      const ids = visibleResumeIDs.split(',')
+      for (let i = 0; i < ids.length && !disposed; i += 4) {
+        const results = await Promise.all(ids.slice(i, i + 4).map(async id => { try { return [id, await app().BatchProgress(id)] as const } catch { return null } }))
+        if (!disposed) setProgress(prev => { const next = {...prev}; for (const item of results) if (item) next[item[0]] = item[1]; return next })
+      }
+    }
+    void restoreProgress()
+    return () => { disposed = true }
+  }, [visibleResumeIDs, running])
   useEffect(() => { setBatchPage(1); setBatchFilter('all') }, [epochView?.epoch.id, capsuleID, sourceID])
   return <section className="page-stack">
-    <div className="page-header"><div><h2>在联网电脑上下载更新</h2><p>打开从内网导出的状态文件，选择软件源，再检查需要下载的更新。下载可以暂停，之后继续。</p></div><button className="primary" disabled={locked} onClick={importCapsule}>打开状态文件</button></div>
+    <div className="page-header"><div><h2>在联网电脑上下载更新</h2><p>打开从内网导出的状态文件，选择软件源，再检查需要下载的更新。下载可以暂停，之后继续。</p></div><button className="primary" disabled={locked} onClick={importCapsule}>{pendingAction === 'open' ? '正在打开…' : '打开状态文件'}</button></div>
 
     {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
     <div className="card form-grid sync-selector">
@@ -186,9 +203,10 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
         <label>每批目标大小 (GiB)<input type="number" min="1" step="1" disabled={locked} value={batchGiB} onChange={e => setBatchGiB(Number(e.target.value))} /></label>
         <label>每个文件包的目标大小 (GiB)<input type="number" min="1" step="1" disabled={locked} value={packGiB} onChange={e => setPackGiB(Number(e.target.value))} /></label>
       </div><p className="small">默认每批约 8 GiB，每个文件包约 1 GiB。如果单个文件较大，实际大小可能超过设定值。</p></details>
-      <div className="button-row align-end"><button disabled={!validSource || locked} onClick={probeSource}>查看上游状态</button><button className="primary" disabled={!historyReady || locked || !!(epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status))} onClick={analyze}>查看需要下载的更新</button></div>
+      <div className="button-row align-end"><button disabled={!validSource || locked} onClick={probeSource}>{pendingAction === 'probe' ? '正在查询…' : '查看上游状态'}</button><button className="primary" disabled={!historyReady || locked || !!(epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status))} onClick={analyze}>{pendingAction === 'analyze' ? '正在检查更新…' : '查看需要下载的更新'}</button></div>
     </div>
 
+    {pendingAction === 'analyze' && <div className="card guidance" role="status">正在读取上游索引，并与内网状态文件中的记录比较。软件源较大时可能需要较长时间。</div>}
     {validSource && !historyReady && <div className="card guidance"><p>{historyState.key === historyKey && historyState.error ? '无法读取以前的下载任务。可以查看上游状态，但请先重新读取任务，再开始下载或分析更新。' : '正在查找这个软件源以前的下载任务……'}</p>{historyState.key === historyKey && historyState.error && <p className="error-detail">{historyState.error}</p>}<button disabled={locked} onClick={() => setHistoryRetry(n => n + 1)}>重新读取任务</button></div>}
     {(probe || plan) && <div className="metrics-grid">
       <div className="metric"><span>内网当前版本</span><strong>{plan?.state.liveCursor.kind ?? capsule?.sources.find(x => x.source.id === sourceID)?.state.liveCursor.kind ?? '—'}</strong><small>{plan?.state.liveCursor.value ?? capsule?.sources.find(x => x.source.id === sourceID)?.state.liveCursor.value ?? '—'}</small></div>
@@ -204,9 +222,9 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     <div className="card">
       <div className="card-title"><span>把文件保存到移动硬盘</span><div className="path-picker compact"><input disabled={locked} value={destination} onChange={e => setDestination(e.target.value)} placeholder="选择移动硬盘或其他保存位置" /><button disabled={locked} onClick={chooseDestination}>浏览</button><details className="advanced-options compact-options"><summary>高级</summary><label className="inline-label">同时下载的文件数<input type="number" min="1" max="16" disabled={locked} value={concurrency} onChange={e => setConcurrency(Number(e.target.value))} /></label></details></div></div>
       {batches.length > 0 && <><div className="batch-overview"><div><span>全部批次</span><strong>{formatCount(batches.length)}</strong></div><div><span>已下载或导入</span><strong>{formatCount(finishedCount)}</strong></div><div><span>尚未完成</span><strong>{formatCount(batches.length - finishedCount)}</strong></div><div><span>失败批次</span><strong>{formatCount(failedCount)}</strong></div></div><div className="batch-toolbar"><label>筛选批次<select value={batchFilter} onChange={e => { setBatchFilter(e.target.value); setBatchPage(1) }}><option value="all">全部批次</option><option value="pending">尚未完成</option><option value="finished">已下载或导入</option><option value="failed">失败批次</option></select></label><span>显示 {filteredBatches.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, filteredBatches.length)} / {formatCount(filteredBatches.length)} 批</span></div></>}
-      {batches.length ? <><div className="batch-grid">{filteredBatches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(batch => {
-        const p = progress[batch.id]; const total = p?.totalBytes ?? batch.plannedBytes; const state = p?.batch.status ?? batch.status; const finished = ['READY', 'IMPORTED'].includes(state); const done = p?.downloadedBytes ?? (finished ? total : 0); const pct = finished ? 100 : total ? Math.min(100, Math.max(0, done / total * 100)) : 0; const active = running.has(batch.id); const rate = active ? rates[batch.id] ?? 0 : 0
-        return <article className="batch-card" key={batch.id}><div className="batch-head"><div><strong>第 {batch.sequence} 批</strong><small>{shortID(batch.id)}</small></div><span className={`status status-${state.toLowerCase()}`}>{statusLabel(state)}</span></div><div className="batch-stats"><span>{formatBytes(batch.plannedBytes)}</span><span>{formatCount(batch.objectCount)} 个文件</span><span>{batch.packCount} 个文件包</span></div><div className="progress" role="progressbar" aria-label={`第 ${batch.sequence} 批下载进度`} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}><div style={{width: `${pct}%`}} /></div><small>{formatBytes(done)} / {formatBytes(total)} · {pct.toFixed(1)}%{p ? ` · ${p.verifiedEntries}/${p.totalEntries} 个文件已检查` : ''}</small>{active && <div className="batch-telemetry"><span>{rate > 0 ? `${formatBytes(rate)}/s` : '暂时没有新的下载进度'}</span><span>{rate > 0 && total > done ? `预计剩余 ${duration((total - done) / rate)}` : '暂时无法估算剩余时间'}</span></div>}{(p?.batch.errorText || batch.errorText) && <details className="advanced-options"><summary>查看错误详情</summary><p className="error-detail">{p?.batch.errorText || batch.errorText}</p></details>}<div className="button-row"><button onClick={() => refreshBatchProgress(batch.id)}>刷新</button>{active ? <button onClick={() => pause(batch.id)}>暂停</button> : (p?.batch.status ?? batch.status) === 'READY' ? <button disabled={!historyReady || locked} onClick={() => redownload(batch)}>重新下载这一批</button> : <button className="primary" disabled={!historyReady || locked || state === 'IMPORTED'} onClick={() => download(batch)}>下载 / 继续</button>}</div></article>
+      {batches.length ? <><div className="batch-grid">{visibleBatches.map(batch => {
+        const p = progress[batch.id]; const total = p?.totalBytes ?? batch.plannedBytes; const state = p?.batch.status ?? batch.status; const finished = ['READY', 'IMPORTED'].includes(state); const done = p?.downloadedBytes ?? (finished ? total : 0); const pct = finished ? 100 : total ? Math.min(100, Math.max(0, done / total * 100)) : 0; const active = running.has(batch.id); const label = !active && state === 'DOWNLOADING' ? '等待继续下载' : !active && state === 'VERIFYING' ? '等待继续校验和打包' : statusLabel(state); const rate = active ? rates[batch.id] ?? 0 : 0
+        return <article className="batch-card" key={batch.id}><div className="batch-head"><div><strong>第 {batch.sequence} 批</strong><small>{shortID(batch.id)}</small></div><span className={`status status-${state.toLowerCase()}`}>{label}</span></div><div className="batch-stats"><span>{formatBytes(batch.plannedBytes)}</span><span>{formatCount(batch.objectCount)} 个文件</span><span>{batch.packCount} 个文件包</span></div><div className="progress" role="progressbar" aria-label={`第 ${batch.sequence} 批下载进度`} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}><div style={{width: `${pct}%`}} /></div><small>{formatBytes(done)} / {formatBytes(total)} · {pct.toFixed(1)}%{p ? ` · ${p.verifiedEntries}/${p.totalEntries} 个文件已检查` : ''}</small>{active && <div className="batch-telemetry"><span>{rate > 0 ? `${formatBytes(rate)}/s` : '暂时没有新的下载进度'}</span><span>{rate > 0 && total > done ? `预计剩余 ${duration((total - done) / rate)}` : '暂时无法估算剩余时间'}</span></div>}{(p?.batch.errorText || batch.errorText) && <details className="advanced-options"><summary>查看错误详情</summary><p className="error-detail">{p?.batch.errorText || batch.errorText}</p></details>}<div className="button-row"><button onClick={() => refreshBatchProgress(batch.id)}>刷新</button>{active ? <button onClick={() => pause(batch.id)}>暂停</button> : (p?.batch.status ?? batch.status) === 'READY' ? <button disabled={!historyReady || locked} onClick={() => redownload(batch)}>重新下载这一批</button> : <button className="primary" disabled={!historyReady || locked || !['PLANNED', 'DOWNLOADING', 'VERIFYING'].includes(state)} onClick={() => download(batch)}>{state === 'DOWNLOADING' ? '继续下载' : state === 'VERIFYING' ? '继续校验和打包' : state === 'PLANNED' ? '开始下载' : '无法下载'}</button>}</div></article>
       })}</div>{!filteredBatches.length && <p className="empty">没有符合条件的批次。</p>}{maxPage > 1 && <div className="batch-pagination"><button disabled={page <= 1} onClick={() => setBatchPage(page - 1)}>上一页</button><span>第 {page} / {maxPage} 页</span><button disabled={page >= maxPage} onClick={() => setBatchPage(page + 1)}>下一页</button></div>}<p className="small telemetry-note">下载速度和剩余时间仅供参考，不包括校验和打包所需的时间。</p></> : <div className="empty panel-empty">先打开状态文件、选好软件源，再点击“查看需要下载的更新”。</div>}
     </div>
 
