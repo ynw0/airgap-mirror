@@ -268,6 +268,15 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 		return out, err
 	}
 	if status.Session.Status == "BATCH_IMPORTED" {
+		// The batch flag precedes metadata publication and final Epoch
+		// completion. Retry finalization even when the payload is committed.
+		if err = agent.CompleteBatch(ctx, session.ID); err != nil {
+			return out, err
+		}
+		status, err = agent.ImportStatus(ctx, session.ID)
+		if err != nil {
+			return out, err
+		}
 		out.Status = status
 		return out, nil
 	}
@@ -287,6 +296,15 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 		return out, fmt.Errorf("import session %s cannot accept packs in status %s: %w", session.ID, status.Session.Status, domain.ErrConflict)
 	}
 	if status.Session.Status == "BATCH_IMPORTED" {
+		// The batch flag precedes metadata publication and final Epoch
+		// completion. Retry finalization even when the payload is committed.
+		if err = agent.CompleteBatch(ctx, session.ID); err != nil {
+			return out, err
+		}
+		status, err = agent.ImportStatus(ctx, session.ID)
+		if err != nil {
+			return out, err
+		}
 		out.Status = status
 		return out, nil
 	}
