@@ -95,3 +95,5 @@ export interface ExportJob {
   createdAt: string; updatedAt: string;
 }
 export interface CatalogReclaimResult { removedEntries: number; removedGenerations: number; more: boolean }
+
+export interface ConnectionCheck { stage: string; ok: boolean; message: string; elapsedMs: number }
