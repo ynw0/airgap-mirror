@@ -69,7 +69,7 @@ func TestPhysicalGCExecuteRejectedOffLinux(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		t.Skip("Linux 物理删除由 gc_remove_linux_test.go 覆盖")
 	}
-	err := secureRemoveCandidate(t.TempDir(), "pool/a.deb", domain.GCCandidate{LogicalPath: "pool/a.deb", Size: 1})
+	err := secureRemoveCandidate(t.TempDir(), "pool/a.deb", domain.GCCandidate{LogicalPath: "pool/a.deb", Size: 1}, nil)
 	if !errors.Is(err, domain.ErrInvalid) {
 		t.Fatalf("non-Linux physical GC must be refused, got %v", err)
 	}
