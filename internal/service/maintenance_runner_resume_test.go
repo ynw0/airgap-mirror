@@ -99,6 +99,11 @@ func waitMaintenanceStatus(t *testing.T, store *storesqlite.ServerStore, id stri
 }
 
 func TestRunnerPauseAndResumeKeepsLiveCatalogUntilComplete(t *testing.T) {
+	t.Run("operator pause", func(t *testing.T) { testRunnerPauseAndResume(t, false) })
+	t.Run("agent shutdown", func(t *testing.T) { testRunnerPauseAndResume(t, true) })
+}
+
+func testRunnerPauseAndResume(t *testing.T, shutdown bool) {
 	ctx := context.Background()
 	db, err := sql.Open("sqlite", t.TempDir()+"/server.db")
 	if err != nil {
@@ -138,28 +143,27 @@ func TestRunnerPauseAndResumeKeepsLiveCatalogUntilComplete(t *testing.T) {
 	case <-time.After(8 * time.Second):
 		t.Fatal("first checkpoint not reached")
 	}
-	if _, err = runner.PauseInventory(ctx, job.ID); err != nil {
+	if shutdown {
+		cancel()
+	} else if _, err = runner.PauseInventory(ctx, job.ID); err != nil {
 		t.Fatal(err)
 	}
 	paused := waitMaintenanceStatus(t, store, job.ID, domain.MaintenancePaused)
 	if paused.CompletedProjects != 100 || paused.ScannedObjects != 100 {
 		t.Fatalf("pause lost committed progress: %+v", paused)
 	}
-	deadline := time.Now().Add(8 * time.Second)
-	for {
-		runner.mu.Lock()
-		active := runner.cancels[job.ID] != nil
-		runner.mu.Unlock()
-		if !active {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("paused worker failed to release checkpoint")
-		}
-		time.Sleep(10 * time.Millisecond)
+	waitCtx, waitCancel := context.WithTimeout(ctx, 8*time.Second)
+	defer waitCancel()
+	if err = runner.WaitForIdle(waitCtx); err != nil {
+		t.Fatalf("paused worker failed to release checkpoint: %v", err)
 	}
 	if _, err = store.Get(ctx, id, "old/untouched"); err != nil {
 		t.Fatalf("live catalog modified before completion: %v", err)
+	}
+	if shutdown {
+		if _, err = runner.ResumeInventory(ctx, job.ID); !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("stopping Agent accepted a resume: %v", err)
+		}
 	}
 	// A new runner represents an Agent restart; it reopens the same job and SQLite checkpoint.
 	restarted := NewMaintenanceRunner(ctx, store, store, store, registry, factory)
@@ -170,6 +174,11 @@ func TestRunnerPauseAndResumeKeepsLiveCatalogUntilComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := waitMaintenanceStatus(t, store, job.ID, domain.MaintenanceCompleted)
+	finishCtx, finishCancel := context.WithTimeout(ctx, 8*time.Second)
+	defer finishCancel()
+	if err = restarted.WaitForIdle(finishCtx); err != nil {
+		t.Fatal(err)
+	}
 	if done.CompletedProjects != 101 || done.ScannedObjects != 101 {
 		t.Fatalf("completion stats not persisted: %+v", done)
 	}
