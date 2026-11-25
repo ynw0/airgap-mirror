@@ -304,7 +304,7 @@ func (a *App) PickStateDestination() (string, error) {
 	return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "保存 State Capsule",
 		DefaultFilename: "mirror-state.mstate",
-		Filters:         []runtime.FileFilter{{DisplayName: "Mirror State Capsule (*.mstate)", Pattern: "*.mstate"}},
+		Filters:         []runtime.FileFilter{{DisplayName: "仓库状态文件 (*.mstate)", Pattern: "*.mstate"}},
 	})
 }
 
@@ -328,21 +328,21 @@ func (a *App) ExportStateCapsule(sourceIDs []string, destination string) (StateE
 
 func (a *App) PickCapsuleFile() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:   "选择 State Capsule",
+		Title:   "打开状态文件",
 		Filters: []runtime.FileFilter{{DisplayName: "Mirror State Capsule (*.mstate)", Pattern: "*.mstate"}},
 	})
 }
 
 func (a *App) PickDownloadDirectory() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:                "选择 Batch 下载目录或移动硬盘",
+		Title:                "选择批次保存目录或移动硬盘",
 		CanCreateDirectories: true,
 	})
 }
 
 func (a *App) PickBatchDirectory() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "选择待导入的 Batch 目录",
+		Title: "选择要导入的批次文件夹",
 	})
 }
 
