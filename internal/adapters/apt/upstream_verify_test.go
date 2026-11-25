@@ -74,9 +74,9 @@ func TestRealUpstreamSignaturesRejectTamperingAndWrongKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name string
+		name               string
 		keys, release, sig []byte
-		inline, ok bool
+		inline, ok         bool
 	}{
 		{"detached", keys, body, sig, false, true},
 		{"clear signed", keys, inline, nil, true, true},
@@ -85,7 +85,7 @@ func TestRealUpstreamSignaturesRejectTamperingAndWrongKeys(t *testing.T) {
 		{"unknown key", other, body, sig, false, false},
 		{"unsigned suffix", keys, append(append([]byte(nil), inline...), []byte("Suite: other\n")...), nil, true, false},
 		{"invalid detached signature", keys, body, []byte("fake"), false, false},
-	}{
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plain, err := verifyUpstreamRelease(ctx, tc.keys, tc.release, tc.sig, tc.inline)
 			if !tc.ok {
@@ -97,7 +97,7 @@ func TestRealUpstreamSignaturesRejectTamperingAndWrongKeys(t *testing.T) {
 			if err != nil || !bytes.Equal(plain, body) {
 				t.Fatalf("signed content not verified: %v", err)
 			}
-			if err = validateReleaseFreshness(plain, Config{Suite:"bookworm",RequireValidUntil:true}, now); err != nil {
+			if err = validateReleaseFreshness(plain, Config{Suite: "bookworm", RequireValidUntil: true}, now); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -111,15 +111,15 @@ func TestReleaseFreshnessAndSignatureStatus(t *testing.T) {
 		name, body string
 		strict, ok bool
 	}{
-		{"stable archive", "Suite: stable\nDate: "+date+"\n", false, true},
-		{"strict requires expiry", "Suite: stable\nDate: "+date+"\n", true, false},
-		{"expired", "Suite: stable\nDate: "+date+"\nValid-Until: "+now.Add(-time.Minute).Format(time.RFC1123)+"\n", false, false},
-		{"wrong suite", "Suite: unstable\nDate: "+date+"\n", false, false},
-		{"future", "Suite: stable\nDate: "+now.Add(time.Hour).Format(time.RFC1123)+"\n", false, false},
-		{"duplicate", "Suite: stable\nDate: "+date+"\nDate: "+date+"\n", false, false},
-	}{
+		{"stable archive", "Suite: stable\nDate: " + date + "\n", false, true},
+		{"strict requires expiry", "Suite: stable\nDate: " + date + "\n", true, false},
+		{"expired", "Suite: stable\nDate: " + date + "\nValid-Until: " + now.Add(-time.Minute).Format(time.RFC1123) + "\n", false, false},
+		{"wrong suite", "Suite: unstable\nDate: " + date + "\n", false, false},
+		{"future", "Suite: stable\nDate: " + now.Add(time.Hour).Format(time.RFC1123) + "\n", false, false},
+		{"duplicate", "Suite: stable\nDate: " + date + "\nDate: " + date + "\n", false, false},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateReleaseFreshness([]byte(tc.body), Config{Suite:"stable",RequireValidUntil:tc.strict}, now)
+			err := validateReleaseFreshness([]byte(tc.body), Config{Suite: "stable", RequireValidUntil: tc.strict}, now)
 			if (err == nil) != tc.ok {
 				t.Fatalf("freshness: %v", err)
 			}
@@ -130,12 +130,12 @@ func TestReleaseFreshnessAndSignatureStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, status := range []string{
-		strings.Replace(valid,"22 10 01","22 2 01",1),
-		valid+"[GNUPG:] EXPKEYSIG expired\n",
-		valid+"[GNUPG:] REVKEYSIG revoked\n",
-		valid+"[GNUPG:] NO_PUBKEY unknown\n",
+		strings.Replace(valid, "22 10 01", "22 2 01", 1),
+		valid + "[GNUPG:] EXPKEYSIG expired\n",
+		valid + "[GNUPG:] REVKEYSIG revoked\n",
+		valid + "[GNUPG:] NO_PUBKEY unknown\n",
 		"[GNUPG:] GOODSIG fpr user\n",
-	}{
+	} {
 		if err := validateGPGStatus(status, now); err == nil {
 			t.Fatalf("unsafe GnuPG status accepted: %s", status)
 		}
@@ -143,23 +143,23 @@ func TestReleaseFreshnessAndSignatureStatus(t *testing.T) {
 }
 
 func TestAPTProbeWithoutKeyringFailsBeforeNetwork(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("APT contacted upstream without a configured keyring")
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
-	src := domain.Source{Type:domain.SourceAPT,Provider:Provider,UpstreamURL:server.URL,PublicURL:"https://repo.example/apt",ConfigJSON:json.RawMessage(`{"suite":"stable","releaseMode":"inrelease"}`)}
-	if _, err := New(server.Client()).Probe(context.Background(),src); !errors.Is(err,domain.ErrInvalid) {
-		t.Fatalf("unconfigured trust: %v",err)
+	src := domain.Source{Type: domain.SourceAPT, Provider: Provider, UpstreamURL: server.URL, PublicURL: "https://repo.example/apt", ConfigJSON: json.RawMessage(`{"suite":"stable","releaseMode":"inrelease"}`)}
+	if _, err := New(server.Client()).Probe(context.Background(), src); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("unconfigured trust: %v", err)
 	}
 	for _, invalid := range []string{
 		"not-base64!",
-		base64.StdEncoding.EncodeToString([]byte{0xc5,1,0}), // secret-key packet
-		base64.StdEncoding.EncodeToString([]byte{0xc6,1,0,0xc7,1,0}), // secret subkey
-		base64.StdEncoding.EncodeToString([]byte{0xc6,255,0,0,0,9,1}), // truncated public key
+		base64.StdEncoding.EncodeToString([]byte{0xc5, 1, 0}),               // secret-key packet
+		base64.StdEncoding.EncodeToString([]byte{0xc6, 1, 0, 0xc7, 1, 0}),   // secret subkey
+		base64.StdEncoding.EncodeToString([]byte{0xc6, 255, 0, 0, 0, 9, 1}), // truncated public key
 	} {
-		if _, err := decodeTrustedKeyring(invalid); !errors.Is(err,domain.ErrInvalid) {
-			t.Fatalf("invalid keyring accepted: %v",err)
+		if _, err := decodeTrustedKeyring(invalid); !errors.Is(err, domain.ErrInvalid) {
+			t.Fatalf("invalid keyring accepted: %v", err)
 		}
 	}
 }

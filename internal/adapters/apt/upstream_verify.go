@@ -25,7 +25,7 @@ func decodeTrustedKeyring(encoded string) ([]byte, error) {
 	if encoded == "" {
 		return nil, fmt.Errorf("APT 尚未配置可信上游公钥环，请先配置 trustedKeyringBase64: %w", domain.ErrInvalid)
 	}
-	if len(encoded) > base64.StdEncoding.EncodedLen(maxTrustedKeyring) + 4096 {
+	if len(encoded) > base64.StdEncoding.EncodedLen(maxTrustedKeyring)+4096 {
 		return nil, fmt.Errorf("APT 可信公钥环过大: %w", domain.ErrInvalid)
 	}
 	keys, err := base64.StdEncoding.DecodeString(encoded)
