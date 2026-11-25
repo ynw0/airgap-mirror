@@ -118,7 +118,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
     </div>
 
     {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
-    <p>请填写 Linux 服务器的实际地址和端口，例如 <code>http://192.168.21.4:8787</code>。连接令牌由服务器管理员提供；不清楚地址时，可先在 Linux 上运行配置脚本。</p>
+    <p>请使用管理员提供的 Agent 地址和连接令牌。可以直接连接 <code>http://192.168.21.4:8787</code>，也可以使用已配置的 HTTPS 反向代理地址，例如 <code>https://mirror.costar.com/mirror-control</code>。</p>
     <div className="card form-grid agent-form">
       <label>内网服务器地址<input value={baseURL} onChange={e => setBaseURL(e.target.value)} disabled={!!overview || busy} placeholder="例如 http://192.168.21.4:8787" /></label>
       <label>连接令牌<input type="password" value={token} onChange={e => setToken(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !busy && !overview) void connect() }} disabled={!!overview || busy} placeholder="服务器管理员提供的连接令牌" /></label>
