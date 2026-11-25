@@ -11,7 +11,7 @@ function statusClass(status: string) {
     case 'FAILED': return 'status status-failed'
     case 'CANCELLED': return 'status status-cancelled'
     case 'RUNNING': return 'status status-transferring'
-    case 'PAUSED': return 'status'
+    case 'PAUSED': return 'status status-paused'
     default: return 'status'
   }
 }
@@ -114,7 +114,7 @@ export function MaintenancePanel({ overview }: Props) {
 
   async function refreshJobs() {
     if (!sourceID) return
-    setBusy(true); setMessage('')
+    setBusy(true)
     try { setJobs(await app().ListMaintenance(sourceID, 50) ?? []) }
     catch (e) { setMessage(errorText(e)) }
     finally { setBusy(false) }
@@ -271,7 +271,7 @@ export function MaintenancePanel({ overview }: Props) {
     <div className="card">
       <div className="card-title"><span>维护工具</span><span>检查文件和清理服务器空间</span></div>
       <div className="form-grid">
-        <label>软件源<select value={sourceID} onChange={e => setSourceID(e.target.value)} disabled={!overview || busy}>
+        <label>软件源<select value={sourceID} onChange={e => { setJobs([]); setSourceID(e.target.value) }} disabled={!overview || busy}>
           {(overview?.sources ?? []).map(x => <option key={x.source.id} value={x.source.id}>{x.source.name} · {x.source.type}/{x.source.provider}</option>)}
         </select></label>
         <div className="span-2"><p>如果服务器里的文件数量不对，可以先重新清点。PyPI 的大型仓库每检查一批项目会保存进度，暂停或 Agent 重启后可继续；整个任务完成前，不会替换原来的文件账本。</p>{source?.source.type === 'apt' && <small>APT 的共享包目录默认不会被清理。只有明确设为该软件源独占时，才允许删除其中的废弃文件。</small>}</div>
@@ -285,7 +285,7 @@ export function MaintenancePanel({ overview }: Props) {
           {pausedJob && <button className="primary" disabled={busy} onClick={resumeJob}>{pausedJob.kind === 'REPAIR' ? '继续校验' : '继续清点'}</button>}
           {(activeJob || pausedJob) && <button className="danger-ghost" disabled={busy} onClick={cancelJob}>{pausedJob ? (pausedJob.kind === 'REPAIR' ? '放弃校验' : '放弃清点') : '取消任务'}</button>}
           <button disabled={!sourceID || !!activeJob || !!pausedJob || !!source?.state.activeEpochId || busy} onClick={reclaimHistory}>回收历史账本</button>
-          <button disabled={!sourceID || busy} onClick={refreshJobs}>刷新</button>
+          <button disabled={!sourceID || busy} onClick={() => { setMessage(''); void refreshJobs() }}>刷新</button>
         </div>
       </div>
     </div>
