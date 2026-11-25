@@ -118,10 +118,12 @@ func (c *projectInventory) WalkCachedProject(ctx context.Context, project, diges
 	for rows.Next() {
 		var entry domain.CatalogEntry
 		var updated string
+		var attributes []byte
 		entry.SourceID = c.sourceID
-		if err = rows.Scan(&entry.LogicalPath, &entry.Size, &entry.SHA256, &entry.PackageKey, &entry.Version, &entry.Attributes, &updated); err != nil {
+		if err = rows.Scan(&entry.LogicalPath, &entry.Size, &entry.SHA256, &entry.PackageKey, &entry.Version, &attributes, &updated); err != nil {
 			return err
 		}
+		entry.Attributes = attributes
 		entry.UpdatedAt = parseTime(updated)
 		if entry.LogicalPath == "simple/"+project+"/index.html" && entry.SHA256 == digest {
 			page = true
