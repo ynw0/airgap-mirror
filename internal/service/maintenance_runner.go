@@ -41,6 +41,20 @@ func NewMaintenanceRunner(root context.Context, sources ports.ServerStore, jobs 
 	return &MaintenanceRunner{root: root, Sources: sources, Jobs: jobs, Catalog: catalog, Registry: registry, Factory: factory, cancels: map[string]context.CancelFunc{}, intents: map[string]string{}}
 }
 
+// snapshotMaintenanceStore is implemented by the SQLite control plane.
+// Other store implementations must provide equivalent atomic reservation semantics.
+type snapshotMaintenanceStore interface {
+	CreateMaintenanceJobForSource(context.Context, domain.MaintenanceJob, domain.Source) error
+}
+
+func (r *MaintenanceRunner) reserveMaintenance(ctx context.Context, job domain.MaintenanceJob, source domain.Source) error {
+	store, ok := r.Jobs.(snapshotMaintenanceStore)
+	if !ok {
+		return fmt.Errorf("maintenance store does not support configuration snapshot reservation: %w", domain.ErrInvalid)
+	}
+	return store.CreateMaintenanceJobForSource(ctx, job, source)
+}
+
 func (r *MaintenanceRunner) now() time.Time {
 	if r.Now != nil {
 		return r.Now()
@@ -98,7 +112,7 @@ func (r *MaintenanceRunner) startInventory(ctx context.Context, sourceID string,
 	job := domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, IncrementalInventory: incremental, CreatedAt: r.now()}
 	r.controlMu.Lock()
 	defer r.controlMu.Unlock()
-	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
+	if err = r.reserveMaintenance(ctx, job, source); err != nil {
 		return empty, err
 	}
 	runCtx, cancel := context.WithCancel(r.root)
