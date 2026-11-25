@@ -4,6 +4,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -12,7 +13,7 @@ import (
 	"github.com/ynw0/airgap-mirror/internal/pack"
 )
 
-func secureRemoveCandidate(root, logical string, candidate domain.GCCandidate) error {
+func secureRemoveCandidate(root, logical string, candidate domain.GCCandidate, expectedRoot os.FileInfo) error {
 	if err := pack.ValidateLogicalPath(logical); err != nil {
 		return err
 	}
@@ -20,11 +21,19 @@ func secureRemoveCandidate(root, logical string, candidate domain.GCCandidate) e
 	if len(parts) == 0 {
 		return fmt.Errorf("empty GC path: %w", domain.ErrInvalid)
 	}
-	fd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return err
 	}
-	defer unix.Close(fd)
+	rootFile := os.NewFile(uintptr(fd), root)
+	defer rootFile.Close()
+	opened, err := rootFile.Stat()
+	if err != nil {
+		return err
+	}
+	if expectedRoot == nil || !os.SameFile(expectedRoot, opened) {
+		return fmt.Errorf("仓库根目录已变化，已停止删除文件: %w", domain.ErrConflict)
+	}
 	parent := fd
 	ownedParent := false
 	defer func() {
