@@ -54,3 +54,12 @@ test('management URLs stay relative to the deployment subpath', () => {
   assert.match(script, /fetch\(basePath\+path/)
   for (const link of ['downloads/configure-agent.sh', 'downloads/configure-apt-signing.sh']) assert.ok(html.includes('href="' + link + '"'))
 })
+
+test('report path comparator follows UTF-8 byte ordering, including non-ASCII paths', () => {
+  const compare = vm.runInNewContext(functions('function compareReportPaths(', 'async function exportFullRepair(') + ';compareReportPaths', {TextEncoder})
+  assert.ok(compare('a', 'b') < 0)
+  assert.ok(compare('a', 'aa') < 0)
+  assert.equal(compare('same', 'same'), 0)
+  assert.ok(compare('包/文件', '包/文件2') < 0)
+  assert.ok(compare('\uE000', '\u{10000}') < 0)
+})
