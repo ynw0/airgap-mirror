@@ -20,6 +20,7 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [destination, setDestination] = useState('')
   const [busy, setBusy] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [message, setMessage] = useState('')
   const [editor, setEditor] = useState<Source | 'create' | null>(null)
   const [epochSourceID, setEpochSourceID] = useState('')
@@ -92,8 +93,8 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
     } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
   }
   async function chooseDestination() {
-    const value = await app().PickStateDestination()
-    if (value) setDestination(value)
+    try { const value = await app().PickStateDestination(); if (value) setDestination(value) }
+    catch (e) { setMessage('无法选择保存位置：' + errorText(e)) }
   }
   async function cancelEpoch(epoch: Epoch) {
     if (epoch.status === 'COMPLETE' || epoch.status === 'CANCELLED') return
@@ -108,15 +109,15 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
   }
   async function exportCapsule() {
     if (!selectedIDs.length) { setMessage('请先勾选至少一个要更新的软件源。'); return }
-    let target = destination
-    if (!target) target = await app().PickStateDestination()
-    if (!target) return
-    setDestination(target); setBusy(true); setMessage('')
+    setBusy(true)
     try {
+      const target = destination || await app().PickStateDestination()
+      if (!target) return
+      setDestination(target); setExporting(true); setMessage('服务器正在生成状态文件，生成后将下载到指定位置。大型仓库可能需要较长时间。')
       const result = await app().ExportStateCapsule(selectedIDs, target)
       setMessage(`状态文件已保存到：${result.path}。接下来把它带到联网电脑，在“联网下载”页面打开。`)
       await onCapsuleChanged()
-    } catch (e) { setMessage(errorText(e)) } finally { setBusy(false) }
+    } catch (e) { setMessage(errorText(e)) } finally { setExporting(false); setBusy(false) }
   }
 
   return <section className="page-stack">
@@ -193,8 +194,8 @@ export function SourceStatePage({ overview, onOverview, onCapsuleChanged, onMain
 
     {overview && <div className="card settings-card"><div><h3>仓库维护</h3><p>如需清点、校验、修复文件或下载后台导出任务，请打开独立维护页面。</p></div><button onClick={onMaintenance}>打开维护工具</button></div>}
     <div className="card export-row">
-      <div><h3>把状态文件保存到移动硬盘</h3><p>状态文件包含服务器的仓库记录和软件源配置，不包含软件包。带到联网电脑后，用它检查和下载更新。</p></div>
-      <div className="path-picker"><input value={destination} onChange={e => setDestination(e.target.value)} placeholder="选择移动硬盘上的保存位置（.mstate）" /><button onClick={chooseDestination}>浏览</button><button className="primary" disabled={!overview || busy || !selectedIDs.length} onClick={exportCapsule}>保存状态文件 {selectedIDs.length ? `(${selectedIDs.length})` : ''}</button></div>
+      <div><h3>把状态文件保存到移动硬盘</h3><p>状态文件包含服务器的仓库记录和软件源配置，不包含软件包。带到联网电脑后，用它检查和下载更新。{exporting && ' 如果中途断开，可在仓库维护页面查看服务器上的导出任务。'}</p></div>
+      <div className="path-picker"><input disabled={busy} value={destination} onChange={e => setDestination(e.target.value)} placeholder="选择移动硬盘上的保存位置（.mstate）" /><button disabled={busy} onClick={chooseDestination}>浏览</button><button className="primary" disabled={!overview || busy || !selectedIDs.length} onClick={exportCapsule}>{exporting ? '正在生成或下载…' : `保存状态文件${selectedIDs.length ? `（${selectedIDs.length}）` : ''}`}</button></div>
     </div>
   </section>
 }
