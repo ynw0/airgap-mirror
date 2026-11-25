@@ -463,6 +463,14 @@ func testApprovedPyPIPackRepair(t *testing.T, sameCursor bool) {
 	if _, err = registrar.Register(ctx, "another-request", desc); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("same batch must reject a second request ID: %v", err)
 	}
+	duplicate := session
+	duplicate.ID = mustE2EID(t)
+	duplicate.RequestID = "another-request"
+	duplicatePack := ip
+	duplicatePack.SessionID = duplicate.ID
+	if _, err = store.RegisterImportBundle(ctx, desc, duplicate, []domain.ImportPack{duplicatePack}); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("database registration must also reject a second request ID: %v", err)
+	}
 	changed := desc
 	changed.Packs = append([]domain.PackSpec(nil), desc.Packs...)
 	changed.Packs[0].SHA256 = shaHex("different")
