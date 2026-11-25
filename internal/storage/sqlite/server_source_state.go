@@ -10,12 +10,30 @@ import (
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
 
+// Repository topology must stay fixed while physical GC is reserved. This
+// check is inside the same SQLite transaction as the source write: a concurrent
+// maintenance reservation either precedes this read or invalidates the write
+// transaction's snapshot. Do not hold a database transaction during deletion.
+func requireStableRepositoryRoots(ctx context.Context, tx *sql.Tx) error {
+	var busy bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM maintenance_jobs WHERE kind='GC' AND execute=1 AND status IN('QUEUED','RUNNING','PAUSED'))`).Scan(&busy); err != nil {
+		return err
+	}
+	if busy {
+		return fmt.Errorf("服务器正在执行文件清理，暂时不能新增软件源或修改仓库目录，请在清理结束后重试: %w", domain.ErrConflict)
+	}
+	return nil
+}
+
 func (s *ServerStore) CreateSource(ctx context.Context, v domain.Source) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err = requireStableRepositoryRoots(ctx, tx); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sources(id,name,type,provider,upstream_url,root_path,public_url,enabled,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, v.ID, v.Name, v.Type, v.Provider, v.UpstreamURL, v.RootPath, v.PublicURL, v.Enabled, []byte(v.ConfigJSON), timeString(v.CreatedAt), timeString(v.UpdatedAt)); err != nil {
 		return err
 	}
@@ -36,6 +54,11 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 	var active sql.NullString
 	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,s.public_url,s.config_json,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &oldPublic, &oldConfig, &cursorKind, &cursorValue, &active); err != nil {
 		return mapNotFound(err)
+	}
+	if oldRoot != v.RootPath {
+		if err = requireStableRepositoryRoots(ctx, tx); err != nil {
+			return err
+		}
 	}
 	configSame := sameSyncConfig(oldConfig, v.ConfigJSON)
 	trustChanged := false
