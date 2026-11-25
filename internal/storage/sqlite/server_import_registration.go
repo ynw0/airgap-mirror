@@ -77,6 +77,18 @@ func findExistingImportBundle(ctx context.Context, tx *sql.Tx, requestID string,
 	if epoch.Status == domain.EpochComplete && (out.Status != "BATCH_IMPORTED" || batch.Status != domain.BatchImported) {
 		return empty, fmt.Errorf("completed epoch has incomplete import session: %w", domain.ErrConflict)
 	}
+	var stateKind, stateValue, active string
+	if err = tx.QueryRowContext(ctx, `SELECT cursor_kind,cursor_value,COALESCE(active_epoch_id,'') FROM source_states WHERE source_id=?`, d.SourceID).Scan(&stateKind, &stateValue, &active); err != nil {
+		return empty, fmt.Errorf("existing import source state unavailable: %v: %w", err, domain.ErrConflict)
+	}
+	live := domain.Cursor{Kind: stateKind, Value: stateValue}
+	if epoch.Status == domain.EpochComplete {
+		if active != "" || !live.Equal(d.TargetCursor) {
+			return empty, fmt.Errorf("source has advanced beyond completed import: %w", domain.ErrConflict)
+		}
+	} else if active != d.EpochID || !live.Equal(d.BaseCursor) {
+		return empty, fmt.Errorf("existing import no longer holds the source reservation: %w", domain.ErrConflict)
+	}
 	var count int
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM packs WHERE batch_id=?`, d.BatchID).Scan(&count); err != nil {
 		return empty, err
@@ -103,6 +115,9 @@ func findExistingImportBundle(ctx context.Context, tx *sql.Tx, requestID string,
 		ip, e := scanImportPack(tx.QueryRowContext(ctx, `SELECT session_id,pack_id,expected_size,expected_sha256,uploaded_size,staging_path,status FROM import_packs WHERE session_id=? AND pack_id=?`, out.ID, spec.ID))
 		if e != nil || ip.ExpectedSize != spec.Size || ip.ExpectedSHA256 != spec.SHA256 {
 			return empty, fmt.Errorf("existing session pack declaration mismatch: %w", domain.ErrConflict)
+		}
+		if out.Status == "BATCH_IMPORTED" && (ip.Status != domain.PackImported || p.Status != domain.PackImported) {
+			return empty, fmt.Errorf("imported batch has uncommitted pack: %w", domain.ErrConflict)
 		}
 	}
 	return out, nil
