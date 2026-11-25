@@ -251,3 +251,5 @@ button:not(.primary),input,select,textarea{background:var(--app-surface);border-
 .disk-meter{display:block;width:100%;min-width:100px;height:8px;accent-color:var(--app-accent);margin:6px 0}.disk-meter.warning{accent-color:#bb801a}.disk-meter.critical{accent-color:#c34355}.disk-meter+small{margin-bottom:5px}
 
 .connection-diagnostics .check-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-top:1px solid var(--app-line)}.connection-diagnostics .check-row:first-of-type{margin-top:14px}.check-row p{margin-top:5px;font-size:13px;overflow-wrap:anywhere}.check-row>small{white-space:nowrap}.check-row>div{min-width:0}@media(max-width:620px){.check-row>small{grid-column:2}}
+
+.activity-message{padding:0 17px 12px}
