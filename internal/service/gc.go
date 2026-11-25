@@ -56,7 +56,7 @@ func (r *MaintenanceRunner) StartGC(ctx context.Context, sourceID string, execut
 	job := domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceGC, Status: domain.MaintenanceQueued, Execute: execute, CreatedAt: r.now()}
 	r.controlMu.Lock()
 	defer r.controlMu.Unlock()
-	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
+	if err = r.reserveMaintenance(ctx, job, source); err != nil {
 		return empty, err
 	}
 	runCtx, cancel := context.WithCancel(r.root)
