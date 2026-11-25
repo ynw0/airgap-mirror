@@ -63,3 +63,25 @@ test('report path comparator follows UTF-8 byte ordering, including non-ASCII pa
   assert.ok(compare('包/文件', '包/文件2') < 0)
   assert.ok(compare('\uE000', '\u{10000}') < 0)
 })
+
+
+test('overview distinguishes unavailable capacity from a normal disk', () => {
+  const nodes = new Map()
+  function make(tag, text = '') {
+    return {tag, text, children: [], append(...items) { this.children.push(...items) }, appendChild(item) { this.children.push(item) }, replaceChildren(...items) { this.children = items }}
+  }
+  const el = id => { if (!nodes.has(id)) nodes.set(id, make('div')); return nodes.get(id) }
+  const sources = [{id:'a', name:'APT', type:'apt', enabled:true}, {id:'b', name:'PyPI', type:'pypi', enabled:true}]
+  const repositorySnapshots = new Map(sources.map(s => [s.id, {liveObjects:1, liveBytes:10}]))
+  const capacitySnapshots = new Map([['a', {totalBytes:100, freeBytes:50}]])
+  const render = vm.runInNewContext(functions('function diskUsage(', 'function diskCard(') + functions('function renderOverview(', 'const viewInfo=') + ';renderOverview', {
+    sources, repositorySnapshots, capacitySnapshots, el, make, metric:(label,value) => ({label,value}), number:String, bytes:String, action:label=>make('button', label)
+  })
+  render()
+  assert.equal(el('overview').children.at(-1).value, '0（1 个未读取）')
+  assert.match(JSON.stringify(el('repositorySummary')), /磁盘容量未读取/)
+  capacitySnapshots.set('b', {totalBytes:100, freeBytes:5})
+  render()
+  assert.equal(el('overview').children.at(-1).value, '1')
+  assert.doesNotMatch(JSON.stringify(el('repositorySummary')), /磁盘容量未读取/)
+})
