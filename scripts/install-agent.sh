@@ -33,6 +33,16 @@ if [[ ! -f "${REPO_ROOT}/deploy/systemd/airgap-mirror-agent.service" ]]; then
   exit 1
 fi
 
+# Check the binaries on this host before overwriting an installed Agent.
+for binary in "${AGENT_BIN}" "${CTL_BIN}"; do
+  [[ -f "${binary}" ]] || continue
+  if ! output="$("${binary}" -h 2>&1)"; then
+    printf '无法运行新版程序：%s\n%s\n' "${binary}" "${output}" >&2
+    echo "尚未替换现有程序，请检查服务器架构及运行环境。" >&2
+    exit 1
+  fi
+done
+
 if ! getent group "${SERVICE_GROUP}" >/dev/null; then
   groupadd --system "${SERVICE_GROUP}"
 fi
