@@ -37,11 +37,15 @@ jobs:
           git diff --exit-code -- go.mod go.sum
       - name: Verify GnuPG is available for APT signature tests
         run: gpg --version
-      - name: Test Go control plane
+      - name: Test Go control plane without CGO
+        env:
+          CGO_ENABLED: '0'
         run: go test ./internal/... ./cmd/...
       - name: Detect Go data races in maintenance and storage
         run: go test -race ./internal/service/... ./internal/storage/sqlite/... ./internal/client/... ./internal/server/...
-      - name: Build Go control plane
+      - name: Build Go control plane without CGO
+        env:
+          CGO_ENABLED: '0'
         run: go build ./internal/... ./cmd/...
       - name: Verify deployment scripts
         shell: bash
