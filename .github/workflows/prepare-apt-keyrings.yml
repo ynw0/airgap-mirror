@@ -1,0 +1,41 @@
+name: Prepare official APT keyrings and Go dependency
+
+on:
+  push:
+    branches:
+      - 'build/apt-official-keyrings'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Export official archive keyrings
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p internal/adapters/apt/keyrings
+          base64 -w0 /usr/share/keyrings/ubuntu-archive-keyring.gpg > internal/adapters/apt/keyrings/ubuntu.b64
+          docker run --rm debian:trixie cat /usr/share/keyrings/debian-archive-keyring.gpg | base64 -w0 > internal/adapters/apt/keyrings/debian.b64
+          for key in internal/adapters/apt/keyrings/*.b64; do
+            base64 -d "$key" > /tmp/archive-keys.gpg
+            gpg --batch --show-keys --with-fingerprint /tmp/archive-keys.gpg
+          done
+          go get github.com/ProtonMail/go-crypto/openpgp@v1.5.2
+          go mod download
+      - name: Save generated inputs to this preparation branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/adapters/apt/keyrings/*.b64 go.mod go.sum
+          git commit -m 'Prepare official Ubuntu and Debian archive keyrings and module checksums'
+          git push origin HEAD:refs/heads/build/apt-official-keyrings
