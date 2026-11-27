@@ -143,13 +143,16 @@ func onlineSource(source domain.Source, upstreamURL, indexURL string) (domain.So
 	if !valid(source.UpstreamURL) {
 		return source, fmt.Errorf("请先选择或填写公网下载地址: %w", domain.ErrInvalid)
 	}
-	if source.Type == domain.SourceMaven && source.Provider == "maven-generic" && indexURL != "" {
-		if !valid(indexURL) {
-			return source, fmt.Errorf("请输入有效的仓库文件清单地址: %w", domain.ErrInvalid)
-		}
+	if source.Type == domain.SourceMaven && source.Provider == "maven-generic" {
 		var config map[string]json.RawMessage
 		if err := json.Unmarshal(source.ConfigJSON, &config); err != nil {
 			return source, err
+		}
+		if indexURL == "" {
+			_ = json.Unmarshal(config["indexUrl"], &indexURL)
+		}
+		if !valid(indexURL) {
+			return source, fmt.Errorf("请先填写有效的公网仓库文件清单地址: %w", domain.ErrInvalid)
 		}
 		if config == nil {
 			config = make(map[string]json.RawMessage)
