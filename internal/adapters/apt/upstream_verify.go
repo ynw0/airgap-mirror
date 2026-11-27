@@ -134,6 +134,11 @@ func verifyUpstreamRelease(ctx context.Context, keys, release, signature []byte,
 			return nil, fmt.Errorf("无法读取 InRelease 签名: %w", domain.ErrInvalid)
 		}
 		plain, signed = block.Plaintext, block.Bytes
+		// The cleartext format does not authenticate the separator newline.
+		// Keep the verified Deb822 body newline-terminated for the parser.
+		if len(plain) > 0 && plain[len(plain)-1] != '\n' {
+			plain = append(plain, '\n')
+		}
 		data, err := io.ReadAll(block.ArmoredSignature.Body)
 		if err != nil {
 			return nil, err
