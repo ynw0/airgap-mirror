@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 
@@ -34,6 +36,8 @@ type Workspace struct {
 }
 
 type AnalyzeOptions struct {
+	UpstreamURL     string `json:"upstreamUrl"`
+	IndexURL        string `json:"indexUrl"`
 	MaxBatchBytes   int64 `json:"maxBatchBytes"`
 	TargetPackBytes int64 `json:"targetPackBytes"`
 	PageSize        int   `json:"pageSize"`
@@ -122,7 +126,49 @@ func (w *Workspace) ListCapsules(ctx context.Context) ([]domain.StateCapsule, er
 	return w.Store.ListCapsules(ctx)
 }
 
+// onlineSource applies download settings only to a copy of the exported source.
+func onlineSource(source domain.Source, upstreamURL, indexURL string) (domain.Source, error) {
+	upstreamURL = strings.TrimSpace(upstreamURL)
+	indexURL = strings.TrimSpace(indexURL)
+	valid := func(raw string) bool {
+		u, err := url.ParseRequestURI(raw)
+		return err == nil && u.Hostname() != "" && (u.Scheme == "http" || u.Scheme == "https") && u.User == nil && u.Fragment == ""
+	}
+	if upstreamURL != "" {
+		if !valid(upstreamURL) {
+			return source, fmt.Errorf("请输入有效的公网下载地址（HTTP 或 HTTPS）: %w", domain.ErrInvalid)
+		}
+		source.UpstreamURL = upstreamURL
+	}
+	if !valid(source.UpstreamURL) {
+		return source, fmt.Errorf("请先选择或填写公网下载地址: %w", domain.ErrInvalid)
+	}
+	if source.Type == domain.SourceMaven && source.Provider == "maven-generic" && indexURL != "" {
+		if !valid(indexURL) {
+			return source, fmt.Errorf("请输入有效的仓库文件清单地址: %w", domain.ErrInvalid)
+		}
+		var config map[string]json.RawMessage
+		if err := json.Unmarshal(source.ConfigJSON, &config); err != nil {
+			return source, err
+		}
+		if config == nil {
+			config = make(map[string]json.RawMessage)
+		}
+		config["indexUrl"], _ = json.Marshal(indexURL)
+		var err error
+		source.ConfigJSON, err = json.Marshal(config)
+		if err != nil {
+			return source, err
+		}
+	}
+	return source, nil
+}
+
 func (w *Workspace) ProbeSource(ctx context.Context, capsuleID, sourceID string) (domain.UpstreamState, error) {
+	return w.ProbeSourceAt(ctx, capsuleID, sourceID, "", "")
+}
+
+func (w *Workspace) ProbeSourceAt(ctx context.Context, capsuleID, sourceID, upstreamURL, indexURL string) (domain.UpstreamState, error) {
 	cap, err := w.LoadCapsule(ctx, capsuleID)
 	if err != nil {
 		return domain.UpstreamState{}, err
@@ -135,6 +181,10 @@ func (w *Workspace) ProbeSource(ctx context.Context, capsuleID, sourceID string)
 		return domain.UpstreamState{}, fmt.Errorf("source %s is disabled: %w", sourceID, domain.ErrInvalid)
 	}
 	adapter, err := w.Registry.Get(source.Type, source.Provider)
+	if err != nil {
+		return domain.UpstreamState{}, err
+	}
+	source, err = onlineSource(source, upstreamURL, indexURL)
 	if err != nil {
 		return domain.UpstreamState{}, err
 	}
@@ -161,6 +211,10 @@ func (w *Workspace) AnalyzeSource(ctx context.Context, capsuleID, sourceID strin
 		return out, err
 	}
 	source, state, catalogPath, err := cap.Source(sourceID)
+	if err != nil {
+		return out, err
+	}
+	source, err = onlineSource(source, opts.UpstreamURL, opts.IndexURL)
 	if err != nil {
 		return out, err
 	}
