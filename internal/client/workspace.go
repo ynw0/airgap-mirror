@@ -211,7 +211,7 @@ func (w *Workspace) AnalyzeSource(ctx context.Context, capsuleID, sourceID strin
 	var out SyncPlan
 	cap, err := w.LoadCapsule(ctx, capsuleID)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("无法读取状态文件: %w", err)
 	}
 	source, state, catalogPath, err := cap.Source(sourceID)
 	if err != nil {
@@ -235,11 +235,11 @@ func (w *Workspace) AnalyzeSource(ctx context.Context, capsuleID, sourceID strin
 	}
 	catalogDB, catalog, err := storesqlite.OpenCatalogSnapshot(catalogPath)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("无法打开状态文件中的仓库文件账本: %w", err)
 	}
 	defer catalogDB.Close()
 	if err = catalog.ValidateSource(ctx, sourceID); err != nil {
-		return out, err
+		return out, fmt.Errorf("状态文件中的仓库文件账本校验失败: %w", err)
 	}
 	adapter, err := w.Registry.Get(source.Type, source.Provider)
 	if err != nil {
@@ -254,7 +254,7 @@ func (w *Workspace) AnalyzeSource(ctx context.Context, capsuleID, sourceID strin
 		Generated: service.GeneratedStore{Root: filepath.Join(w.Root, "generated")},
 	}, w.Store)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("分析软件源 %s 的更新失败: %w", source.Name, err)
 	}
 	if plan.Epoch.ID == "" || plan.Epoch.SourceID != sourceID || !plan.Epoch.BaseCursor.Equal(state.LiveCursor) {
 		return out, fmt.Errorf("adapter returned inconsistent epoch identity/base cursor: %w", domain.ErrConflict)
@@ -283,7 +283,7 @@ func (w *Workspace) AnalyzeSource(ctx context.Context, capsuleID, sourceID strin
 		PageSize:        opts.PageSize,
 	}).Plan(ctx, plan.Epoch)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("生成下载批次失败: %w", err)
 	}
 	plan.Epoch = epoch
 	out.Plan = plan
