@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/mail"
-	"strconv"
 	"strings"
 	"time"
 
@@ -215,41 +214,6 @@ func checkClearSignedEnvelope(body []byte) error {
 		strings.Count(text, "-----END PGP SIGNATURE-----") != 1 ||
 		!strings.HasSuffix(strings.TrimRight(text, "\n"), "\n-----END PGP SIGNATURE-----") {
 		return fmt.Errorf("InRelease 必须是单一完整的 OpenPGP 明文签名消息: %w", domain.ErrInvalid)
-	}
-	return nil
-}
-
-func validateGPGStatus(status string, now time.Time) error {
-	valid := 0
-	for _, line := range strings.Split(status, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 || fields[0] != "[GNUPG:]" {
-			continue
-		}
-		switch fields[1] {
-		case "BADSIG", "ERRSIG", "NO_PUBKEY", "EXPKEYSIG", "EXPSIG", "REVKEYSIG", "KEYEXPIRED", "SIGEXPIRED", "NODATA", "FAILURE", "ERROR":
-			return fmt.Errorf("APT 签名未通过可信验证（%s）: %w", fields[1], domain.ErrConflict)
-		case "VALIDSIG":
-			// VALIDSIG fingerprint date timestamp expires version reserved
-			// pubkey-algorithm hash-algorithm signature-class [primary-fpr].
-			if len(fields) < 11 || (fields[9] != "8" && fields[9] != "9" && fields[9] != "10") {
-				return fmt.Errorf("APT 签名必须使用 SHA256、SHA384 或 SHA512: %w", domain.ErrConflict)
-			}
-			if fields[10] != "00" && fields[10] != "01" {
-				return fmt.Errorf("APT 签名类型不符合 Release 文件签名要求: %w", domain.ErrConflict)
-			}
-			signed, e := strconv.ParseInt(fields[4], 10, 64)
-			expires, expErr := strconv.ParseInt(fields[5], 10, 64)
-			if e != nil || expErr != nil || signed <= 0 || expires < 0 ||
-				time.Unix(signed, 0).After(now.Add(10*time.Minute)) ||
-				(expires != 0 && !time.Unix(expires, 0).After(now)) {
-				return fmt.Errorf("APT 签名时间无效或已过期: %w", domain.ErrConflict)
-			}
-			valid++
-		}
-	}
-	if valid == 0 {
-		return fmt.Errorf("未发现有效且可信的 APT 上游签名: %w", domain.ErrConflict)
 	}
 	return nil
 }
