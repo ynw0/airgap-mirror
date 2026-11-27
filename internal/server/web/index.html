@@ -46,7 +46,7 @@ details{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:1
 <div class="form">
 <label>名称<input id="name" placeholder="例如 Debian"></label>
 <label>软件类型<select id="kind"><option value="apt">APT</option><option value="pypi">PyPI</option><option value="npm">npm</option><option value="maven-generic">Maven 通用仓库</option><option value="maven-central">Maven Central 指定依赖</option></select></label>
-<label>公网下载地址<input id="upstream" placeholder="https://deb.debian.org/debian"></label>
+<label>公网下载地址<input id="upstream" list="upstreamChoices" placeholder="https://deb.debian.org/debian"><datalist id="upstreamChoices"></datalist></label>
 <label>服务器存放目录<input id="rootPath" placeholder="/srv/mirror/debian"></label>
 <label>内网访问地址<input id="publicUrl" placeholder="http://192.168.21.4/debian"></label>
 <label>启用<input type="checkbox" id="enabled" checked style="width:22px;height:22px"></label>
@@ -64,6 +64,7 @@ details{border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:1
 (function(){
 'use strict';
 const el=id=>document.getElementById(id);
+const upstreamPresets={"apt":[["Debian 官方","https://deb.debian.org/debian","bookworm"],["Debian 安全更新","https://deb.debian.org/debian-security","bookworm-security"],["Ubuntu 官方","https://archive.ubuntu.com/ubuntu","noble"],["Ubuntu 安全更新","https://security.ubuntu.com/ubuntu","noble-security"],["清华大学 · Debian","https://mirrors.tuna.tsinghua.edu.cn/debian","bookworm"],["清华大学 · Ubuntu","https://mirrors.tuna.tsinghua.edu.cn/ubuntu","noble"],["中科大 · Debian","https://mirrors.ustc.edu.cn/debian","bookworm"],["中科大 · Ubuntu","https://mirrors.ustc.edu.cn/ubuntu","noble"],["阿里云 · Debian","https://mirrors.aliyun.com/debian","bookworm"],["阿里云 · Ubuntu","https://mirrors.aliyun.com/ubuntu","noble"],["华为云 · Debian","https://mirrors.huaweicloud.com/debian","bookworm"],["华为云 · Ubuntu","https://mirrors.huaweicloud.com/ubuntu","noble"]],"pypi":[["PyPI 官方","https://pypi.org/simple"],["清华大学","https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"],["中科大","https://mirrors.ustc.edu.cn/pypi/simple"],["阿里云","https://mirrors.aliyun.com/pypi/simple"],["华为云","https://mirrors.huaweicloud.com/repository/pypi/simple"]],"npm":[["npm 官方","https://registry.npmjs.org"],["npmmirror","https://registry.npmmirror.com"],["华为云","https://mirrors.huaweicloud.com/repository/npm"]],"maven-central":[["Maven Central 官方","https://repo.maven.apache.org/maven2"],["Maven Central 备用官方地址","https://repo1.maven.org/maven2"],["阿里云 Central 镜像","https://maven.aliyun.com/repository/central"],["中科大代理","https://maven.proxy.ustclug.org/maven2"]],"maven-generic":[]};
 const definitions={
  apt:{type:'apt',provider:'apt-generic',url:'https://deb.debian.org/debian',config:{suite:'bookworm',releaseMode:'inrelease',gcOwnsPool:false,trustedKeyringBase64:'',requireValidUntil:false}},
  pypi:{type:'pypi',provider:'pypi',url:'https://pypi.org/simple',config:{}},
@@ -329,10 +330,9 @@ function renderConfigFields(){
  if(kind==='apt'){
   configField(form,'suite','发行版代号',{defaultValue:'bookworm',help:'例如 bookworm、trixie 或 jammy。'});
   configField(form,'releaseMode','Release 签名形式',{defaultValue:'inrelease',choices:[['inrelease','InRelease（内嵌签名）'],['detached','Release.gpg（分离签名）']]});
-  configField(form,'trustedKeyringBase64','可信上游 OpenPGP 公钥环（Base64）',{multiline:true,help:'仅填写从可信发行版渠道取得的二进制公钥环，不要填写私钥。'});
   configField(form,'requireValidUntil','要求上游声明有效期',{type:'checkbox'});
   configField(form,'gcOwnsPool','允许清理该软件源独占的包池',{type:'checkbox'});
-  holder.appendChild(make('p','未配置可信上游公钥环时，联网端无法分析 APT 更新。本地重新签名与验证上游签名是两项独立操作。','config-help small'));
+  holder.appendChild(make('p','Ubuntu 和 Debian 使用程序内置的官方签名公钥，无需另外配置。已有的自定义签名公钥配置会保留。','config-help small'));
  }else if(kind==='npm'){
   configField(form,'replicationUrl','npm 更新记录地址',{defaultValue:'https://replicate.npmjs.com/registry'});
   configField(form,'changePageSize','每次读取的更新数',{type:'number',min:1,max:10000,defaultValue:10000});
@@ -355,15 +355,21 @@ function validateConfig(kind,config){
  if(kind==='npm')for(const key of ['changePageSize','allDocsPageSize']){const n=config[key]===undefined?10000:config[key];if(!Number.isInteger(n)||n<1||n>10000)throw Error('npm 每次读取的数量必须为 1 至 10000 的整数。');}
  if(kind==='maven-central'&&(!Array.isArray(config.coordinates)||!config.coordinates.length||config.coordinates.some(c=>!c||!['groupId','artifactId','version'].every(k=>typeof c[k]==='string'&&c[k].trim()))))throw Error('请至少添加一项 Maven 依赖，并填写 Group ID、Artifact ID 和版本。');
 }
+function renderUpstreamChoices(){
+ const list=el('upstreamChoices');
+ list.replaceChildren();
+ for(const [name,url] of upstreamPresets[el('kind').value]||[]){const option=document.createElement('option');option.value=url;option.label=name;list.appendChild(option);}
+}
+el('upstream').addEventListener('change',()=>{if(editing||el('kind').value!=='apt'||el('rawMode').checked)return;const selected=upstreamPresets.apt.find(p=>p[1]===el('upstream').value);if(selected&&selected[2]){configDraft.suite=selected[2];renderConfigFields();}});
 function openEditor(s){
  if(view!=='repositories')navigate('repositories');editing=s||null;el('editor').classList.remove('hidden');el('editorTitle').textContent=s?'修改软件源':'添加软件源';
  const kind=s?Object.keys(definitions).find(k=>definitions[k].type===s.type&&definitions[k].provider===s.provider):'apt';if(!kind){el('editor').classList.add('hidden');throw Error('当前界面不支持编辑此软件源类型，请使用兼容的客户端。');}
- const d=definitions[kind];el('kind').value=kind;el('kind').disabled=!!s;
+ const d=definitions[kind];el('kind').value=kind;el('kind').disabled=!!s;renderUpstreamChoices();
  el('name').value=s?s.name:'';el('upstream').value=s?s.upstreamUrl:d.url;el('rootPath').value=s?s.rootPath:'';
  el('publicUrl').value=s?s.publicUrl:'';el('enabled').checked=s?s.enabled:true;try{loadConfig(s?s.config:d.config);}catch(e){el('editor').classList.add('hidden');throw Error('无法读取软件源配置：'+e.message);}
  el('editor').scrollIntoView({block:'start'});el('name').focus({preventScroll:true});
 }
-el('kind').addEventListener('change',()=>{if(editing)return;const d=definitions[el('kind').value];const old=el('upstream').value.trim();if(!old||Object.values(definitions).some(x=>x.url===old))el('upstream').value=d.url;loadConfig(d.config);});
+el('kind').addEventListener('change',()=>{if(editing)return;const d=definitions[el('kind').value];const old=el('upstream').value.trim();if(!old||Object.values(definitions).some(x=>x.url===old))el('upstream').value=d.url;loadConfig(d.config);renderUpstreamChoices();});
 el('save').addEventListener('click',async()=>{if(el('save').disabled)return;el('save').disabled=true;editorError('');try{const d=definitions[el('kind').value];const input={name:el('name').value.trim(),type:d.type,provider:d.provider,upstreamUrl:el('upstream').value.trim(),rootPath:el('rootPath').value.trim(),publicUrl:el('publicUrl').value.trim(),enabled:el('enabled').checked,config:el('rawMode').checked?parseConfig(el('config').value):parseConfig(configDraft)};if(!input.name||!input.upstreamUrl||!input.publicUrl||!input.rootPath)throw Error('请完整填写名称、下载地址、内网访问地址和服务器目录。');validateConfig(el('kind').value,input.config);await api(editing?'/api/v1/sources/'+encodeURIComponent(editing.id):'/api/v1/sources',{method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});el('editor').classList.add('hidden');show('软件源已经保存。');await refresh();}catch(e){editorError('保存失败：'+e.message);show('保存失败：'+e.message,true);}finally{el('save').disabled=false;}});
 el('cancelEdit').addEventListener('click',()=>el('editor').classList.add('hidden'));
 el('connect').addEventListener('click',async()=>{if(el('connect').disabled)return;token=el('token').value.trim();if(!token){show('请填写连接令牌。',true);return;}el('connect').disabled=el('diagnose').disabled=el('token').disabled=true;el('diagnosisResult').replaceChildren();show('正在连接服务器并读取软件源……');try{await refresh();el('login').classList.add('hidden');el('app').classList.remove('hidden');el('nav').classList.remove('hidden');el('disconnect').classList.remove('hidden');el('connectionDot').classList.add('on');el('connectionText').textContent='服务器已连接';el('token').value='';navigate('dashboard');recordActivity('连接服务器','已连接');show('已连接服务器。请检查仓库状态，再选择需要导出状态文件的软件源。');refreshExports().catch(e=>show('读取导出任务失败：'+e.message,true));}catch(e){token='';recordActivity('连接服务器','请求失败');show('连接失败，请检查服务器和令牌。\n'+e.message,true);}finally{el('connect').disabled=el('diagnose').disabled=el('token').disabled=false;}});
