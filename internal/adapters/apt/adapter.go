@@ -76,10 +76,13 @@ func (a *Adapter) ValidateConfig(ctx context.Context, source domain.Source) erro
 	if source.Type != domain.SourceAPT || source.Provider != Provider {
 		return fmt.Errorf("source must be apt/%s: %w", Provider, domain.ErrInvalid)
 	}
-	if source.UpstreamURL == "" || source.PublicURL == "" {
-		return fmt.Errorf("upstreamUrl and publicUrl are required: %w", domain.ErrInvalid)
+	if source.PublicURL == "" {
+		return fmt.Errorf("publicUrl is required: %w", domain.ErrInvalid)
 	}
 	for name, raw := range map[string]string{"upstreamUrl": source.UpstreamURL, "publicUrl": source.PublicURL} {
+		if name == "upstreamUrl" && raw == "" {
+			continue
+		}
 		u, err := url.ParseRequestURI(raw)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 			return fmt.Errorf("%s must be an absolute HTTP(S) URL: %w", name, domain.ErrInvalid)
