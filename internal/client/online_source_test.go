@@ -83,3 +83,30 @@ func TestOnlineMavenManifestDoesNotChangeSavedConfiguration(t *testing.T) {
 		t.Fatalf("invalid address accepted: %v", err)
 	}
 }
+
+func TestOfflineSourceConfigurationNeedsNoPublicUpstream(t *testing.T) {
+	ctx := context.Background()
+	registry, err := service.NewDefaultRegistry(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []domain.Source{
+		{Type: domain.SourceAPT, Provider: "apt-generic", ConfigJSON: json.RawMessage(`{"suite":"bookworm-updates","releaseMode":"inrelease"}`)},
+		{Type: domain.SourcePyPI, Provider: "pypi"},
+		{Type: domain.SourceNPM, Provider: "npmjs", ConfigJSON: json.RawMessage(`{}`)},
+		{Type: domain.SourceMaven, Provider: "maven-generic", ConfigJSON: json.RawMessage(`{"inventoryMode":"filesystem"}`)},
+		{Type: domain.SourceMaven, Provider: "maven-central", ConfigJSON: json.RawMessage(`{"mode":"dependency-set","coordinates":[{"groupId":"g","artifactId":"a","version":"1.2.3"}]}`)},
+	} {
+		source.PublicURL = "http://mirror.costar.com/repository"
+		adapter, err := registry.Get(source.Type, source.Provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = adapter.ValidateConfig(ctx, source); err != nil {
+			t.Fatalf("%s offline config: %v", source.Provider, err)
+		}
+		if _, err = onlineSource(source, "", ""); !errors.Is(err, domain.ErrInvalid) {
+			t.Fatalf("%s missing online address: %v", source.Provider, err)
+		}
+	}
+}
