@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -69,6 +69,19 @@ func (r BundleRegistrar) Register(ctx context.Context, requestID string, d domai
 	if entryCount != d.BatchObjects {
 		return domain.ImportSession{}, fmt.Errorf("pack entry counts differ from batch objects: %w", domain.ErrInvalid)
 	}
+	// An already reserved batch needs only its remaining storage. Do not
+	// reapply a full-batch estimate to its already installed/uploaded bytes.
+	if finder, ok := r.Store.(interface {
+		FindExistingImportBundle(context.Context, string, domain.BatchDescriptor) (domain.ImportSession, error)
+	}); ok {
+		existing, err := finder.FindExistingImportBundle(ctx, requestID, d)
+		if err == nil {
+			return existing, nil
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return domain.ImportSession{}, err
+		}
+	}
 	source, err := r.Store.GetSource(ctx, d.SourceID)
 	if err != nil {
 		return domain.ImportSession{}, err
@@ -92,7 +105,7 @@ func (r BundleRegistrar) Register(ctx context.Context, requestID string, d domai
 		if err != nil {
 			return domain.ImportSession{}, err
 		}
-		stageNeed := uint64(maxPack + d.ManifestSize)
+		stageNeed := uint64(maxPack) + uint64(d.ManifestSize)
 		if sc.FreeBytes < stageNeed {
 			return domain.ImportSession{}, fmt.Errorf("staging filesystem free=%d required>=%d: %w", sc.FreeBytes, stageNeed, domain.ErrConflict)
 		}
@@ -125,10 +138,11 @@ func (r BundleRegistrar) Register(ctx context.Context, requestID string, d domai
 	return out, nil
 }
 
+// TransferService is called by the API under its per-source import guard.
+// This includes offset queries, which may truncate an uncommitted upload tail.
 type TransferService struct {
-	Store    ports.ServerStore
-	Now      func() time.Time
-	uploadMu sync.Mutex
+	Store ports.ServerStore
+	Now   func() time.Time
 }
 
 func (t *TransferService) now() time.Time {
@@ -158,7 +172,7 @@ func appendChunk(path string, offset, total int64, r io.Reader, n int64) (int64,
 	if actual != offset {
 		return actual, fmt.Errorf("upload offset %d != server file size %d: %w", offset, actual, domain.ErrConflict)
 	}
-	if offset+n > total {
+	if total < 0 || offset > total || n > total-offset {
 		return offset, fmt.Errorf("chunk exceeds expected size: %w", domain.ErrInvalid)
 	}
 	if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -190,8 +204,6 @@ func (t *TransferService) requireOpenEpoch(ctx context.Context, epochID string) 
 }
 
 func (t *TransferService) ManifestOffset(ctx context.Context, id string) (int64, error) {
-	t.uploadMu.Lock()
-	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return 0, err
@@ -214,8 +226,6 @@ func (t *TransferService) ManifestOffset(ctx context.Context, id string) (int64,
 	return s.ManifestUploaded, nil
 }
 func (t *TransferService) AppendManifest(ctx context.Context, id string, offset int64, r io.Reader, n int64) (int64, error) {
-	t.uploadMu.Lock()
-	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return 0, err
@@ -238,8 +248,6 @@ func (t *TransferService) AppendManifest(ctx context.Context, id string, offset 
 	return next, nil
 }
 func (t *TransferService) CompleteManifest(ctx context.Context, id string) error {
-	t.uploadMu.Lock()
-	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, id)
 	if err != nil {
 		return err
@@ -260,8 +268,6 @@ func (t *TransferService) CompleteManifest(ctx context.Context, id string) error
 	return nil
 }
 func (t *TransferService) PackOffset(ctx context.Context, sid, pid string) (int64, error) {
-	t.uploadMu.Lock()
-	defer t.uploadMu.Unlock()
 	p, err := t.Store.GetImportPack(ctx, sid, pid)
 	if err != nil {
 		return 0, err
@@ -284,8 +290,6 @@ func (t *TransferService) PackOffset(ctx context.Context, sid, pid string) (int6
 	return p.UploadedSize, nil
 }
 func (t *TransferService) AppendPack(ctx context.Context, sid, pid string, offset int64, r io.Reader, n int64) (int64, error) {
-	t.uploadMu.Lock()
-	defer t.uploadMu.Unlock()
 	s, err := t.Store.GetImportSession(ctx, sid)
 	if err != nil {
 		return 0, err

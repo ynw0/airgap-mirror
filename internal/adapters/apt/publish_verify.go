@@ -27,7 +27,7 @@ func validateUpstreamPublication(ctx context.Context, req ports.PublishValidatio
 	if err != nil {
 		return err
 	}
-	keys, err := decodeTrustedKeyring(cfg.TrustedKeyringBase64)
+	keys, err := archiveKeyring(cfg)
 	if err != nil {
 		return err
 	}

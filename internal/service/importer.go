@@ -95,6 +95,8 @@ func (i ImportService) CommitPack(ctx context.Context, sessionID, packID string)
 		if err = i.Store.TransitionBatch(ctx, batch.ID, domain.BatchImporting, ""); err != nil {
 			return err
 		}
+	} else if batch.Status != domain.BatchImporting {
+		return fmt.Errorf("batch status %s does not permit file installation: %w", batch.Status, domain.ErrConflict)
 	}
 	sess.Status = "IMPORTING"
 	sess.UpdatedAt = i.now()

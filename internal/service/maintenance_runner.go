@@ -26,9 +26,12 @@ type MaintenanceRunner struct {
 	Candidates ports.GCCandidateFactory
 	Now        func() time.Time
 
-	mu      sync.Mutex
-	cancels map[string]context.CancelFunc
-	intents map[string]string
+	// Serialize control requests through worker registration and paused-job disposal.
+	// Workers never hold this lock while scanning, hashing, or publishing a catalog.
+	controlMu sync.Mutex
+	mu        sync.Mutex
+	cancels   map[string]context.CancelFunc
+	intents   map[string]string
 }
 
 func NewMaintenanceRunner(root context.Context, sources ports.ServerStore, jobs ports.MaintenanceStore, catalog ports.CatalogStore, registry ports.AdapterRegistry, factory ports.CatalogBuildFactory) *MaintenanceRunner {
@@ -36,6 +39,43 @@ func NewMaintenanceRunner(root context.Context, sources ports.ServerStore, jobs 
 		root = context.Background()
 	}
 	return &MaintenanceRunner{root: root, Sources: sources, Jobs: jobs, Catalog: catalog, Registry: registry, Factory: factory, cancels: map[string]context.CancelFunc{}, intents: map[string]string{}}
+}
+
+// snapshotMaintenanceStore is implemented by the SQLite control plane.
+// Other store implementations must provide equivalent atomic reservation semantics.
+type snapshotMaintenanceStore interface {
+	CreateMaintenanceJobForSource(context.Context, domain.MaintenanceJob, domain.Source) error
+}
+
+func (r *MaintenanceRunner) reserveMaintenance(ctx context.Context, job domain.MaintenanceJob, source domain.Source) error {
+	if r.root.Err() != nil {
+		return fmt.Errorf("Agent 正在停止，不能启动维护任务: %w", domain.ErrConflict)
+	}
+	store, ok := r.Jobs.(snapshotMaintenanceStore)
+	if !ok {
+		return fmt.Errorf("maintenance store does not support configuration snapshot reservation: %w", domain.ErrInvalid)
+	}
+	return store.CreateMaintenanceJobForSource(ctx, job, source)
+}
+
+// WaitForIdle is called after stopping HTTP requests and cancelling the root
+// context. A worker stays registered until its checkpoint and cleanup finish.
+func (r *MaintenanceRunner) WaitForIdle(ctx context.Context) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		r.mu.Lock()
+		idle := len(r.cancels) == 0
+		r.mu.Unlock()
+		if idle {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r *MaintenanceRunner) now() time.Time {
@@ -93,7 +133,9 @@ func (r *MaintenanceRunner) startInventory(ctx context.Context, sourceID string,
 		return empty, err
 	}
 	job := domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, IncrementalInventory: incremental, CreatedAt: r.now()}
-	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
+	if err = r.reserveMaintenance(ctx, job, source); err != nil {
 		return empty, err
 	}
 	runCtx, cancel := context.WithCancel(r.root)
@@ -107,6 +149,11 @@ func (r *MaintenanceRunner) startInventory(ctx context.Context, sourceID string,
 // ResumeInventory continues the same job and its durable SQLite checkpoint.
 // A paused job reserves the source: no new Epoch may start until it completes or is discarded.
 func (r *MaintenanceRunner) ResumeInventory(ctx context.Context, id string) (domain.MaintenanceJob, error) {
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
+	if r.root.Err() != nil {
+		return domain.MaintenanceJob{}, fmt.Errorf("Agent 正在停止，不能继续维护任务: %w", domain.ErrConflict)
+	}
 	job, err := r.Jobs.GetMaintenanceJob(ctx, id)
 	if err != nil {
 		return job, err
@@ -152,6 +199,8 @@ func (r *MaintenanceRunner) ResumeInventory(ctx context.Context, id string) (dom
 }
 
 func (r *MaintenanceRunner) PauseInventory(ctx context.Context, id string) (domain.MaintenanceJob, error) {
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
 	job, err := r.Jobs.GetMaintenanceJob(ctx, id)
 	if err != nil {
 		return job, err
@@ -169,6 +218,10 @@ func (r *MaintenanceRunner) PauseInventory(ctx context.Context, id string) (doma
 	r.mu.Lock()
 	cancel := r.cancels[id]
 	if cancel != nil {
+		if r.intents[id] == "cancel" {
+			r.mu.Unlock()
+			return job, fmt.Errorf("任务已请求取消，不能再暂停: %w", domain.ErrConflict)
+		}
 		r.intents[id] = "pause"
 	}
 	r.mu.Unlock()
@@ -180,6 +233,8 @@ func (r *MaintenanceRunner) PauseInventory(ctx context.Context, id string) (doma
 }
 
 func (r *MaintenanceRunner) Cancel(ctx context.Context, id string) (domain.MaintenanceJob, error) {
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
 	job, err := r.Jobs.GetMaintenanceJob(ctx, id)
 	if err != nil {
 		return job, err
@@ -359,6 +414,8 @@ func (r *MaintenanceRunner) runInventory(ctx context.Context, job domain.Mainten
 }
 
 func (r *MaintenanceRunner) finishInventoryError(id string, resumable bool, cause error) {
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
 	r.mu.Lock()
 	intent := r.intents[id]
 	r.mu.Unlock()
@@ -371,7 +428,9 @@ func (r *MaintenanceRunner) finishInventoryError(id string, resumable bool, caus
 		if errors.Is(cause, context.Canceled) {
 			reason = "已暂停，已完成的检查点保留，可点击继续"
 		}
-		_ = r.transition(id, domain.MaintenancePaused, reason)
+		if err := r.transition(id, domain.MaintenancePaused, reason); err != nil {
+			log.Printf("maintenance job %s: persist paused state: %v (original error: %v)", id, err, cause)
+		}
 		return
 	}
 	if errors.Is(cause, context.Canceled) {
@@ -382,11 +441,15 @@ func (r *MaintenanceRunner) finishInventoryError(id string, resumable bool, caus
 }
 
 func (r *MaintenanceRunner) finishFailure(id string, cause error) {
-	_ = r.transition(id, domain.MaintenanceFailed, cause.Error())
+	if err := r.transition(id, domain.MaintenanceFailed, cause.Error()); err != nil {
+		log.Printf("maintenance job %s: persist failed state: %v (original error: %v)", id, err, cause)
+	}
 }
 
 func (r *MaintenanceRunner) finishCancelled(id string) {
-	_ = r.transition(id, domain.MaintenanceCancelled, "cancelled by operator")
+	if err := r.transition(id, domain.MaintenanceCancelled, "cancelled by operator"); err != nil {
+		log.Printf("maintenance job %s: persist cancelled state: %v", id, err)
+	}
 }
 
 func (r *MaintenanceRunner) transition(id string, status domain.MaintenanceStatus, message string) error {

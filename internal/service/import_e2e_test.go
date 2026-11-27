@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -277,7 +278,18 @@ func mustE2EID(t *testing.T) string {
 	return id
 }
 
+type zeroImportCapacity struct{}
+
+func (zeroImportCapacity) Inspect(_ context.Context, path string) (domain.Capacity, error) {
+	return domain.Capacity{Path: path, TotalBytes: 1, FreeBytes: 0}, nil
+}
+
 func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
+	t.Run("advancing cursor", func(t *testing.T) { testApprovedPyPIPackRepair(t, false) })
+	t.Run("unchanged cursor", func(t *testing.T) { testApprovedPyPIPackRepair(t, true) })
+}
+
+func testApprovedPyPIPackRepair(t *testing.T, sameCursor bool) {
 	ctx := context.Background()
 	root := t.TempDir()
 	staging := filepath.Join(t.TempDir(), "staging")
@@ -313,6 +325,17 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 	inrelease := []byte("<html></html>")
 	base := domain.Cursor{}
 	target := domain.Cursor{Kind: "pypi-serial", Value: "5"}
+	if sameCursor {
+		base = target
+		state, stateErr := store.GetState(ctx, src.ID)
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		state.LiveCursor = base
+		if err = store.PutState(ctx, state); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err = os.MkdirAll(filepath.Join(root, "packages"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +440,7 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 		BatchSequence: 1, EpochTotalBytes: int64(len(deb) + len(inrelease)), EpochTotalObjects: 2,
 		EpochTotalBatches: 1, EpochPublishUnitCount: 1, BatchBytes: packSize, BatchObjects: 2,
 		BaseCursor: base, TargetCursor: target, ManifestSHA256: manifestSHA, ManifestSize: manifestSize,
-		Packs:     []domain.PackSpec{{ID: packID, Sequence: 1, Size: packSize, SHA256: packSHA, EntryCount: 2}},
+		Packs:     []domain.PackSpec{{ID: packID, Sequence: 1, File: "packs/000001.agp", Size: packSize, SHA256: packSHA, EntryCount: 2}},
 		CreatedAt: now,
 	}
 	session := domain.ImportSession{
@@ -426,8 +449,39 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 		ManifestUploaded: manifestSize, Status: "OPEN", StagingPath: staging, CreatedAt: now, UpdatedAt: now,
 	}
 	ip := domain.ImportPack{SessionID: session.ID, PackID: packID, ExpectedSize: packSize, ExpectedSHA256: packSHA, StagingPath: packPath, Status: domain.PackUploading}
+	registrar := BundleRegistrar{Store: store, Capacity: zeroImportCapacity{}, StagingRoot: t.TempDir()}
+	if _, err = registrar.Register(ctx, session.RequestID, desc); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("new import must fail zero-space preflight: %v", err)
+	}
 	if _, err = store.RegisterImportBundle(ctx, desc, session, []domain.ImportPack{ip}); err != nil {
 		t.Fatal(err)
+	}
+	resumed, err := registrar.Register(ctx, session.RequestID, desc)
+	if err != nil || resumed.ID != session.ID {
+		t.Fatalf("existing import must be resumable despite full-batch space estimate: %+v, %v", resumed, err)
+	}
+	alias, err := registrar.Register(ctx, "another-request", desc)
+	if err != nil || alias.ID != session.ID {
+		t.Fatalf("same batch must reuse the original session: %+v, %v", alias, err)
+	}
+	duplicate := session
+	duplicate.ID = mustE2EID(t)
+	duplicate.RequestID = "another-request"
+	duplicatePack := ip
+	duplicatePack.SessionID = duplicate.ID
+	alias, err = store.RegisterImportBundle(ctx, desc, duplicate, []domain.ImportPack{duplicatePack})
+	if err != nil || alias.ID != session.ID {
+		t.Fatalf("database registration must reuse the original session: %+v, %v", alias, err)
+	}
+	changed := desc
+	changed.Packs = append([]domain.PackSpec(nil), desc.Packs...)
+	changed.Packs[0].SHA256 = shaHex("different")
+	if _, err = registrar.Register(ctx, "another-request", changed); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("changed pack must not resume: %v", err)
+	}
+	sessions, err := store.ListImportSessionsByEpoch(ctx, epochID)
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("duplicate registration left another session: %d, %v", len(sessions), err)
 	}
 	if err = store.RegisterManifest(ctx, session.ID); err != nil {
 		t.Fatal(err)
@@ -510,5 +564,16 @@ func TestApprovedPyPIPackRepairEndToEnd(t *testing.T) {
 	}
 	if !state.LiveCursor.Equal(target) || state.ActiveEpochID != "" || state.LiveObjects != 2 {
 		t.Fatalf("source state after complete: %+v", state)
+	}
+	retry, err := registrar.Register(ctx, session.RequestID, desc)
+	if err != nil || retry.ID != session.ID || retry.Status != "BATCH_IMPORTED" {
+		t.Fatalf("completed import retry: %+v, %v", retry, err)
+	}
+	if err = importer.CompleteBatch(ctx, retry.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.GetState(ctx, src.ID)
+	if err != nil || after.CatalogVersion != state.CatalogVersion || after.ActiveEpochID != "" || !after.LiveCursor.Equal(target) {
+		t.Fatalf("completed retry changed source state: %+v, %v", after, err)
 	}
 }

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -30,7 +30,12 @@ func (r *MaintenanceRunner) StartGC(ctx context.Context, sourceID string, execut
 	if _, err = r.requireIdleSource(ctx, source.ID); err != nil {
 		return empty, err
 	}
-	if _, err = r.exclusiveRoot(ctx, source); err != nil {
+	if execute {
+		_, err = r.exclusiveRoot(ctx, source)
+	} else {
+		_, _, err = canonicalRepositoryRoot(source.RootPath)
+	}
+	if err != nil {
 		return empty, err
 	}
 	adapter, err := r.Registry.Get(source.Type, source.Provider)
@@ -53,7 +58,9 @@ func (r *MaintenanceRunner) StartGC(ctx context.Context, sourceID string, execut
 		return empty, err
 	}
 	job := domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceGC, Status: domain.MaintenanceQueued, Execute: execute, CreatedAt: r.now()}
-	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
+	if err = r.reserveMaintenance(ctx, job, source); err != nil {
 		return empty, err
 	}
 	runCtx, cancel := context.WithCancel(r.root)
@@ -117,17 +124,8 @@ func canonicalRepositoryRoot(raw string) (string, string, error) {
 	return abs, filepath.Clean(real), nil
 }
 
-func rootsOverlap(a, b string) bool {
-	rel, err := filepath.Rel(a, b)
-	if err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
-		return true
-	}
-	rel, err = filepath.Rel(b, a)
-	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
-}
-
 func (r *MaintenanceRunner) exclusiveRoot(ctx context.Context, source domain.Source) (string, error) {
-	currentAbs, currentReal, err := canonicalRepositoryRoot(source.RootPath)
+	_, root, err := canonicalRepositoryRoot(source.RootPath)
 	if err != nil {
 		return "", err
 	}
@@ -139,20 +137,15 @@ func (r *MaintenanceRunner) exclusiveRoot(ctx context.Context, source domain.Sou
 		if other.ID == source.ID {
 			continue
 		}
-		otherAbs, absErr := filepath.Abs(other.RootPath)
-		if absErr != nil {
-			return "", absErr
+		overlap, err := domain.RepositoryRootsOverlap(source.RootPath, other.RootPath)
+		if err != nil {
+			return "", err
 		}
-		otherAbs = filepath.Clean(otherAbs)
-		if rootsOverlap(currentAbs, otherAbs) {
-			return "", fmt.Errorf("source %s repository root overlaps source %s; physical GC is refused: %w", source.ID, other.ID, domain.ErrConflict)
-		}
-		otherReal, evalErr := filepath.EvalSymlinks(otherAbs)
-		if evalErr == nil && rootsOverlap(currentReal, filepath.Clean(otherReal)) {
-			return "", fmt.Errorf("source %s resolved repository root overlaps source %s; physical GC is refused: %w", source.ID, other.ID, domain.ErrConflict)
+		if overlap {
+			return "", fmt.Errorf("软件源 %s 与 %s 的仓库目录重叠，已拒绝文件清理: %w", source.ID, other.ID, domain.ErrConflict)
 		}
 	}
-	return currentReal, nil
+	return root, nil
 }
 
 func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob, source domain.Source, matcher ports.ManagedPathMatcher) {
@@ -162,13 +155,25 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 			cancel()
 		}
 		delete(r.cancels, job.ID)
+		delete(r.intents, job.ID)
 		r.mu.Unlock()
 	}()
 	if err := r.transition(job.ID, domain.MaintenanceRunning, ""); err != nil {
 		return
 	}
 	membership := r.Catalog.(ports.CatalogMembership)
-	root, err := r.exclusiveRoot(ctx, source)
+	var root string
+	var err error
+	if job.Execute {
+		root, err = r.exclusiveRoot(ctx, source)
+	} else {
+		_, root, err = canonicalRepositoryRoot(source.RootPath)
+	}
+	if err != nil {
+		r.finishFailure(job.ID, err)
+		return
+	}
+	rootInfo, err := os.Stat(root)
 	if err != nil {
 		r.finishFailure(job.ID, err)
 		return
@@ -292,7 +297,9 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 	}
 	keepPlan = true
 	if !job.Execute {
-		_ = r.transition(job.ID, domain.MaintenanceCompleted, "")
+		if err = r.transition(job.ID, domain.MaintenanceCompleted, ""); err != nil {
+			log.Printf("maintenance job %s: persist completed state: %v", job.ID, err)
+		}
 		return
 	}
 
@@ -316,6 +323,9 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 	defer reader.Close()
 	var affectedObjects, affectedBytes int64
 	err = reader.Walk(ctx, func(candidate domain.GCCandidate) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		contains, err := membership.Contains(ctx, source.ID, candidate.LogicalPath)
 		if err != nil {
 			return err
@@ -323,7 +333,10 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 		if contains {
 			return fmt.Errorf("GC candidate %s became referenced after planning: %w", candidate.LogicalPath, domain.ErrConflict)
 		}
-		if err = secureRemoveCandidate(root, candidate.LogicalPath, candidate); err != nil {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		if err = secureRemoveCandidate(root, candidate.LogicalPath, candidate, rootInfo); err != nil {
 			return err
 		}
 		affectedObjects++
@@ -335,19 +348,25 @@ func (r *MaintenanceRunner) runGC(ctx context.Context, job domain.MaintenanceJob
 		}
 		return nil
 	})
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+	// Flush the final deletion counters even on cancellation or an execution
+	// error. Files already removed cannot be restored by cancelling the job.
+	executeErr := err
+	progressErr := r.persist(func(pctx context.Context) error {
+		return r.Jobs.UpdateMaintenanceProgress(pctx, job.ID, ports.MaintenanceProgress{ScannedObjects: scannedObjects, ScannedBytes: scannedBytes, CandidateObjects: candidateObjects, CandidateBytes: candidateBytes, AffectedObjects: affectedObjects, AffectedBytes: affectedBytes})
+	})
+	if progressErr != nil {
+		r.finishFailure(job.ID, fmt.Errorf("GC removed %d files (%d bytes); final progress persistence failed: %w", affectedObjects, affectedBytes, errors.Join(executeErr, progressErr)))
+		return
+	}
+	if executeErr != nil {
+		if errors.Is(executeErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			r.finishCancelled(job.ID)
 			return
 		}
-		r.finishFailure(job.ID, err)
+		r.finishFailure(job.ID, executeErr)
 		return
 	}
-	if err = r.persist(func(pctx context.Context) error {
-		return r.Jobs.UpdateMaintenanceProgress(pctx, job.ID, ports.MaintenanceProgress{ScannedObjects: scannedObjects, ScannedBytes: scannedBytes, CandidateObjects: candidateObjects, CandidateBytes: candidateBytes, AffectedObjects: affectedObjects, AffectedBytes: affectedBytes})
-	}); err != nil {
-		r.finishFailure(job.ID, err)
-		return
+	if err = r.transition(job.ID, domain.MaintenanceCompleted, ""); err != nil {
+		log.Printf("maintenance job %s: persist completed state: %v", job.ID, err)
 	}
-	_ = r.transition(job.ID, domain.MaintenanceCompleted, "")
 }

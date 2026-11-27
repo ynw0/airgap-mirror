@@ -2,12 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	mirrorclient "github.com/ynw0/airgap-mirror/internal/client"
@@ -25,12 +31,14 @@ type App struct {
 	opsMu           sync.Mutex
 	downloadCancels map[string]context.CancelFunc
 	transferCancels map[string]context.CancelFunc
+	reportCancels   map[string]context.CancelFunc
 }
 
 func NewApp() *App {
 	return &App{
 		downloadCancels: make(map[string]context.CancelFunc),
 		transferCancels: make(map[string]context.CancelFunc),
+		reportCancels:   make(map[string]context.CancelFunc),
 	}
 }
 
@@ -62,6 +70,10 @@ func (a *App) shutdown(context.Context) {
 	for _, cancel := range a.transferCancels {
 		cancel()
 	}
+	for _, cancel := range a.reportCancels {
+		cancel()
+	}
+	a.reportCancels = make(map[string]context.CancelFunc)
 	a.downloadCancels = make(map[string]context.CancelFunc)
 	a.transferCancels = make(map[string]context.CancelFunc)
 	a.opsMu.Unlock()
@@ -124,12 +136,88 @@ func loadAgentOverview(ctx context.Context, agent *mirrorclient.AgentClient) (Ag
 			return AgentOverview{}, fmt.Errorf("read source state %s: %w", source.Name, stateErr)
 		}
 		capacity, capacityErr := agent.Capacity(ctx, source.ID)
+		view := AgentSourceView{Source: source, State: state, Capacity: capacity}
 		if capacityErr != nil {
-			return AgentOverview{}, fmt.Errorf("read source capacity %s: %w", source.Name, capacityErr)
+			view.CapacityError = capacityErr.Error()
 		}
-		views = append(views, AgentSourceView{Source: source, State: state, Capacity: capacity})
+		views = append(views, view)
 	}
 	return AgentOverview{Connected: true, BaseURL: agent.BaseURL, Sources: views}, nil
+}
+
+type ConnectionCheck struct {
+	Stage     string `json:"stage"`
+	OK        bool   `json:"ok"`
+	Message   string `json:"message"`
+	ElapsedMS int64  `json:"elapsedMs"`
+}
+
+func connectionFailure(err error) string {
+	var dns *net.DNSError
+	var authority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var certificate x509.CertificateInvalidError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "请求超时，请检查网络、服务器负载和反向代理。"
+	case errors.As(err, &dns):
+		return "无法解析服务器域名，请检查 DNS 或内网 hosts 配置。"
+	case errors.As(err, &authority), errors.As(err, &hostname), errors.As(err, &certificate):
+		return "HTTPS 证书验证失败，请检查证书、域名和信任链。不要关闭证书验证。"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "网络请求超时，请检查服务器和代理。"
+	}
+	var op *net.OpError
+	if errors.As(err, &op) {
+		return "无法建立网络连接，请检查监听地址、端口和防火墙。"
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		return "接口不存在，请检查 Agent 地址及反向代理子路径。"
+	}
+	if errors.Is(err, domain.ErrInvalid) {
+		return "服务器拒绝请求，请检查连接令牌、地址及访问权限。"
+	}
+	if strings.Contains(err.Error(), "decode agent response") {
+		return "返回内容不是预期的 Agent JSON 响应，请检查反向代理路径。"
+	}
+	return "服务器未返回预期响应，请检查 Agent 及反向代理日志。"
+}
+
+// DiagnoseAgent uses read-only requests with a shared deadline and does not replace the active connection.
+// The report deliberately omits raw response bodies, URLs and credentials.
+func (a *App) DiagnoseAgent(baseURL, token string) []ConnectionCheck {
+	start := time.Now()
+	checks := make([]ConnectionCheck, 0, 3)
+	add := func(stage string, ok bool, message string) {
+		checks = append(checks, ConnectionCheck{Stage: stage, OK: ok, Message: message, ElapsedMS: time.Since(start).Milliseconds()})
+	}
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		add("服务器地址", false, "请输入完整 HTTP 或 HTTPS 地址，可包含代理子路径，但不要包含用户名、密码、查询参数或片段。")
+		return checks
+	}
+	agent, err := mirrorclient.NewAgent(baseURL, token, http.DefaultClient)
+	if err != nil {
+		add("服务器地址", false, "服务器地址格式不正确。")
+		return checks
+	}
+	add("服务器地址", true, "地址格式正确。")
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+	if err = agent.Health(ctx); err != nil {
+		add("Agent 健康接口", false, connectionFailure(err))
+		return checks
+	}
+	add("Agent 健康接口", true, "Agent 返回正常健康状态。")
+	sources, err := agent.ListSources(ctx)
+	if err != nil {
+		add("软件源访问权限", false, connectionFailure(err))
+		return checks
+	}
+	add("软件源访问权限", true, fmt.Sprintf("读取到 %d 个软件源。", len(sources)))
+	return checks
 }
 
 func (a *App) ConnectAgent(baseURL, token string) (AgentOverview, error) {
@@ -180,11 +268,43 @@ func (a *App) DisconnectAgent() {
 	a.mu.Unlock()
 }
 
+// SaveDiagnosticReport saves a bounded, explicitly selected UI report, not repository data.
+func (a *App) SaveDiagnosticReport(report string) (string, error) {
+	if len(report) == 0 || len(report) > 16*1024*1024 || !json.Valid([]byte(report)) {
+		return "", fmt.Errorf("invalid diagnostic report or report exceeds 16 MiB: %w", domain.ErrInvalid)
+	}
+	destination, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "保存诊断报告",
+		DefaultFilename: "airgap-diagnostics.json",
+		Filters:         []runtime.FileFilter{{DisplayName: "JSON (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || destination == "" {
+		return "", err
+	}
+	if filepath.Ext(destination) == "" {
+		destination += ".json"
+	}
+	// Do not overwrite existing files, including symlinks.
+	f, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return "", err
+	}
+	if _, err = f.WriteString(report); err != nil {
+		_ = f.Close()
+		_ = os.Remove(destination)
+		return "", err
+	}
+	if err = f.Close(); err != nil {
+		return "", err
+	}
+	return destination, nil
+}
+
 func (a *App) PickStateDestination() (string, error) {
 	return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "保存 State Capsule",
 		DefaultFilename: "mirror-state.mstate",
-		Filters:         []runtime.FileFilter{{DisplayName: "Mirror State Capsule (*.mstate)", Pattern: "*.mstate"}},
+		Filters:         []runtime.FileFilter{{DisplayName: "仓库状态文件 (*.mstate)", Pattern: "*.mstate"}},
 	})
 }
 
@@ -208,21 +328,21 @@ func (a *App) ExportStateCapsule(sourceIDs []string, destination string) (StateE
 
 func (a *App) PickCapsuleFile() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:   "选择 State Capsule",
+		Title:   "打开状态文件",
 		Filters: []runtime.FileFilter{{DisplayName: "Mirror State Capsule (*.mstate)", Pattern: "*.mstate"}},
 	})
 }
 
 func (a *App) PickDownloadDirectory() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:                "选择 Batch 下载目录或移动硬盘",
+		Title:                "选择批次保存目录或移动硬盘",
 		CanCreateDirectories: true,
 	})
 }
 
 func (a *App) PickBatchDirectory() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "选择待导入的 Batch 目录",
+		Title: "选择要导入的批次文件夹",
 	})
 }
 

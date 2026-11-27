@@ -10,12 +10,38 @@ import (
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
 
+// Only a root that overlaps a running physical cleanup needs to be blocked.
+func requireRootOutsideCleanup(ctx context.Context, tx *sql.Tx, root string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT s.root_path FROM maintenance_jobs j JOIN sources s ON s.id=j.source_id WHERE j.kind='GC' AND j.execute=1 AND j.status IN('QUEUED','RUNNING','PAUSED')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var activeRoot string
+		if err = rows.Scan(&activeRoot); err != nil {
+			return err
+		}
+		overlap, err := domain.RepositoryRootsOverlap(root, activeRoot)
+		if err != nil {
+			return err
+		}
+		if overlap {
+			return fmt.Errorf("仓库目录与正在清理的软件源重叠，请在清理结束后重试: %w", domain.ErrConflict)
+		}
+	}
+	return rows.Err()
+}
+
 func (s *ServerStore) CreateSource(ctx context.Context, v domain.Source) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err = requireRootOutsideCleanup(ctx, tx, v.RootPath); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sources(id,name,type,provider,upstream_url,root_path,public_url,enabled,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, v.ID, v.Name, v.Type, v.Provider, v.UpstreamURL, v.RootPath, v.PublicURL, v.Enabled, []byte(v.ConfigJSON), timeString(v.CreatedAt), timeString(v.UpdatedAt)); err != nil {
 		return err
 	}
@@ -36,6 +62,11 @@ func (s *ServerStore) UpdateSource(ctx context.Context, v domain.Source) error {
 	var active sql.NullString
 	if err = tx.QueryRowContext(ctx, `SELECT s.type,s.provider,s.root_path,s.upstream_url,s.public_url,s.config_json,st.cursor_kind,st.cursor_value,st.active_epoch_id FROM sources s JOIN source_states st ON st.source_id=s.id WHERE s.id=?`, v.ID).Scan(&oldType, &oldProvider, &oldRoot, &oldUpstream, &oldPublic, &oldConfig, &cursorKind, &cursorValue, &active); err != nil {
 		return mapNotFound(err)
+	}
+	if oldRoot != v.RootPath {
+		if err = requireRootOutsideCleanup(ctx, tx, v.RootPath); err != nil {
+			return err
+		}
 	}
 	configSame := sameSyncConfig(oldConfig, v.ConfigJSON)
 	trustChanged := false

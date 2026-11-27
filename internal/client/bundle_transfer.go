@@ -244,17 +244,9 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 	if state.ActiveEpochID != "" && state.ActiveEpochID != d.EpochID {
 		return out, fmt.Errorf("server source has active epoch %s: %w", state.ActiveEpochID, domain.ErrConflict)
 	}
-	capacity, err := agent.Capacity(ctx, d.SourceID)
-	if err != nil {
-		return out, err
-	}
-	need := uint64(d.BatchBytes)
-	if max := maxPackSize(d); max > 0 {
-		need += uint64(max)
-	}
-	if capacity.FreeBytes < need {
-		return out, fmt.Errorf("server source free=%d required>=%d: %w", capacity.FreeBytes, need, domain.ErrConflict)
-	}
+	// The server distinguishes new reservations from existing sessions and
+	// checks capacity for new batches. A full-batch client estimate would
+	// prevent recovery after part of the batch is already installed.
 	requestID := strings.TrimSpace(opts.RequestID)
 	if requestID == "" {
 		requestID = "batch-" + d.BatchID
@@ -263,13 +255,18 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 	if err != nil {
 		return out, err
 	}
+	if session.ID == "" || session.SourceID != d.SourceID || session.EpochID != d.EpochID || session.BatchID != d.BatchID || session.ManifestSize != d.ManifestSize || !strings.EqualFold(session.ManifestSHA256, d.ManifestSHA256) {
+		return out, fmt.Errorf("server import session identity mismatch: %w", domain.ErrConflict)
+	}
 	status, err := agent.ImportStatus(ctx, session.ID)
 	if err != nil {
 		return out, err
 	}
-	if status.Session.Status == "BATCH_IMPORTED" {
-		out.Status = status
-		return out, nil
+	report := func(kind, packID, path string, size int64) error {
+		if progress == nil {
+			return nil
+		}
+		return progress(TransferProgress{Kind: kind, SessionID: session.ID, PackID: packID, Path: path, Transferred: size, Total: size})
 	}
 	if status.Session.Status == "UPLOADING_MANIFEST" {
 		if err = agent.UploadManifestVerified(ctx, session.ID, bundle.ManifestPath, d.ManifestSHA256, opts.ChunkSize, progress); err != nil {
@@ -286,9 +283,8 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 	if status.Session.Status != "MANIFEST_READY" && status.Session.Status != "IMPORTING" && status.Session.Status != "BATCH_IMPORTED" {
 		return out, fmt.Errorf("import session %s cannot accept packs in status %s: %w", session.ID, status.Session.Status, domain.ErrConflict)
 	}
-	if status.Session.Status == "BATCH_IMPORTED" {
-		out.Status = status
-		return out, nil
+	if err = report("manifest-ready", "", bundle.ManifestPath, d.ManifestSize); err != nil {
+		return out, err
 	}
 
 	specs := append([]domain.PackSpec(nil), d.Packs...)
@@ -307,37 +303,45 @@ func TransferBatchBundle(ctx context.Context, agent *AgentClient, bundleDir stri
 		}
 		switch remote.Status {
 		case domain.PackImported:
-			continue
+			// Recovered packs count toward total batch progress too.
 		case domain.PackUploading:
 			if err = agent.UploadPackVerified(ctx, session.ID, spec.ID, bundle.PackPaths[spec.ID], spec.SHA256, opts.ChunkSize, progress); err != nil {
 				return out, err
 			}
-			if err = agent.CommitPack(ctx, session.ID, spec.ID); err != nil {
+			fallthrough
+		case domain.PackUploaded:
+			if err = report("pack-installing", spec.ID, bundle.PackPaths[spec.ID], spec.Size); err != nil {
 				return out, err
 			}
-		case domain.PackUploaded:
 			if err = agent.CommitPack(ctx, session.ID, spec.ID); err != nil {
 				return out, err
 			}
 		default:
 			return out, fmt.Errorf("server pack %s is in unsupported resumable status %s: %w", spec.ID, remote.Status, domain.ErrConflict)
 		}
-		if progress != nil {
-			if err = progress(TransferProgress{Kind: "pack-committed", SessionID: session.ID, PackID: spec.ID, Path: bundle.PackPaths[spec.ID], Transferred: spec.Size, Total: spec.Size}); err != nil {
-				return out, err
-			}
+		if err = report("pack-committed", spec.ID, bundle.PackPaths[spec.ID], spec.Size); err != nil {
+			return out, err
 		}
 	}
-	if err = agent.CompleteBatch(ctx, session.ID); err != nil {
+	if err = report("finalizing", "", "", 0); err != nil {
 		return out, err
 	}
-	status, err = agent.ImportStatus(ctx, session.ID)
+	out.Status, err = finalizeTransferredBatch(ctx, agent, session.ID)
+	return out, err
+}
+
+// The batch flag precedes metadata publication and final Epoch completion.
+// Retry finalization even when the payload is committed.
+func finalizeTransferredBatch(ctx context.Context, agent *AgentClient, sessionID string) (ImportStatus, error) {
+	if err := agent.CompleteBatch(ctx, sessionID); err != nil {
+		return ImportStatus{}, err
+	}
+	status, err := agent.ImportStatus(ctx, sessionID)
 	if err != nil {
-		return out, err
+		return ImportStatus{}, err
 	}
-	if status.Session.Status != "BATCH_IMPORTED" {
-		return out, fmt.Errorf("server did not complete batch; session status=%s: %w", status.Session.Status, domain.ErrConflict)
+	if status.Session.ID != sessionID || status.Session.Status != "BATCH_IMPORTED" {
+		return ImportStatus{}, fmt.Errorf("server did not complete batch; session status=%s: %w", status.Session.Status, domain.ErrConflict)
 	}
-	out.Status = status
-	return out, nil
+	return status, nil
 }

@@ -3,6 +3,7 @@ package apt
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -104,7 +109,7 @@ func TestRealUpstreamSignaturesRejectTamperingAndWrongKeys(t *testing.T) {
 	}
 }
 
-func TestReleaseFreshnessAndSignatureStatus(t *testing.T) {
+func TestReleaseFreshness(t *testing.T) {
 	now := time.Now().UTC()
 	date := now.Add(-time.Hour).Format(time.RFC1123)
 	for _, tc := range []struct {
@@ -125,21 +130,6 @@ func TestReleaseFreshnessAndSignatureStatus(t *testing.T) {
 			}
 		})
 	}
-	valid := fmt.Sprintf("[GNUPG:] VALIDSIG fingerprint 2026-01-01 %d 0 4 0 22 10 01 primary\n", now.Unix())
-	if err := validateGPGStatus(valid, now); err != nil {
-		t.Fatal(err)
-	}
-	for _, status := range []string{
-		strings.Replace(valid, "22 10 01", "22 2 01", 1),
-		valid + "[GNUPG:] EXPKEYSIG expired\n",
-		valid + "[GNUPG:] REVKEYSIG revoked\n",
-		valid + "[GNUPG:] NO_PUBKEY unknown\n",
-		"[GNUPG:] GOODSIG fpr user\n",
-	} {
-		if err := validateGPGStatus(status, now); err == nil {
-			t.Fatalf("unsafe GnuPG status accepted: %s", status)
-		}
-	}
 }
 
 func TestAPTProbeWithoutKeyringFailsBeforeNetwork(t *testing.T) {
@@ -148,7 +138,7 @@ func TestAPTProbeWithoutKeyringFailsBeforeNetwork(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
-	src := domain.Source{Type: domain.SourceAPT, Provider: Provider, UpstreamURL: server.URL, PublicURL: "https://repo.example/apt", ConfigJSON: json.RawMessage(`{"suite":"stable","releaseMode":"inrelease"}`)}
+	src := domain.Source{Type: domain.SourceAPT, Provider: Provider, UpstreamURL: server.URL, PublicURL: "https://repo.example/apt", ConfigJSON: json.RawMessage(`{"suite":"custom-archive","releaseMode":"inrelease"}`)}
 	if _, err := New(server.Client()).Probe(context.Background(), src); !errors.Is(err, domain.ErrInvalid) {
 		t.Fatalf("unconfigured trust: %v", err)
 	}
@@ -161,5 +151,71 @@ func TestAPTProbeWithoutKeyringFailsBeforeNetwork(t *testing.T) {
 		if _, err := decodeTrustedKeyring(invalid); !errors.Is(err, domain.ErrInvalid) {
 			t.Fatalf("invalid keyring accepted: %v", err)
 		}
+	}
+}
+
+func TestBundledArchiveKeys(t *testing.T) {
+	for _, suite := range []string{"focal", "jammy-updates", "noble-security", "bookworm", "trixie-security", "stable"} {
+		keys, err := archiveKeyring(Config{Suite: suite})
+		if err != nil {
+			t.Fatalf("%s: %v", suite, err)
+		}
+		if entities, err := openpgp.ReadKeyRing(bytes.NewReader(keys)); err != nil || len(entities) == 0 {
+			t.Fatalf("%s: archive keys cannot be read: %v", suite, err)
+		}
+	}
+}
+
+func TestVerifyReleaseWithoutGnuPG(t *testing.T) {
+	config := &packet.Config{RSABits: 2048, DefaultHash: crypto.SHA256}
+	entity, err := openpgp.NewEntity("Airgap test", "", "test@example.invalid", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys, signature, inline bytes.Buffer
+	if err = entity.Serialize(&keys); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("Suite: stable\nSHA256:\n aaaa 1 main/Packages\n")
+	if err = openpgp.DetachSign(&signature, entity, bytes.NewReader(body), config); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := clearsign.Encode(&inline, entity.PrivateKey, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = writer.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		release, signature []byte
+		inline             bool
+	}{
+		{body, signature.Bytes(), false},
+		{inline.Bytes(), nil, true},
+	} {
+		plain, err := verifyUpstreamRelease(context.Background(), keys.Bytes(), test.release, test.signature, test.inline)
+		if err != nil || !bytes.Equal(plain, body) {
+			t.Fatalf("verification without GnuPG failed: %v", err)
+		}
+	}
+	tampered := bytes.Replace(body, []byte("stable"), []byte("testing"), 1)
+	if _, err = verifyUpstreamRelease(context.Background(), keys.Bytes(), tampered, signature.Bytes(), false); err == nil {
+		t.Fatal("tampered release accepted")
+	}
+	double := append(append([]byte(nil), signature.Bytes()...), signature.Bytes()...)
+	if _, err = verifyUpstreamRelease(context.Background(), keys.Bytes(), body, double, false); err != nil {
+		t.Fatalf("multiple valid signatures: %v", err)
+	}
+	var invalid bytes.Buffer
+	if err = openpgp.DetachSign(&invalid, entity, bytes.NewReader(tampered), config); err != nil {
+		t.Fatal(err)
+	}
+	mixed := append(append([]byte(nil), signature.Bytes()...), invalid.Bytes()...)
+	if _, err = verifyUpstreamRelease(context.Background(), keys.Bytes(), body, mixed, false); err == nil {
+		t.Fatal("accepted a valid signature followed by a bad signature")
 	}
 }

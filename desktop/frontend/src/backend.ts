@@ -1,5 +1,5 @@
 import type {
-  AgentOverview, AnalyzeOptions, BatchBundle, BatchDownloadProgress, Bootstrap, DesktopTransferResult,
+  ConnectionCheck, AgentOverview, AnalyzeOptions, BatchBundle, BatchDownloadProgress, Bootstrap, DesktopTransferResult,
   Epoch, EpochView, ImportedCapsule, SourceInput, StateCapsule, StateExportResult, SyncPlan, UpstreamState, ValidatedBundle,
   TransferProgress, MaintenanceJob, GCCandidatesPage, RepairIssuesPage, ExportJob, CatalogReclaimResult,
 } from './types'
@@ -7,6 +7,7 @@ import type {
 type AppBridge = {
   Bootstrap(): Promise<Bootstrap>
   ConnectAgent(baseURL: string, token: string): Promise<AgentOverview>
+  DiagnoseAgent(baseURL: string, token: string): Promise<ConnectionCheck[]>
   RefreshAgent(): Promise<AgentOverview>
   DisconnectAgent(): Promise<void>
   CreateSource(input: SourceInput): Promise<AgentOverview>
@@ -16,6 +17,7 @@ type AppBridge = {
   ListExportJobs(): Promise<ExportJob[]>
   DownloadExportJob(id: string, destination: string): Promise<void>
   ReclaimCatalogHistory(sourceID: string): Promise<CatalogReclaimResult>
+  SaveDiagnosticReport(report: string): Promise<string>
   PickStateDestination(): Promise<string>
   ExportStateCapsule(sourceIDs: string[], destination: string): Promise<StateExportResult>
   PickCapsuleFile(): Promise<string>
@@ -40,6 +42,8 @@ type AppBridge = {
   StartIntegrity(sourceID: string, mibPerSecond: number): Promise<MaintenanceJob>
   ApproveRepairReplacement(jobID: string, approve: boolean): Promise<void>
   RepairIssues(jobID: string, after: string, limit: number): Promise<RepairIssuesPage>
+  CancelRepairReport(jobID: string): Promise<void>
+  ExportCompleteRepairReport(jobID: string): Promise<{path: string; count: number}>
   ExportRepairCapsule(sourceID: string, jobID: string, destination: string): Promise<StateExportResult>
   StartGC(sourceID: string, execute: boolean): Promise<MaintenanceJob>
   ListMaintenance(sourceID: string, limit: number): Promise<MaintenanceJob[]>

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
@@ -31,6 +32,46 @@ type API struct {
 	BearerToken string
 	Signer      *service.APTSigner
 	Now         func() time.Time
+
+	importMu      sync.Mutex
+	importSources map[string]struct{}
+}
+
+// acquireImportSource coordinates file-changing import requests and cancellation
+// for a source. Return a conflict instead of queuing behind a potentially long
+// pack installation. Read-only status and unrelated sources remain accessible.
+func (a *API) acquireImportSource(sourceID string) (func(), error) {
+	a.importMu.Lock()
+	defer a.importMu.Unlock()
+	if _, busy := a.importSources[sourceID]; busy {
+		return nil, fmt.Errorf("该软件源正在处理另一项导入请求，请在当前操作结束后重试: %w", domain.ErrConflict)
+	}
+	if a.importSources == nil {
+		a.importSources = make(map[string]struct{})
+	}
+	a.importSources[sourceID] = struct{}{}
+	return func() {
+		a.importMu.Lock()
+		delete(a.importSources, sourceID)
+		a.importMu.Unlock()
+	}, nil
+}
+
+func (a *API) guardImportSession(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, err := a.Store.GetImportSession(r.Context(), r.PathValue("id"))
+		if err != nil {
+			mapError(w, err)
+			return
+		}
+		release, err := a.acquireImportSource(session.SourceID)
+		if err != nil {
+			mapError(w, err)
+			return
+		}
+		defer release()
+		next(w, r)
+	}
 }
 
 func (a *API) now() time.Time {
@@ -70,13 +111,13 @@ func (a *API) Handler() http.Handler {
 	mux.Handle("GET /api/v1/state/exports/{name}", secure(a.stateDownload))
 	mux.Handle("POST /api/v1/imports", secure(a.importCreate))
 	mux.Handle("GET /api/v1/imports/{id}", secure(a.importGet))
-	mux.Handle("HEAD /api/v1/imports/{id}/manifest", secure(a.manifestHead))
-	mux.Handle("PATCH /api/v1/imports/{id}/manifest", secure(a.manifestPatch))
-	mux.Handle("POST /api/v1/imports/{id}/manifest/complete", secure(a.manifestComplete))
-	mux.Handle("HEAD /api/v1/imports/{id}/packs/{packID}", secure(a.packHead))
-	mux.Handle("PATCH /api/v1/imports/{id}/packs/{packID}", secure(a.packPatch))
-	mux.Handle("POST /api/v1/imports/{id}/packs/{packID}/commit", secure(a.packCommit))
-	mux.Handle("POST /api/v1/imports/{id}/complete", secure(a.batchComplete))
+	mux.Handle("HEAD /api/v1/imports/{id}/manifest", secure(a.guardImportSession(a.manifestHead)))
+	mux.Handle("PATCH /api/v1/imports/{id}/manifest", secure(a.guardImportSession(a.manifestPatch)))
+	mux.Handle("POST /api/v1/imports/{id}/manifest/complete", secure(a.guardImportSession(a.manifestComplete)))
+	mux.Handle("HEAD /api/v1/imports/{id}/packs/{packID}", secure(a.guardImportSession(a.packHead)))
+	mux.Handle("PATCH /api/v1/imports/{id}/packs/{packID}", secure(a.guardImportSession(a.packPatch)))
+	mux.Handle("POST /api/v1/imports/{id}/packs/{packID}/commit", secure(a.guardImportSession(a.packCommit)))
+	mux.Handle("POST /api/v1/imports/{id}/complete", secure(a.guardImportSession(a.batchComplete)))
 	return mux
 }
 func (a *API) auth(next http.Handler) http.Handler {
@@ -259,6 +300,17 @@ func (a *API) epochBatches(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (a *API) epochCancel(w http.ResponseWriter, r *http.Request) {
+	epoch, err := a.Store.GetEpoch(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	release, err := a.acquireImportSource(epoch.SourceID)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	defer release()
 	v, err := a.Importer.CancelEpoch(r.Context(), r.PathValue("id"))
 	if err != nil {
 		mapError(w, err)
@@ -359,6 +411,12 @@ func (a *API) importCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
+	release, err := a.acquireImportSource(req.Descriptor.SourceID)
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	defer release()
 	v, err := a.Registrar.Register(r.Context(), req.RequestID, req.Descriptor)
 	if err != nil {
 		mapError(w, err)

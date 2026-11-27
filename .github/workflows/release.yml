@@ -18,14 +18,54 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
-      - name: Build Linux binaries
+      - name: Build Linux binaries without glibc dependency
         shell: bash
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
         run: |
           set -euo pipefail
           root="dist/airgap-mirror-linux-amd64"
           mkdir -p "$root/bin"
           go build -trimpath -ldflags='-s -w' -o "$root/bin/mirror-agent" ./cmd/mirror-agent
           go build -trimpath -ldflags='-s -w' -o "$root/bin/mirrorctl" ./cmd/mirrorctl
+          for binary in "$root/bin/mirror-agent" "$root/bin/mirrorctl"; do
+            headers="$(readelf -lW "$binary")"
+            dynamic="$(readelf -dW "$binary")"
+            if grep -q 'INTERP' <<< "$headers" || grep -q '(NEEDED)' <<< "$dynamic"; then
+              echo "error: $binary requires a dynamic loader or shared library" >&2
+              exit 1
+            fi
+          done
+      - name: Smoke test Linux binaries on Ubuntu 20.04
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            --mount "type=bind,source=$(realpath dist/airgap-mirror-linux-amd64/bin),target=/airgap,readonly" \
+            ubuntu:20.04 bash -ec '
+              /airgap/mirror-agent -h
+              /airgap/mirrorctl -h
+              export AIRGAP_MIRROR_TOKEN=release-smoke-test
+              /airgap/mirror-agent -listen 127.0.0.1:8787 -db /tmp/server.db -staging /tmp/staging -exports /tmp/exports -maintenance /tmp/maintenance &
+              pid=$!
+              trap "kill $pid 2>/dev/null || true; wait $pid || true" EXIT
+              for i in $(seq 1 30); do
+                if /airgap/mirrorctl health; then
+                  /airgap/mirrorctl sources
+                  exit 0
+                fi
+                kill -0 "$pid"
+                sleep 1
+              done
+              exit 1
+            '
+      - name: Package Linux release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="dist/airgap-mirror-linux-amd64"
           cp -R deploy "$root/deploy"
           mkdir -p "$root/scripts" "$root/docs"
           cp scripts/install-agent.sh "$root/scripts/"

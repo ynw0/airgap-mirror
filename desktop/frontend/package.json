@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "build": "npm run test && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/ui-smoke.test.mjs"
   },
   "dependencies": {
     "react": "19.2.8",

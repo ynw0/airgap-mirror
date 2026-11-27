@@ -93,7 +93,11 @@ func main() {
 	signer := &service.APTSigner{Sources: store, Catalog: store, Jobs: store, GNUPGHOME: os.Getenv("AIRGAP_MIRROR_GNUPGHOME"), KeyID: os.Getenv("AIRGAP_MIRROR_APT_SIGNING_KEY")}
 	api := &appserver.API{Store: store, Catalog: store, Registry: registry, Registrar: service.BundleRegistrar{Store: store, Capacity: capacity, StagingRoot: staging}, Transfer: service.TransferService{Store: store}, Importer: importer, Capsules: service.CapsuleService{Store: store, Exporter: store, OutputDir: exports}, Capacity: capacity, BearerToken: token, Signer: signer}
 	api.ExportJobs = &service.ExportJobs{Store: store, Capsules: api.Capsules}
-	go api.ExportJobs.Run(maintenanceCtx)
+	exportDone := make(chan struct{})
+	go func() {
+		defer close(exportDone)
+		api.ExportJobs.Run(maintenanceCtx)
+	}()
 	handler := appserver.WithMaintenance(api.Handler(), api, maintenanceRunner, store)
 	httpServer := &http.Server{Addr: listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, WriteTimeout: 0}
 	errCh := make(chan error, 1)
@@ -113,5 +117,14 @@ func main() {
 	defer stop()
 	if err = httpServer.Shutdown(shutdown); err != nil {
 		fmt.Fprintln(os.Stderr, "shutdown:", err)
+		_ = httpServer.Close()
+	}
+	if err = maintenanceRunner.WaitForIdle(shutdown); err != nil {
+		log.Printf("maintenance shutdown: %v; unfinished jobs will be recovered on restart", err)
+	}
+	select {
+	case <-exportDone:
+	case <-shutdown.Done():
+		log.Printf("export shutdown: %v; unfinished exports will be recovered on restart", shutdown.Err())
 	}
 }

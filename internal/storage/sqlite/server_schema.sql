@@ -141,6 +141,9 @@ CREATE TABLE IF NOT EXISTS import_sessions(
   error_text TEXT NOT NULL DEFAULT ''
 );
 
+-- Non-unique for compatibility with databases containing historical duplicates.
+CREATE INDEX IF NOT EXISTS ix_import_sessions_batch ON import_sessions(batch_id);
+
 CREATE TABLE IF NOT EXISTS import_packs(
   session_id TEXT NOT NULL REFERENCES import_sessions(id) ON DELETE CASCADE,
   pack_id TEXT NOT NULL REFERENCES packs(id),

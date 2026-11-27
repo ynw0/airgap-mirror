@@ -37,9 +37,15 @@ jobs:
           git diff --exit-code -- go.mod go.sum
       - name: Verify GnuPG is available for APT signature tests
         run: gpg --version
-      - name: Test Go control plane
+      - name: Test Go control plane without CGO
+        env:
+          CGO_ENABLED: '0'
         run: go test ./internal/... ./cmd/...
-      - name: Build Go control plane
+      - name: Detect Go data races in maintenance and storage
+        run: go test -race ./internal/service/... ./internal/storage/sqlite/... ./internal/client/... ./internal/server/...
+      - name: Build Go control plane without CGO
+        env:
+          CGO_ENABLED: '0'
         run: go build ./internal/... ./cmd/...
       - name: Verify deployment scripts
         shell: bash
@@ -69,6 +75,12 @@ jobs:
           set -euo pipefail
           npm ci
           npm run build
+      - name: Test APT verification without GnuPG on Windows
+        shell: bash
+        run: go test ./internal/adapters/apt -run 'TestBundledArchiveKeys|TestVerifyReleaseWithoutGnuPG'
+      - name: Test Windows report publication
+        shell: bash
+        run: go test ./desktop/report_publish_windows.go ./desktop/report_publish_test.go
       - name: Build Windows Wails executable
         shell: bash
         run: |

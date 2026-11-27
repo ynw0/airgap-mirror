@@ -58,7 +58,9 @@ func (r *MaintenanceRunner) startRepair(ctx context.Context, sourceID string, mi
 		return job, err
 	}
 	job = domain.MaintenanceJob{ID: id, SourceID: sourceID, Kind: domain.MaintenanceRepair, Status: domain.MaintenanceQueued, HashMiBPerSecond: mibPerSecond, CreatedAt: r.now()}
-	if err = r.Jobs.CreateMaintenanceJob(ctx, job); err != nil {
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
+	if err = r.reserveMaintenance(ctx, job, source); err != nil {
 		return job, err
 	}
 	return r.launchRepair(job, source)

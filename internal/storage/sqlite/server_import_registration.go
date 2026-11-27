@@ -17,6 +17,109 @@ func sameBatch(b domain.Batch, d domain.BatchDescriptor) bool {
 	return b.ID == d.BatchID && b.EpochID == d.EpochID && b.SourceID == d.SourceID && b.Sequence == d.BatchSequence && b.PlannedBytes == d.BatchBytes && b.ObjectCount == d.BatchObjects && b.PackCount == len(d.Packs)
 }
 
+// FindExistingImportBundle checks an existing request before capacity preflight.
+// It never creates directories, sessions, packs or changes the source state.
+func (s *ServerStore) FindExistingImportBundle(ctx context.Context, requestID string, d domain.BatchDescriptor) (domain.ImportSession, error) {
+	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return domain.ImportSession{}, err
+	}
+	defer tx.Rollback()
+	return findExistingImportBundle(ctx, tx, requestID, d)
+}
+
+func findExistingImportBundle(ctx context.Context, tx *sql.Tx, requestID string, d domain.BatchDescriptor) (domain.ImportSession, error) {
+	var empty domain.ImportSession
+	rows, err := tx.QueryContext(ctx, `SELECT id,request_id,source_id,epoch_id,batch_id,manifest_path,manifest_expected_size,manifest_expected_sha256,manifest_uploaded_size,status,staging_path,created_at,updated_at,error_text FROM import_sessions WHERE request_id=? OR batch_id=? LIMIT 2`, requestID, d.BatchID)
+	if err != nil {
+		return empty, err
+	}
+	var matches []domain.ImportSession
+	for rows.Next() {
+		session, e := scanImportSession(rows)
+		if e != nil {
+			rows.Close()
+			return empty, e
+		}
+		matches = append(matches, session)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return empty, err
+	}
+	if err = rows.Close(); err != nil {
+		return empty, err
+	}
+	if len(matches) == 0 {
+		return empty, domain.ErrNotFound
+	}
+	if len(matches) != 1 {
+		return empty, fmt.Errorf("存在多个相关导入会话，请先核对历史会话，不能自动恢复: %w", domain.ErrConflict)
+	}
+	out := matches[0]
+	if out.SourceID != d.SourceID || out.EpochID != d.EpochID || out.BatchID != d.BatchID || out.ManifestSize != d.ManifestSize || out.ManifestSHA256 != d.ManifestSHA256 {
+		return empty, fmt.Errorf("request id reused for another bundle: %w", domain.ErrConflict)
+	}
+	epoch, err := scanEpoch(tx.QueryRowContext(ctx, `SELECT id,source_id,base_cursor_kind,base_cursor_value,target_cursor_kind,target_cursor_value,status,total_bytes,total_objects,total_batches,publish_unit_count,created_at,completed_at,error_text FROM epochs WHERE id=?`, d.EpochID))
+	if err != nil {
+		return empty, fmt.Errorf("existing import epoch unavailable: %v: %w", err, domain.ErrConflict)
+	}
+	batch, err := scanBatch(tx.QueryRowContext(ctx, `SELECT id,epoch_id,source_id,sequence,status,planned_bytes,object_count,pack_count,created_at,imported_at,error_text FROM batches WHERE id=?`, d.BatchID))
+	if err != nil {
+		return empty, fmt.Errorf("existing import batch unavailable: %v: %w", err, domain.ErrConflict)
+	}
+	if !sameEpoch(epoch, d) || !sameBatch(batch, d) || epoch.Status == domain.EpochCancelled || epoch.Status == domain.EpochFailed || out.Status == "CANCELLED" {
+		return empty, fmt.Errorf("existing import bundle identity or status mismatch: %w", domain.ErrConflict)
+	}
+	if epoch.Status == domain.EpochComplete && (out.Status != "BATCH_IMPORTED" || batch.Status != domain.BatchImported) {
+		return empty, fmt.Errorf("completed epoch has incomplete import session: %w", domain.ErrConflict)
+	}
+	var stateKind, stateValue, active string
+	if err = tx.QueryRowContext(ctx, `SELECT cursor_kind,cursor_value,COALESCE(active_epoch_id,'') FROM source_states WHERE source_id=?`, d.SourceID).Scan(&stateKind, &stateValue, &active); err != nil {
+		return empty, fmt.Errorf("existing import source state unavailable: %v: %w", err, domain.ErrConflict)
+	}
+	live := domain.Cursor{Kind: stateKind, Value: stateValue}
+	if epoch.Status == domain.EpochComplete {
+		if active != "" || !live.Equal(d.TargetCursor) {
+			return empty, fmt.Errorf("source has advanced beyond completed import: %w", domain.ErrConflict)
+		}
+	} else if active != d.EpochID || !live.Equal(d.BaseCursor) {
+		return empty, fmt.Errorf("existing import no longer holds the source reservation: %w", domain.ErrConflict)
+	}
+	var count int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM packs WHERE batch_id=?`, d.BatchID).Scan(&count); err != nil {
+		return empty, err
+	}
+	if count != len(d.Packs) {
+		return empty, fmt.Errorf("existing pack count mismatch: %w", domain.ErrConflict)
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM import_packs WHERE session_id=?`, out.ID).Scan(&count); err != nil {
+		return empty, err
+	}
+	if count != len(d.Packs) {
+		return empty, fmt.Errorf("existing session pack count mismatch: %w", domain.ErrConflict)
+	}
+	seen := make(map[string]struct{}, len(d.Packs))
+	for _, spec := range d.Packs {
+		if _, duplicate := seen[spec.ID]; duplicate {
+			return empty, domain.ErrInvalid
+		}
+		seen[spec.ID] = struct{}{}
+		p, e := scanPack(tx.QueryRowContext(ctx, `SELECT id,epoch_id,batch_id,sequence,size,sha256,entry_count,uploaded_size,file_path,status FROM packs WHERE id=?`, spec.ID))
+		if e != nil || p.EpochID != d.EpochID || p.BatchID != d.BatchID || p.Sequence != spec.Sequence || p.Size != spec.Size || p.SHA256 != spec.SHA256 || p.EntryCount != spec.EntryCount {
+			return empty, fmt.Errorf("existing pack declaration mismatch: %w", domain.ErrConflict)
+		}
+		ip, e := scanImportPack(tx.QueryRowContext(ctx, `SELECT session_id,pack_id,expected_size,expected_sha256,uploaded_size,staging_path,status FROM import_packs WHERE session_id=? AND pack_id=?`, out.ID, spec.ID))
+		if e != nil || ip.ExpectedSize != spec.Size || ip.ExpectedSHA256 != spec.SHA256 {
+			return empty, fmt.Errorf("existing session pack declaration mismatch: %w", domain.ErrConflict)
+		}
+		if out.Status == "BATCH_IMPORTED" && (ip.Status != domain.PackImported || p.Status != domain.PackImported) {
+			return empty, fmt.Errorf("imported batch has uncommitted pack: %w", domain.ErrConflict)
+		}
+	}
+	return out, nil
+}
+
 func (s *ServerStore) RegisterImportBundle(ctx context.Context, d domain.BatchDescriptor, session domain.ImportSession, packs []domain.ImportPack) (domain.ImportSession, error) {
 	if d.SchemaVersion != domain.BundleSchemaVersion {
 		return domain.ImportSession{}, fmt.Errorf("unsupported bundle schema %d: %w", d.SchemaVersion, domain.ErrInvalid)
@@ -32,6 +135,11 @@ func (s *ServerStore) RegisterImportBundle(ctx context.Context, d domain.BatchDe
 		return domain.ImportSession{}, err
 	}
 	defer tx.Rollback()
+	if existing, lookupErr := findExistingImportBundle(ctx, tx, session.RequestID, d); lookupErr == nil {
+		return existing, tx.Commit()
+	} else if !errors.Is(lookupErr, domain.ErrNotFound) {
+		return domain.ImportSession{}, lookupErr
+	}
 	var stateKind, stateValue string
 	var active sql.NullString
 	if err = tx.QueryRowContext(ctx, `SELECT cursor_kind,cursor_value,active_epoch_id FROM source_states WHERE source_id=?`, d.SourceID).Scan(&stateKind, &stateValue, &active); err != nil {
@@ -110,29 +218,6 @@ func (s *ServerStore) RegisterImportBundle(ctx context.Context, d domain.BatchDe
 		} else {
 			return domain.ImportSession{}, err
 		}
-	}
-
-	var existingID string
-	err = tx.QueryRowContext(ctx, `SELECT id FROM import_sessions WHERE request_id=?`, session.RequestID).Scan(&existingID)
-	if err == nil {
-		var out domain.ImportSession
-		var created, updated string
-		err = tx.QueryRowContext(ctx, `SELECT id,request_id,source_id,epoch_id,batch_id,manifest_path,manifest_expected_size,manifest_expected_sha256,manifest_uploaded_size,status,staging_path,created_at,updated_at,error_text FROM import_sessions WHERE id=?`, existingID).Scan(&out.ID, &out.RequestID, &out.SourceID, &out.EpochID, &out.BatchID, &out.ManifestPath, &out.ManifestSize, &out.ManifestSHA256, &out.ManifestUploaded, &out.Status, &out.StagingPath, &created, &updated, &out.ErrorText)
-		if err != nil {
-			return domain.ImportSession{}, err
-		}
-		if out.SourceID != d.SourceID || out.EpochID != d.EpochID || out.BatchID != d.BatchID || out.ManifestSize != d.ManifestSize || out.ManifestSHA256 != d.ManifestSHA256 {
-			return domain.ImportSession{}, fmt.Errorf("request id reused for another bundle: %w", domain.ErrConflict)
-		}
-		out.CreatedAt = parseTime(created)
-		out.UpdatedAt = parseTime(updated)
-		if err = tx.Commit(); err != nil {
-			return domain.ImportSession{}, err
-		}
-		return out, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return domain.ImportSession{}, err
 	}
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO import_sessions(id,request_id,source_id,epoch_id,batch_id,manifest_expected_size,manifest_expected_sha256,manifest_uploaded_size,manifest_path,staging_path,status,created_at,updated_at,error_text) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, session.ID, session.RequestID, d.SourceID, d.EpochID, d.BatchID, d.ManifestSize, d.ManifestSHA256, session.ManifestUploaded, session.ManifestPath, session.StagingPath, session.Status, timeString(session.CreatedAt), timeString(session.UpdatedAt), session.ErrorText)

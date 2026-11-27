@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -116,5 +117,102 @@ func TestAPTTrustRotationPreservesCatalogAndRequiresIdleSource(t *testing.T) {
 	}
 	if err = store.UpdateSource(ctx, src); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("changed keys during maintenance: %v", err)
+	}
+}
+
+func TestMaintenanceReservationRejectsStaleSourceConfiguration(t *testing.T) {
+	ctx := context.Background()
+	store := openServerDB(t)
+	src := testSource(t)
+	if err := store.CreateSource(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.GetSource(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep the timestamp unchanged to prove that comparing only a source
+	// revision timestamp would not catch this change.
+	src.RootPath = t.TempDir()
+	if err = store.UpdateSource(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	job := domain.MaintenanceJob{ID: mustID(t), SourceID: src.ID, Kind: domain.MaintenanceInventory, Status: domain.MaintenanceQueued, CreatedAt: time.Now()}
+	if err = store.CreateMaintenanceJobForSource(ctx, job, snapshot); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("stale source reservation must conflict: %v", err)
+	}
+	if _, err = store.GetMaintenanceJob(ctx, job.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("failed reservation left a job: %v", err)
+	}
+	fresh, err := store.GetSource(ctx, src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CreateMaintenanceJobForSource(ctx, job, fresh); err != nil {
+		t.Fatalf("fresh reservation failed: %v", err)
+	}
+	fresh.RootPath = t.TempDir()
+	if err = store.UpdateSource(ctx, fresh); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("reserved source must reject a repository path change: %v", err)
+	}
+}
+
+func TestPhysicalGCOnlyBlocksOverlappingRoots(t *testing.T) {
+	ctx := context.Background()
+	store := openServerDB(t)
+	first, second, third, fourth := testSource(t), testSource(t), testSource(t), testSource(t)
+	for _, src := range []domain.Source{first, second} {
+		if err := store.CreateSource(ctx, src); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	job := domain.MaintenanceJob{ID: mustID(t), SourceID: first.ID, Kind: domain.MaintenanceGC, Status: domain.MaintenanceQueued, Execute: true, CreatedAt: now}
+	if err := store.CreateMaintenanceJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	originalRoot := second.RootPath
+	second.RootPath = filepath.Join(first.RootPath, "nested")
+	third.RootPath = first.RootPath
+	checkBlocked := func() {
+		t.Helper()
+		if err := store.CreateSource(ctx, third); !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("overlapping source creation must conflict: %v", err)
+		}
+		if err := store.UpdateSource(ctx, second); !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("overlapping root change must conflict: %v", err)
+		}
+		actual, err := store.GetSource(ctx, second.ID)
+		if err != nil || actual.RootPath != originalRoot {
+			t.Fatalf("rejected root change was persisted: %+v, %v", actual, err)
+		}
+	}
+	checkBlocked()
+	if err := store.TransitionMaintenanceJob(ctx, job.ID, domain.MaintenanceRunning, "", now); err != nil {
+		t.Fatal(err)
+	}
+	checkBlocked()
+	if err := store.CreateSource(ctx, fourth); err != nil {
+		t.Fatalf("independent source creation should be allowed: %v", err)
+	}
+	independent := second
+	independent.RootPath = t.TempDir()
+	if err := store.UpdateSource(ctx, independent); err != nil {
+		t.Fatalf("independent root change should be allowed: %v", err)
+	}
+	if err := store.TransitionMaintenanceJob(ctx, job.ID, domain.MaintenanceCompleted, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateSource(ctx, second); err != nil {
+		t.Fatalf("root change after cleanup: %v", err)
+	}
+	job.ID = mustID(t)
+	job.Status = domain.MaintenanceQueued
+	job.Execute = false
+	if err := store.CreateMaintenanceJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSource(ctx, third); err != nil {
+		t.Fatalf("preview must not block source creation: %v", err)
 	}
 }
