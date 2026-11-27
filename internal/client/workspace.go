@@ -38,9 +38,9 @@ type Workspace struct {
 type AnalyzeOptions struct {
 	UpstreamURL     string `json:"upstreamUrl"`
 	IndexURL        string `json:"indexUrl"`
-	MaxBatchBytes   int64 `json:"maxBatchBytes"`
-	TargetPackBytes int64 `json:"targetPackBytes"`
-	PageSize        int   `json:"pageSize"`
+	MaxBatchBytes   int64  `json:"maxBatchBytes"`
+	TargetPackBytes int64  `json:"targetPackBytes"`
+	PageSize        int    `json:"pageSize"`
 }
 
 type SyncPlan struct {
