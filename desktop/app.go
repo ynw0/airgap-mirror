@@ -362,12 +362,12 @@ func (a *App) ListCapsules() ([]domain.StateCapsule, error) {
 	return workspace.ListCapsules(a.ctx)
 }
 
-func (a *App) ProbeSource(capsuleID, sourceID string) (domain.UpstreamState, error) {
+func (a *App) ProbeSource(capsuleID, sourceID, upstreamURL, indexURL string) (domain.UpstreamState, error) {
 	workspace, err := a.workspaceRef()
 	if err != nil {
 		return domain.UpstreamState{}, err
 	}
-	return workspace.ProbeSource(a.ctx, capsuleID, sourceID)
+	return workspace.ProbeSourceAt(a.ctx, capsuleID, sourceID, upstreamURL, indexURL)
 }
 
 func (a *App) AnalyzeSource(capsuleID, sourceID string, opts mirrorclient.AnalyzeOptions) (mirrorclient.SyncPlan, error) {
