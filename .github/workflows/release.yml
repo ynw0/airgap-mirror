@@ -1,12 +1,13 @@
-name: Release
+name: Publish v0.5.2
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - 'release-build/v0.5.2'
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   linux:
@@ -14,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 243fc71854c0ddcafdd9b05cc1d332f040b1d99c
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'
@@ -88,6 +91,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 243fc71854c0ddcafdd9b05cc1d332f040b1d99c
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'
@@ -146,11 +151,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" \
+          timeout 15m gh run watch 45976351721 --repo "$GITHUB_REPOSITORY" --exit-status
+          gh release create "v0.5.2" \
             release-assets/airgap-mirror-linux-amd64.tar.gz \
             release-assets/airgap-mirror-linux-amd64.tar.gz.sha256 \
             release-assets/airgap-mirror-windows-amd64.zip \
             release-assets/airgap-mirror-windows-amd64.zip.sha256 \
             --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
+            --target "243fc71854c0ddcafdd9b05cc1d332f040b1d99c" \
+            --title "v0.5.2" \
+            --latest \
             --generate-notes
