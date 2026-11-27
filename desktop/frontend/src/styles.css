@@ -54,7 +54,6 @@ nav button.active > span { color: #75a1ff; }
 .card-title > span:last-child { color: #8190a4; font-size: 11px; font-weight: 450; }
 .form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; align-items: end; }
 .agent-form { grid-template-columns: 1.2fr 1fr auto; }
-.sync-selector { grid-template-columns: 1.2fr 1.2fr .6fr .6fr auto; }
 .transfer-form { grid-template-columns: 1.5fr 1.5fr .55fr 1fr auto; }
 .source-form { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
 .source-editor { display: flex; flex-direction: column; gap: 14px; }
@@ -122,7 +121,7 @@ td small { max-width: 320px; }
 @media (max-width: 1250px) {
   .shell { grid-template-columns: 205px minmax(0, 1fr); }
   .content { padding: 24px 22px 40px; }
-  .form-grid, .sync-selector, .transfer-form, .source-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-grid, .transfer-form, .source-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .agent-form { grid-template-columns: 1fr 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .export-row { grid-template-columns: 1fr; }
@@ -147,7 +146,7 @@ td small { max-width: 320px; }
   .sidebar { align-items: flex-start; flex-direction: column; }
   .sidebar nav { width: 100%; justify-content: space-between; }
   .sidebar nav button { flex: 1; }
-  .form-grid, .sync-selector, .transfer-form, .source-form, .agent-form, .metrics-grid { grid-template-columns: minmax(0, 1fr); }
+  .form-grid, .transfer-form, .source-form, .agent-form, .metrics-grid { grid-template-columns: minmax(0, 1fr); }
   .span-2 { grid-column: auto; }
   .card-title, .page-header { flex-wrap: wrap; }
   .path-picker { flex-wrap: wrap; }
@@ -253,3 +252,30 @@ button:not(.primary),input,select,textarea{background:var(--app-surface);border-
 .connection-diagnostics .check-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:12px;padding:14px 0;border-top:1px solid var(--app-line)}.connection-diagnostics .check-row:first-of-type{margin-top:14px}.check-row p{margin-top:5px;font-size:13px;overflow-wrap:anywhere}.check-row>small{white-space:nowrap}.check-row>div{min-width:0}@media(max-width:620px){.check-row>small{grid-column:2}}
 
 .activity-message{padding:0 17px 12px}
+
+/* Keep online download controls in full-width rows. The available card width,
+   not the monitor width, determines when fields need to stack. */
+.sync-selector { display: flex; flex-direction: column; gap: 16px; min-width: 0; container-type: inline-size; }
+.sync-source-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); align-items: start; gap: 12px; }
+.sync-source-fields > label, .sync-upstream, .sync-address-fields > * { min-width: 0; }
+.sync-upstream { display: flex; flex-direction: column; gap: 7px; }
+.sync-address-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.sync-address-help { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.sync-address-help small { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.sync-address-help button { font-size: 12px; padding: 4px 9px; }
+.sync-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; border-top: 1px solid var(--app-line); padding-top: 12px; }
+.sync-actions > details { flex: 1 1 190px; align-self: center; }
+.sync-actions > details[open] { flex-basis: 100%; }
+.sync-check-buttons { margin-left: auto; justify-content: flex-end; }
+.sync-check-buttons > button { white-space: nowrap; max-width: 100%; }
+.sync-download-header { display: flex; flex-direction: column; gap: 10px; }
+.sync-download-header h3 { font-size: 16px; margin: 0; }
+.sync-destination-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sync-destination-row > input { flex: 1 1 260px; min-width: 0; font-weight: 400; }
+.sync-destination-row > button { white-space: nowrap; }
+.sync-destination-row > details { align-self: center; }
+.sync-destination-row > details[open] { flex-basis: 100%; }
+.sync-empty { padding: 20px 0 4px; text-align: left; }
+@container (min-width: 620px) {
+  .sync-address-fields:has(> select) { grid-template-columns: minmax(0, 235px) minmax(0, 1fr); }
+}

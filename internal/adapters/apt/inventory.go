@@ -190,32 +190,13 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 				return put(logicalPath, size, sum, rec["Package"], rec["Version"], updated)
 			}
 			if sourceIndex {
-				dir := rec["Directory"]
-				checks := rec["Checksums-Sha256"]
-				if dir == "" || checks == "" {
-					return fmt.Errorf("Sources record missing Directory/Checksums-Sha256: %w", domain.ErrInvalid)
-				}
-				for _, line := range strings.Split(checks, "\n") {
-					fields := strings.Fields(line)
-					if len(fields) != 3 || !validSHA256(fields[0]) {
-						return domain.ErrInvalid
-					}
-					size, parseErr := strconv.ParseInt(fields[1], 10, 64)
-					if parseErr != nil || size < 0 {
-						return domain.ErrInvalid
-					}
-					logicalPath := path.Clean(path.Join(dir, fields[2]))
-					if strings.HasPrefix(logicalPath, "../") || strings.HasPrefix(logicalPath, "/") {
-						return domain.ErrInvalid
-					}
+				return sourcePackageFiles(rec, func(logicalPath string, size int64, sum string) error {
 					updated, statErr := verifyStat(logicalPath, size)
 					if statErr != nil {
 						return statErr
 					}
-					if putErr := put(logicalPath, size, strings.ToLower(fields[0]), rec["Package"], rec["Version"], updated); putErr != nil {
-						return putErr
-					}
-				}
+					return put(logicalPath, size, sum, rec["Package"], rec["Version"], updated)
+				})
 			}
 			return nil
 		})
@@ -225,7 +206,7 @@ func (a *Adapter) Inventory(ctx context.Context, req ports.InventoryRequest, sin
 		_, _ = io.Copy(io.Discard, tee)
 		closeErr := f.Close()
 		if err != nil {
-			return stats, err
+			return stats, fmt.Errorf("无法解析 APT 索引 %s: %w", logical, err)
 		}
 		if closeErr != nil {
 			return stats, closeErr

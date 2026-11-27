@@ -163,22 +163,7 @@ func validateUpstreamPublication(ctx context.Context, req ports.PublishValidatio
 					return verifyPackage(rec["Filename"], n, rec["SHA256"])
 				}
 				if src {
-					if rec["Directory"] == "" || rec["Checksums-Sha256"] == "" {
-						return domain.ErrInvalid
-					}
-					for _, line := range strings.Split(rec["Checksums-Sha256"], "\n") {
-						fields := strings.Fields(line)
-						if len(fields) != 3 || path.Base(fields[2]) != fields[2] || fields[2] == "." || fields[2] == ".." {
-							return domain.ErrInvalid
-						}
-						n, e := strconv.ParseInt(fields[1], 10, 64)
-						if e != nil {
-							return e
-						}
-						if e = verifyPackage(path.Join(rec["Directory"], fields[2]), n, fields[0]); e != nil {
-							return e
-						}
-					}
+					return sourcePackageFiles(rec, verifyPackage)
 				}
 				return nil
 			})
@@ -186,7 +171,7 @@ func validateUpstreamPublication(ctx context.Context, req ports.PublishValidatio
 				_ = closer.Close()
 			}
 			if err != nil {
-				return err
+				return fmt.Errorf("无法解析 APT 索引 %s: %w", logical, err)
 			}
 		}
 		if _, err = io.Copy(io.Discard, r); err != nil {
