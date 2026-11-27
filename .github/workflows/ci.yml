@@ -75,6 +75,9 @@ jobs:
           set -euo pipefail
           npm ci
           npm run build
+      - name: Test APT verification without GnuPG on Windows
+        shell: bash
+        run: go test ./internal/adapters/apt -run 'TestBundledArchiveKeys|TestVerifyReleaseWithoutGnuPG'
       - name: Test Windows report publication
         shell: bash
         run: go test ./desktop/report_publish_windows.go ./desktop/report_publish_test.go
