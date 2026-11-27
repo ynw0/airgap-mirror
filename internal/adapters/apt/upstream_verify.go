@@ -4,16 +4,20 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net/mail"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 
 	"github.com/ynw0/airgap-mirror/internal/domain"
 )
@@ -40,7 +44,7 @@ func decodeTrustedKeyring(encoded string) ([]byte, error) {
 
 // Inspect packet framing before storing or exporting a configured keyring.
 // Reject secret-key packets, compressed data, and other non-keyring objects.
-// GnuPG performs the actual cryptographic parsing during verification.
+// The OpenPGP library performs cryptographic parsing during verification.
 func validatePublicKeyring(data []byte) error {
 	bad := func() error {
 		return fmt.Errorf("APT 公钥环必须是仅含公钥的二进制 OpenPGP 导出文件，不得包含私钥或其他数据: %w", domain.ErrInvalid)
@@ -109,75 +113,93 @@ func validatePublicKeyring(data []byte) error {
 	return nil
 }
 
-// verifyUpstreamRelease uses an isolated GnuPG home and the administrator's
-// explicit keyring, never the user's ambient trust database or network keys.
-// Only GnuPG-verified plaintext is returned to the APT planner.
+// verifyUpstreamRelease verifies all signature packets against the configured
+// archive keys, without using a system keyring or external GnuPG executable.
 func verifyUpstreamRelease(ctx context.Context, keys, release, signature []byte, inline bool) ([]byte, error) {
-	gpg, err := exec.LookPath("gpg")
-	if err != nil {
-		return nil, fmt.Errorf("APT 上游验签需要在联网电脑安装 GnuPG，并将 gpg 加入 PATH: %w", domain.ErrInvalid)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+	keyring, err := openpgp.ReadKeyRing(bytes.NewReader(keys))
+	if err != nil || len(keyring) == 0 {
+		return nil, fmt.Errorf("无法读取 APT 仓库签名公钥: %w", domain.ErrInvalid)
+	}
+	plain, signed := release, release
+	var signatures [][]byte
 	if inline {
-		if err := checkClearSignedEnvelope(release); err != nil {
+		if err = checkClearSignedEnvelope(release); err != nil {
 			return nil, err
 		}
-	} else if len(signature) == 0 {
-		return nil, fmt.Errorf("APT Release.gpg 为空: %w", domain.ErrInvalid)
-	}
-	dir, err := os.MkdirTemp("", "airgap-apt-verify-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(dir)
-	keyring := filepath.Join(dir, "trusted.gpg")
-	input := filepath.Join(dir, "Release")
-	plain := filepath.Join(dir, "verified")
-	if inline {
-		input = filepath.Join(dir, "InRelease")
-	}
-	if err := os.WriteFile(keyring, keys, 0600); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(input, release, 0600); err != nil {
-		return nil, err
-	}
-	args := []string{"--no-options", "--homedir", dir, "--batch", "--no-tty", "--no-default-keyring", "--keyring", keyring,
-		"--no-auto-key-retrieve", "--no-auto-key-import", "--auto-key-locate", "clear", "--trust-model", "always", "--status-fd", "1"}
-	if inline {
-		args = append(args, "--output", plain, "--decrypt", input)
+		block, rest := clearsign.Decode(release)
+		if block == nil || len(bytes.TrimSpace(rest)) != 0 {
+			return nil, fmt.Errorf("无法读取 InRelease 签名: %w", domain.ErrInvalid)
+		}
+		plain, signed = block.Plaintext, block.Bytes
+		data, err := io.ReadAll(block.ArmoredSignature.Body)
+		if err != nil {
+			return nil, err
+		}
+		signatures = append(signatures, data)
 	} else {
-		sig := filepath.Join(dir, "Release.gpg")
-		if err := os.WriteFile(sig, signature, 0600); err != nil {
-			return nil, err
+		// Debian may publish multiple consecutive armored detached signatures.
+		// Decode each complete block, or accept the binary signature stream.
+		if bytes.HasPrefix(bytes.TrimSpace(signature), []byte("-----BEGIN PGP SIGNATURE-----")) {
+			rest := bytes.TrimSpace(signature)
+			marker := []byte("-----END PGP SIGNATURE-----")
+			for len(rest) > 0 {
+				if !bytes.HasPrefix(rest, []byte("-----BEGIN PGP SIGNATURE-----")) {
+					return nil, domain.ErrInvalid
+				}
+				i := bytes.Index(rest, marker)
+				if i < 0 {
+					return nil, domain.ErrInvalid
+				}
+				end := i + len(marker)
+				block, err := armor.Decode(bytes.NewReader(rest[:end]))
+				if err != nil || block.Type != openpgp.SignatureType {
+					return nil, domain.ErrInvalid
+				}
+				data, err := io.ReadAll(block.Body)
+				if err != nil {
+					return nil, err
+				}
+				signatures = append(signatures, data)
+				rest = bytes.TrimSpace(rest[end:])
+			}
+		} else {
+			signatures = append(signatures, signature)
 		}
-		args = append(args, "--verify", sig, input)
 	}
-	verifyCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	// Machine-readable status output, not localized diagnostic strings.
-	cmd := exec.CommandContext(verifyCtx, gpg, args...)
-	var status bytes.Buffer
-	cmd.Stdout = &status
-	if err := cmd.Run(); err != nil {
-		if verifyCtx.Err() != nil {
-			return nil, verifyCtx.Err()
+	now := time.Now()
+	config := &packet.Config{Time: func() time.Time { return now }}
+	count := 0
+	for _, data := range signatures {
+		reader := bytes.NewReader(data)
+		for reader.Len() > 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			p, err := packet.Read(reader)
+			sig, ok := p.(*packet.Signature)
+			if err != nil || !ok || (sig.SigType != packet.SigTypeBinary && sig.SigType != packet.SigTypeText) {
+				return nil, fmt.Errorf("APT 签名格式无效: %w", domain.ErrConflict)
+			}
+			if sig.CreationTime.After(now.Add(10 * time.Minute)) {
+				return nil, fmt.Errorf("APT 签名时间超出允许范围，请检查系统时间: %w", domain.ErrConflict)
+			}
+			var encoded bytes.Buffer
+			if err = sig.Serialize(&encoded); err != nil {
+				return nil, err
+			}
+			if _, err = openpgp.CheckDetachedSignatureAndHash(keyring, bytes.NewReader(signed), &encoded, []crypto.Hash{crypto.SHA256, crypto.SHA384, crypto.SHA512}, config); err != nil {
+				return nil, fmt.Errorf("APT 仓库签名验证失败，请检查镜像站、签名有效期及系统时间: %v: %w", err, domain.ErrConflict)
+			}
+			count++
 		}
-		return nil, fmt.Errorf("APT 上游签名验证失败，请检查签名、可信公钥、密钥有效期及系统时间: %w", domain.ErrConflict)
 	}
-	if err := validateGPGStatus(status.String(), time.Now()); err != nil {
-		return nil, err
+	if count == 0 || len(plain) == 0 || len(plain) > 32<<20 {
+		return nil, fmt.Errorf("未找到有效的 APT 仓库签名: %w", domain.ErrConflict)
 	}
-	if !inline {
-		return release, nil
-	}
-	info, err := os.Stat(plain)
-	if err != nil {
-		return nil, err
-	}
-	if info.Size() <= 0 || info.Size() > 32<<20 {
-		return nil, fmt.Errorf("已验证的 Release 正文大小异常: %w", domain.ErrConflict)
-	}
-	return os.ReadFile(plain)
+	return plain, nil
 }
 
 func checkClearSignedEnvelope(body []byte) error {
