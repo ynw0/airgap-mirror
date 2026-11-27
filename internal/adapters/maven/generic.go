@@ -63,6 +63,9 @@ func (a *GenericAdapter) Probe(ctx context.Context, source domain.Source) (domai
 		return domain.UpstreamState{}, err
 	}
 	cfg, _ := parseGenericConfig(source)
+	if cfg.IndexURL == "" || source.UpstreamURL == "" {
+		return domain.UpstreamState{}, fmt.Errorf("请先填写公网下载地址和仓库文件清单地址: %w", domain.ErrInvalid)
+	}
 	resp, err := common.Do(ctx, a.Client, http.MethodGet, cfg.IndexURL, "application/x-ndjson, application/json")
 	if err != nil {
 		return domain.UpstreamState{}, err
