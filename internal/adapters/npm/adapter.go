@@ -77,8 +77,10 @@ func (a *Adapter) ValidateConfig(ctx context.Context, source domain.Source) erro
 	if source.Type != domain.SourceNPM || source.Provider != Provider {
 		return fmt.Errorf("source must be npm/%s: %w", Provider, domain.ErrInvalid)
 	}
-	if err := validateHTTPURL("upstreamUrl", source.UpstreamURL); err != nil {
-		return err
+	if source.UpstreamURL != "" {
+		if err := validateHTTPURL("upstreamUrl", source.UpstreamURL); err != nil {
+			return err
+		}
 	}
 	if err := validateHTTPURL("publicUrl", source.PublicURL); err != nil {
 		return err

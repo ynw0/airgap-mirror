@@ -27,126 +27,6 @@ const kinds: Array<{ id: Kind; label: string; type: SourceType; provider: string
   { id: 'maven-central', label: 'Maven Central 指定依赖', type: 'maven', provider: 'maven-central' },
 ]
 
-const upstreamPresets: Record<Kind, string[][]> = {
-  "apt": [
-    [
-      "Debian 官方",
-      "https://deb.debian.org/debian",
-      "bookworm"
-    ],
-    [
-      "Debian 安全更新",
-      "https://deb.debian.org/debian-security",
-      "bookworm-security"
-    ],
-    [
-      "Ubuntu 官方",
-      "https://archive.ubuntu.com/ubuntu",
-      "noble"
-    ],
-    [
-      "Ubuntu 安全更新",
-      "https://security.ubuntu.com/ubuntu",
-      "noble-security"
-    ],
-    [
-      "清华大学 · Debian",
-      "https://mirrors.tuna.tsinghua.edu.cn/debian",
-      "bookworm"
-    ],
-    [
-      "清华大学 · Ubuntu",
-      "https://mirrors.tuna.tsinghua.edu.cn/ubuntu",
-      "noble"
-    ],
-    [
-      "中科大 · Debian",
-      "https://mirrors.ustc.edu.cn/debian",
-      "bookworm"
-    ],
-    [
-      "中科大 · Ubuntu",
-      "https://mirrors.ustc.edu.cn/ubuntu",
-      "noble"
-    ],
-    [
-      "阿里云 · Debian",
-      "https://mirrors.aliyun.com/debian",
-      "bookworm"
-    ],
-    [
-      "阿里云 · Ubuntu",
-      "https://mirrors.aliyun.com/ubuntu",
-      "noble"
-    ],
-    [
-      "华为云 · Debian",
-      "https://mirrors.huaweicloud.com/debian",
-      "bookworm"
-    ],
-    [
-      "华为云 · Ubuntu",
-      "https://mirrors.huaweicloud.com/ubuntu",
-      "noble"
-    ]
-  ],
-  "pypi": [
-    [
-      "PyPI 官方",
-      "https://pypi.org/simple"
-    ],
-    [
-      "清华大学",
-      "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-    ],
-    [
-      "中科大",
-      "https://mirrors.ustc.edu.cn/pypi/simple"
-    ],
-    [
-      "阿里云",
-      "https://mirrors.aliyun.com/pypi/simple"
-    ],
-    [
-      "华为云",
-      "https://mirrors.huaweicloud.com/repository/pypi/simple"
-    ]
-  ],
-  "npm": [
-    [
-      "npm 官方",
-      "https://registry.npmjs.org"
-    ],
-    [
-      "npmmirror",
-      "https://registry.npmmirror.com"
-    ],
-    [
-      "华为云",
-      "https://mirrors.huaweicloud.com/repository/npm"
-    ]
-  ],
-  "maven-central": [
-    [
-      "Maven Central 官方",
-      "https://repo.maven.apache.org/maven2"
-    ],
-    [
-      "Maven Central 备用官方地址",
-      "https://repo1.maven.org/maven2"
-    ],
-    [
-      "阿里云 Central 镜像",
-      "https://maven.aliyun.com/repository/central"
-    ],
-    [
-      "中科大代理",
-      "https://maven.proxy.ustclug.org/maven2"
-    ]
-  ],
-  "maven-generic": []
-}
-
 function asObject(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') {
     try {
@@ -190,7 +70,6 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
   const [validation, setValidation] = useState('')
   const [kind, setKind] = useState<Kind>(source ? kindOf(source.type, source.provider) : 'apt')
   const [name, setName] = useState(source?.name ?? '')
-  const [upstreamUrl, setUpstreamUrl] = useState(source?.upstreamUrl ?? upstreamPresets.apt[0][1])
   const [rootPath, setRootPath] = useState(source?.rootPath ?? '')
   const [publicUrl, setPublicUrl] = useState(source?.publicUrl ?? '')
   const [enabled, setEnabled] = useState(source?.enabled ?? true)
@@ -198,10 +77,8 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
   const [releaseMode, setReleaseMode] = useState(String(initial.releaseMode ?? 'inrelease'))
   const [gcOwnsPool, setGcOwnsPool] = useState(initial.gcOwnsPool === true)
   const [requireValidUntil, setRequireValidUntil] = useState(initial.requireValidUntil === true)
-  const [replicationUrl, setReplicationUrl] = useState(String(initial.replicationUrl ?? 'https://replicate.npmjs.com/registry'))
   const [changePageSize, setChangePageSize] = useState(Number(initial.changePageSize ?? 10000))
   const [allDocsPageSize, setAllDocsPageSize] = useState(Number(initial.allDocsPageSize ?? 10000))
-  const [indexUrl, setIndexUrl] = useState(String(initial.indexUrl ?? ''))
   const [inventoryMode, setInventoryMode] = useState(String(initial.inventoryMode ?? 'filesystem'))
   const [coordinates, setCoordinates] = useState<Coordinate[]>(coordinatesFrom(initial))
 
@@ -211,10 +88,8 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
     if (editing) return
     setKind(next)
     setValidation('')
-    const known = Object.values(upstreamPresets).flat().some(p => p[1] === upstreamUrl)
-    if (!upstreamUrl.trim() || known) setUpstreamUrl(upstreamPresets[next][0]?.[1] ?? '')
     if (next === 'apt') { setSuite('bookworm'); setReleaseMode('inrelease'); setGcOwnsPool(false) }
-    if (next === 'npm') { setReplicationUrl('https://replicate.npmjs.com/registry'); setChangePageSize(10000); setAllDocsPageSize(10000) }
+    if (next === 'npm') { setChangePageSize(10000); setAllDocsPageSize(10000) }
     if (next === 'maven-generic') { setInventoryMode('filesystem') }
     if (next === 'maven-central' && coordinates.length === 0) setCoordinates([emptyCoordinate()])
   }
@@ -227,9 +102,9 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       case 'pypi':
         return { ...preserved }
       case 'npm':
-        return { ...preserved, replicationUrl: replicationUrl.trim(), changePageSize, allDocsPageSize }
+        return { ...preserved, changePageSize, allDocsPageSize }
       case 'maven-generic':
-        return { ...preserved, indexUrl: indexUrl.trim(), inventoryMode: inventoryMode.trim() }
+        return { ...preserved, inventoryMode: inventoryMode.trim() }
       case 'maven-central':
         return {
           ...preserved,
@@ -253,7 +128,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
     if (busy) return
     if (source && !kinds.some(k => k.type === source.type && k.provider === source.provider)) { setValidation('当前客户端不支持修改此软件源类型。'); return }
     if (typeof source?.config === 'string') { try { const v: unknown = JSON.parse(source.config); if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error() } catch { setValidation('原有软件源配置不是有效的 JSON 对象，不能安全保存。请先在服务器上检查配置。'); return } }
-    if (!name.trim() || !upstreamUrl.trim() || !rootPath.trim() || !publicUrl.trim()) { setValidation('请填写软件源名称、公网下载地址、服务器存放目录和内网访问地址。'); return }
+    if (!name.trim() || !rootPath.trim() || !publicUrl.trim()) { setValidation('请填写软件源名称、服务器存放目录和内网访问地址。'); return }
     if (kind === 'apt' && !suite.trim()) { setValidation('请填写 APT 发行版代号。'); return }
     if (kind === 'npm' && [changePageSize, allDocsPageSize].some(n => !Number.isInteger(n) || n < 1 || n > 10000)) { setValidation('npm 每次读取的数量必须为 1 至 10000 的整数。'); return }
     if (kind === 'maven-central' && (!coordinates.some(c => c.groupId.trim() && c.artifactId.trim() && c.version.trim()) || coordinates.some(c => (c.groupId.trim() || c.artifactId.trim() || c.version.trim()) && !(c.groupId.trim() && c.artifactId.trim() && c.version.trim())))) { setValidation('请至少填写一项完整的 Maven 依赖，并为每项依赖填写 Group ID、Artifact ID 和版本。'); return }
@@ -262,7 +137,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       name: name.trim(),
       type: spec.type,
       provider: spec.provider,
-      upstreamUrl: upstreamUrl.trim(),
+      upstreamUrl: source?.upstreamUrl ?? '',
       rootPath: rootPath.trim(),
       publicUrl: publicUrl.trim(),
       enabled,
@@ -275,7 +150,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       <span>{editing ? '修改软件源设置' : '添加软件源'}</span>
       {source ? <code>{source.id}</code> : <span>创建后会自动生成编号</span>}
     </div>
-    <div className="editor-section-heading"><h3>基本信息</h3><p>指定公网软件源、内网仓库目录及客户端访问地址。</p></div>
+    <div className="editor-section-heading"><h3>基本信息</h3><p>指定内网仓库目录及客户端访问地址。公网下载地址在联网下载时选择。</p></div>
     <fieldset disabled={busy} className="editor-fieldset"><div className="form-grid source-form">
       <label>软件源名称<input value={name} onChange={e => setName(e.target.value)} /></label>
       <label>软件类型
@@ -286,13 +161,6 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       <label className="checkbox">启用这个软件源
         <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
       </label>
-      <label className="span-2">公网下载地址{upstreamPresets[kind].length > 0 && <select aria-label="选择常用公网下载地址" value="" onChange={e => { const preset = upstreamPresets[kind].find(p => p[1] === e.target.value); if (preset) { setUpstreamUrl(preset[1]); if (!editing && preset[2]) { const ubuntu = /^(focal|jammy|noble|resolute)(-|$)/; if (ubuntu.test(suite) !== ubuntu.test(preset[2])) setSuite(preset[2]); else if (preset[2].endsWith('-security')) setSuite(suite.split('-')[0] + '-security') } } }}><option value="">选择官方源或镜像站</option>{upstreamPresets[kind].map(p => <option key={p[1]} value={p[1]}>{p[0]}</option>)}</select>}<input value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)} placeholder={
-        kind === 'apt' ? 'https://deb.debian.org/debian' :
-        kind === 'pypi' ? 'https://pypi.org/simple' :
-        kind === 'npm' ? 'https://registry.npmjs.org' :
-        kind === 'maven-central' ? 'https://repo.maven.apache.org/maven2' :
-        'https://upstream.example/repository'
-      } />{(kind === 'pypi' || kind === 'npm') && <small>镜像站可能不支持完整仓库同步所需的接口，请在联网电脑上先检查上游状态。</small>}{editing && upstreamUrl !== source?.upstreamUrl && <small>已有同步记录的软件源可能不允许直接更换地址。</small>}</label>
       <label>服务器存放目录<input value={rootPath} onChange={e => setRootPath(e.target.value)} placeholder="/srv/mirror/..." /></label>
       <label className="span-2">内网访问地址<input value={publicUrl} onChange={e => setPublicUrl(e.target.value)} placeholder="https://repo.internal/..." /></label>
       </div><div className="editor-section-heading"><h3>软件源专用配置</h3></div><div className="form-grid source-form">
@@ -314,12 +182,10 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
         </label>
       </>}
       {kind === 'npm' && <>
-        <label className="span-2">npm 更新记录地址<input value={replicationUrl} onChange={e => setReplicationUrl(e.target.value)} /></label>
         <label>每次读取的更新数<input type="number" min={1} max={10000} value={changePageSize} onChange={e => setChangePageSize(Number(e.target.value))} /></label>
         <label>每次读取的软件包数<input type="number" min={1} max={10000} value={allDocsPageSize} onChange={e => setAllDocsPageSize(Number(e.target.value))} /></label>
       </>}
       {kind === 'maven-generic' && <>
-        <label className="span-2">仓库文件清单地址<input value={indexUrl} onChange={e => setIndexUrl(e.target.value)} placeholder="https://upstream.example/mirror-index.ndjson" /></label>
         <label>本地扫描方式
           <select value={inventoryMode} onChange={e => setInventoryMode(e.target.value)}>
             <option value="filesystem">扫描仓库目录</option>

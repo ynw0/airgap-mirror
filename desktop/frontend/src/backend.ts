@@ -25,7 +25,7 @@ type AppBridge = {
   PickBatchDirectory(): Promise<string>
   ImportCapsule(path: string): Promise<ImportedCapsule>
   ListCapsules(): Promise<StateCapsule[]>
-  ProbeSource(capsuleID: string, sourceID: string): Promise<UpstreamState>
+  ProbeSource(capsuleID: string, sourceID: string, upstreamURL: string, indexURL: string): Promise<UpstreamState>
   AnalyzeSource(capsuleID: string, sourceID: string, opts: AnalyzeOptions): Promise<SyncPlan>
   ListEpochs(capsuleID: string, sourceID: string): Promise<Epoch[]>
   ResumeEpoch(epochID: string): Promise<EpochView>

@@ -42,7 +42,7 @@ export interface EpochPlan { epoch: Epoch; artifactCount: number; publishUnitCou
 export interface SyncPlan {
   capsuleId: string; source: Source; state: SourceState; plan: EpochPlan; batches: Batch[]; noChanges: boolean;
 }
-export interface AnalyzeOptions { maxBatchBytes: number; targetPackBytes: number; pageSize: number }
+export interface AnalyzeOptions { upstreamUrl: string; indexUrl: string; maxBatchBytes: number; targetPackBytes: number; pageSize: number }
 export interface EpochView { epoch: Epoch; batches: Batch[] }
 export interface BatchDownloadProgress {
   batch: Batch; totalBytes: number; downloadedBytes: number;

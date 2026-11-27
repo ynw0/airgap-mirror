@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "npm run test && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/ui-smoke.test.mjs"
+    "test": "node --test tests/ui-smoke.test.mjs tests/upstream-presets.test.mjs"
   },
   "dependencies": {
     "react": "19.2.8",

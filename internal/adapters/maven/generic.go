@@ -36,8 +36,10 @@ func parseGenericConfig(source domain.Source) (genericConfig, error) {
 		return cfg, fmt.Errorf("decode Maven generic config: %w", err)
 	}
 	cfg.IndexURL = strings.TrimSpace(cfg.IndexURL)
-	if err := validateHTTPURL("indexUrl", cfg.IndexURL); err != nil {
-		return cfg, err
+	if cfg.IndexURL != "" {
+		if err := validateHTTPURL("indexUrl", cfg.IndexURL); err != nil {
+			return cfg, err
+		}
 	}
 	return cfg, nil
 }
@@ -47,8 +49,10 @@ func (a *GenericAdapter) ValidateConfig(ctx context.Context, source domain.Sourc
 	if source.Type != domain.SourceMaven || source.Provider != GenericProvider {
 		return fmt.Errorf("source must be maven/%s: %w", GenericProvider, domain.ErrInvalid)
 	}
-	if err := validateHTTPURL("upstreamUrl", source.UpstreamURL); err != nil {
-		return err
+	if source.UpstreamURL != "" {
+		if err := validateHTTPURL("upstreamUrl", source.UpstreamURL); err != nil {
+			return err
+		}
 	}
 	_, err := parseGenericConfig(source)
 	return err
@@ -59,6 +63,9 @@ func (a *GenericAdapter) Probe(ctx context.Context, source domain.Source) (domai
 		return domain.UpstreamState{}, err
 	}
 	cfg, _ := parseGenericConfig(source)
+	if cfg.IndexURL == "" || source.UpstreamURL == "" {
+		return domain.UpstreamState{}, fmt.Errorf("请先填写公网下载地址和仓库文件清单地址: %w", domain.ErrInvalid)
+	}
 	resp, err := common.Do(ctx, a.Client, http.MethodGet, cfg.IndexURL, "application/x-ndjson, application/json")
 	if err != nil {
 		return domain.UpstreamState{}, err

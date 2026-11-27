@@ -140,8 +140,10 @@ func (a *CentralAdapter) ValidateConfig(ctx context.Context, source domain.Sourc
 	if source.Type != domain.SourceMaven || source.Provider != CentralProvider {
 		return fmt.Errorf("source must be maven/%s: %w", CentralProvider, domain.ErrInvalid)
 	}
-	if err := validateHTTPURL("upstreamUrl", source.UpstreamURL); err != nil {
-		return err
+	if source.UpstreamURL != "" {
+		if err := validateHTTPURL("upstreamUrl", source.UpstreamURL); err != nil {
+			return err
+		}
 	}
 	_, err := parseCentralConfig(source)
 	return err

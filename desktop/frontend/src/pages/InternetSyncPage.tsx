@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { app, onEvent } from '../backend'
+import { sourceConfig, upstreamChoices } from '../upstreamPresets'
 import { errorText, formatBytes, formatCount, formatDate, shortID, statusLabel } from '../format'
 import type { Batch, BatchDownloadProgress, Epoch, EpochView, StateCapsule, SyncPlan, UpstreamState } from '../types'
 
@@ -34,7 +35,21 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
   const [message, setMessage] = useState('')
   const [pendingAction, setPendingAction] = useState<'probe' | 'analyze' | 'open' | ''>('')
   const historyKey = capsuleID + '\u0000' + sourceID
-  const validSource = !!capsule?.sources.some(x => x.source.id === sourceID)
+  const selectedSource = capsule?.sources.find(x => x.source.id === sourceID)?.source
+  const validSource = !!selectedSource
+  const choices = selectedSource ? upstreamChoices(selectedSource) : []
+  const legacyURL = selectedSource?.upstreamUrl ?? ''
+  const legacyIndex = selectedSource ? String(sourceConfig(selectedSource).indexUrl ?? '') : ''
+  const [onlineAddresses, setOnlineAddresses] = useState<Record<string, {upstream: string; index: string}>>({})
+  const address = onlineAddresses[historyKey] ?? {upstream: choices[0]?.[1] ?? '', index: ''}
+  const isGenericMaven = selectedSource?.provider === 'maven-generic'
+  const validAddress = (raw: string) => { try { const u = new URL(raw.trim()); return ['http:', 'https:'].includes(u.protocol) && !!u.hostname && !u.username && !u.password && !u.hash } catch { return false } }
+  const addressesReady = validAddress(address.upstream) && (!isGenericMaven || validAddress(address.index))
+  const hasOpenEpoch = !!(epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status))
+  function changeAddress(next: {upstream: string; index: string}) {
+    setOnlineAddresses(prev => ({ ...prev, [historyKey]: next }))
+    setProbe(null); setPlan(null); setMessage('')
+  }
   const historyReady = validSource && historyState.key === historyKey && historyState.ok
   const locked = busy || running.size > 0
 
@@ -104,16 +119,16 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
     } catch (e) { setMessage(errorText(e)) } finally { setBusy(false); setPendingAction('') }
   }
   async function probeSource() {
-    if (!validSource || locked) return
+    if (!validSource || locked || !addressesReady) return
     setBusy(true); setPendingAction('probe'); setMessage('')
-    try { setProbe(await app().ProbeSource(capsuleID, sourceID)); setMessage('已获取上游状态。点击“查看需要下载的更新”即可继续。') } catch (e) { setMessage(errorText(e)) } finally { setBusy(false); setPendingAction('') }
+    try { setProbe(await app().ProbeSource(capsuleID, sourceID, address.upstream.trim(), address.index.trim())); setMessage('已获取上游状态。点击“查看需要下载的更新”即可继续。') } catch (e) { setMessage(errorText(e)) } finally { setBusy(false); setPendingAction('') }
   }
   async function analyze() {
-    if (!historyReady || locked) return
+    if (!historyReady || locked || !addressesReady || hasOpenEpoch) return
     if (!Number.isSafeInteger(batchGiB) || !Number.isSafeInteger(packGiB) || batchGiB < 1 || packGiB < 1 || packGiB > batchGiB || !Number.isSafeInteger(batchGiB * GIB)) { setMessage('请输入大于 0 的整数。单个文件包的目标大小不能超过每批的目标大小。'); return }
     setBusy(true); setPendingAction('analyze'); setMessage('')
     try {
-      const result = await app().AnalyzeSource(capsuleID, sourceID, { maxBatchBytes: Math.round(batchGiB * GIB), targetPackBytes: Math.round(packGiB * GIB), pageSize: 1000 })
+      const result = await app().AnalyzeSource(capsuleID, sourceID, { maxBatchBytes: Math.round(batchGiB * GIB), targetPackBytes: Math.round(packGiB * GIB), pageSize: 1000, upstreamUrl: address.upstream.trim(), indexUrl: address.index.trim() })
       setPlan(result)
       setEpochView(result.noChanges ? null : { epoch: result.plan.epoch, batches: result.batches })
       setHistory(await app().ListEpochs(capsuleID, sourceID))
@@ -193,17 +208,31 @@ export function InternetSyncPage({ capsules, onCapsules }: Props) {
   }, [visibleResumeIDs, running])
   useEffect(() => { setBatchPage(1); setBatchFilter('all') }, [epochView?.epoch.id, capsuleID, sourceID])
   return <section className="page-stack">
-    <div className="page-header"><div><h2>在联网电脑上下载更新</h2><p>打开从内网导出的状态文件，选择软件源，再检查需要下载的更新。下载可以暂停，之后继续。</p></div><button className="primary" disabled={locked} onClick={importCapsule}>{pendingAction === 'open' ? '正在打开…' : '打开状态文件'}</button></div>
+    <div className="page-header"><div><h2>在联网电脑上下载更新</h2><p>打开从内网导出的状态文件，选择软件源和公网下载地址，再检查需要下载的更新。下载可以暂停，之后继续。</p></div><button className="primary" disabled={locked} onClick={importCapsule}>{pendingAction === 'open' ? '正在打开…' : '打开状态文件'}</button></div>
 
     {message && <div className="notice" role="status" aria-live="polite">{message}</div>}
     <div className="card form-grid sync-selector">
       <label>已打开的状态文件<select disabled={locked} value={capsuleID} onChange={e => setCapsuleID(e.target.value)}><option value="">先打开状态文件</option>{capsules.map(c => <option key={c.id} value={c.id}>{shortID(c.id)} · {formatDate(c.exportedAt)}</option>)}</select></label>
       <label>软件源<select disabled={locked} value={sourceID} onChange={e => { setSourceID(e.target.value); setProbe(null); setPlan(null); setEpochView(null); setHistory([]); setMessage('') }}><option value="">选择要更新的软件源</option>{capsule?.sources.map(s => <option key={s.source.id} value={s.source.id}>{s.source.name}（{s.source.type}）{s.source.enabled ? '' : ' · 已停用'}</option>)}</select></label>
+      {selectedSource && <div className="span-2 form-grid">
+        <label className="span-2">公网下载地址
+          {choices.length > 0 && <select aria-label="选择官方源或镜像站" value={choices.some(p => p[1] === address.upstream) ? address.upstream : ''} disabled={locked || hasOpenEpoch} onChange={e => changeAddress({...address, upstream: e.target.value})}>
+            <option value="">自定义地址</option>{choices.map(p => <option key={p[1]} value={p[1]}>{p[0]}</option>)}
+          </select>}
+          <input disabled={locked || hasOpenEpoch} value={address.upstream} onChange={e => changeAddress({...address, upstream: e.target.value})} placeholder="https://..." />
+          {selectedSource.type === 'apt' && <small>发行版：{String(sourceConfig(selectedSource).suite ?? '未配置')}。请选择同一发行版的官方源或镜像站。</small>}
+          {(selectedSource.type === 'pypi' || selectedSource.type === 'npm') && <small>部分镜像站不支持完整仓库同步所需的接口，请先查看上游状态。</small>}
+          {legacyURL && legacyURL !== selectedSource.publicUrl && !choices.some(p => p[1] === legacyURL) && <button type="button" disabled={locked || hasOpenEpoch} onClick={() => changeAddress({...address, upstream: legacyURL})}>使用旧状态文件中的地址</button>}
+          <small>只用于当前联网电脑，不会修改内网服务器配置。</small>
+        </label>
+        {isGenericMaven && <label className="span-2">公网仓库文件清单地址<input disabled={locked || hasOpenEpoch} value={address.index} onChange={e => changeAddress({...address, index: e.target.value})} placeholder="https://.../mirror-index.ndjson" />{legacyIndex && <button type="button" disabled={locked || hasOpenEpoch} onClick={() => changeAddress({...address, index: legacyIndex})}>使用旧状态文件中的清单地址</button>}</label>}
+        {hasOpenEpoch && <p className="span-2 small">已有下载任务仍使用生成计划时的地址，继续下载无需重新选择。</p>}
+      </div>}
       <details className="advanced-options span-2"><summary>高级选项（默认无需修改）</summary><div className="form-grid">
         <label>每批目标大小 (GiB)<input type="number" min="1" step="1" disabled={locked} value={batchGiB} onChange={e => setBatchGiB(Number(e.target.value))} /></label>
         <label>每个文件包的目标大小 (GiB)<input type="number" min="1" step="1" disabled={locked} value={packGiB} onChange={e => setPackGiB(Number(e.target.value))} /></label>
       </div><p className="small">默认每批约 8 GiB，每个文件包约 1 GiB。如果单个文件较大，实际大小可能超过设定值。</p></details>
-      <div className="button-row align-end"><button disabled={!validSource || locked} onClick={probeSource}>{pendingAction === 'probe' ? '正在查询…' : '查看上游状态'}</button><button className="primary" disabled={!historyReady || locked || !!(epochView && !['COMPLETE', 'FAILED', 'CANCELLED'].includes(epochView.epoch.status))} onClick={analyze}>{pendingAction === 'analyze' ? '正在检查更新…' : '查看需要下载的更新'}</button></div>
+      <div className="button-row align-end"><button disabled={!validSource || locked || !addressesReady} onClick={probeSource}>{pendingAction === 'probe' ? '正在查询…' : '查看上游状态'}</button><button className="primary" disabled={!historyReady || locked || !addressesReady || hasOpenEpoch} onClick={analyze}>{pendingAction === 'analyze' ? '正在检查更新…' : '查看需要下载的更新'}</button></div>
     </div>
 
     {pendingAction === 'analyze' && <div className="card guidance" role="status">正在读取上游索引，并与内网状态文件中的记录比较。软件源较大时可能需要较长时间。</div>}
