@@ -286,7 +286,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       <label className="checkbox">启用这个软件源
         <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
       </label>
-      <label className="span-2">公网下载地址{upstreamPresets[kind].length > 0 && <select aria-label="选择常用公网下载地址" value="" onChange={e => { const preset = upstreamPresets[kind].find(p => p[1] === e.target.value); if (preset) { setUpstreamUrl(preset[1]); if (!editing && preset[2] && /^(focal|jammy|noble|resolute)(-|$)/.test(suite) !== /^(focal|jammy|noble|resolute)(-|$)/.test(preset[2])) setSuite(preset[2]) } }}><option value="">选择官方源或镜像站</option>{upstreamPresets[kind].map(p => <option key={p[1]} value={p[1]}>{p[0]}</option>)}</select>}<input value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)} placeholder={
+      <label className="span-2">公网下载地址{upstreamPresets[kind].length > 0 && <select aria-label="选择常用公网下载地址" value="" onChange={e => { const preset = upstreamPresets[kind].find(p => p[1] === e.target.value); if (preset) { setUpstreamUrl(preset[1]); if (!editing && preset[2]) { const ubuntu = /^(focal|jammy|noble|resolute)(-|$)/; if (ubuntu.test(suite) !== ubuntu.test(preset[2])) setSuite(preset[2]); else if (preset[2].endsWith('-security')) setSuite(suite.split('-')[0] + '-security') } } }}><option value="">选择官方源或镜像站</option>{upstreamPresets[kind].map(p => <option key={p[1]} value={p[1]}>{p[0]}</option>)}</select>}<input value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)} placeholder={
         kind === 'apt' ? 'https://deb.debian.org/debian' :
         kind === 'pypi' ? 'https://pypi.org/simple' :
         kind === 'npm' ? 'https://registry.npmjs.org' :
