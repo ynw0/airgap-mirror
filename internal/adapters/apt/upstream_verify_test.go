@@ -109,7 +109,7 @@ func TestRealUpstreamSignaturesRejectTamperingAndWrongKeys(t *testing.T) {
 	}
 }
 
-func TestReleaseFreshnessAndSignatureStatus(t *testing.T) {
+func TestReleaseFreshness(t *testing.T) {
 	now := time.Now().UTC()
 	date := now.Add(-time.Hour).Format(time.RFC1123)
 	for _, tc := range []struct {
@@ -129,21 +129,6 @@ func TestReleaseFreshnessAndSignatureStatus(t *testing.T) {
 				t.Fatalf("freshness: %v", err)
 			}
 		})
-	}
-	valid := fmt.Sprintf("[GNUPG:] VALIDSIG fingerprint 2026-01-01 %d 0 4 0 22 10 01 primary\n", now.Unix())
-	if err := validateGPGStatus(valid, now); err != nil {
-		t.Fatal(err)
-	}
-	for _, status := range []string{
-		strings.Replace(valid, "22 10 01", "22 2 01", 1),
-		valid + "[GNUPG:] EXPKEYSIG expired\n",
-		valid + "[GNUPG:] REVKEYSIG revoked\n",
-		valid + "[GNUPG:] NO_PUBKEY unknown\n",
-		"[GNUPG:] GOODSIG fpr user\n",
-	} {
-		if err := validateGPGStatus(status, now); err == nil {
-			t.Fatalf("unsafe GnuPG status accepted: %s", status)
-		}
 	}
 }
 
@@ -220,5 +205,17 @@ func TestVerifyReleaseWithoutGnuPG(t *testing.T) {
 	tampered := bytes.Replace(body, []byte("stable"), []byte("testing"), 1)
 	if _, err = verifyUpstreamRelease(context.Background(), keys.Bytes(), tampered, signature.Bytes(), false); err == nil {
 		t.Fatal("tampered release accepted")
+	}
+	double := append(append([]byte(nil), signature.Bytes()...), signature.Bytes()...)
+	if _, err = verifyUpstreamRelease(context.Background(), keys.Bytes(), body, double, false); err != nil {
+		t.Fatalf("multiple valid signatures: %v", err)
+	}
+	var invalid bytes.Buffer
+	if err = openpgp.DetachSign(&invalid, entity, bytes.NewReader(tampered), config); err != nil {
+		t.Fatal(err)
+	}
+	mixed := append(append([]byte(nil), signature.Bytes()...), invalid.Bytes()...)
+	if _, err = verifyUpstreamRelease(context.Background(), keys.Bytes(), body, mixed, false); err == nil {
+		t.Fatal("accepted a valid signature followed by a bad signature")
 	}
 }
