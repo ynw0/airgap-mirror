@@ -132,7 +132,7 @@ PyPI 已有正式 Catalog 的软件源可使用“检查缺失文件”。每 10
 
 ### APT 仓库签名验证
 
-创建软件源时，Windows 和 Linux 管理界面提供官方源、常用镜像站和可手动填写的地址。Ubuntu 和 Debian 根据发行版代号使用内置的官方归档公钥，无需用户获取公钥、转换 Base64 或在联网电脑安装 GnuPG。公钥来自 Ubuntu 的 ubuntu-keyring 和 Debian 的 debian-archive-keyring 官方软件包，保存在程序内，不从所选镜像站下载。已有自定义公钥配置仍然有效；其他发行版或第三方仓库暂不提供自动公钥配置。
+内网创建软件源时只需配置仓库目录、内网访问地址及软件源本身的设置。Windows 联网下载页根据状态文件中的软件源类型和发行版提供官方源、常用镜像站及自定义公网地址。查询上游和生成下载计划使用选定的地址，旧状态文件仍可使用，不必重新导出。已生成的下载任务保留原计划中的文件地址。Ubuntu 和 Debian 根据发行版代号使用内置的官方归档公钥，无需用户获取公钥、转换 Base64 或在联网电脑安装 GnuPG。公钥来自 Ubuntu 的 ubuntu-keyring 和 Debian 的 debian-archive-keyring 官方软件包，保存在程序内，不从所选镜像站下载。已有自定义公钥配置仍然有效；其他发行版或第三方仓库暂不提供自动公钥配置。
 
 程序内部验证 InRelease 或 Release/Release.gpg，检查签名者、签名与密钥有效期、SHA256 或更强的摘要、Release Date、Suite/Codename 及已声明的 Valid-Until。未知或无效的签名会导致更新停止，不会跳过验证。密钥轮换时更新程序即可。原有软件源和状态文件中没有自定义公钥的 Ubuntu、Debian 配置也可使用默认官方公钥。
 
