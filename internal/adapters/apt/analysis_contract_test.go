@@ -46,7 +46,8 @@ func testDigest(content []byte) string {
 func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 	ctx := context.Background()
 	pkg := []byte(fmt.Sprintf("Package: demo\nVersion: 1\nFilename: pool/main/d/demo.deb\nSize: 3\nSHA256: %s\n\n", testDigest([]byte("deb"))))
-	release := []byte(fmt.Sprintf("Suite: stable\nDate: %s\nSHA256:\n %s %d main/binary-amd64/Packages\n", time.Now().UTC().Format(time.RFC1123), testDigest(pkg), len(pkg)))
+	sources := []byte(fmt.Sprintf("Package: demo\nVersion: 1\nDirectory: pool/main/d/demo\nChecksums-Sha256:\n %s 3 demo.dsc\n %s 4 demo.tar.xz\n\n", testDigest([]byte("dsc")), testDigest([]byte("data"))))
+	release := []byte(fmt.Sprintf("Suite: stable\nDate: %s\nSHA256:\n %s %d main/binary-amd64/Packages\n %s %d main/source/Sources\n", time.Now().UTC().Format(time.RFC1123), testDigest(pkg), len(pkg), testDigest(sources), len(sources)))
 	keyring, signature, _ := signedReleaseFixture(t, release)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dists/stable/Release", func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +58,9 @@ func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 	})
 	mux.HandleFunc("/dists/stable/main/binary-amd64/Packages", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(pkg)
+	})
+	mux.HandleFunc("/dists/stable/main/source/Sources", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(sources)
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -81,14 +85,14 @@ func TestAnalyzeDeclaresImmutablePublishUnitOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.ArtifactCount != 4 || plan.MetadataCount != 3 || plan.PublishUnitCount != 1 {
+	if plan.ArtifactCount != 7 || plan.MetadataCount != 4 || plan.PublishUnitCount != 1 {
 		t.Fatalf("unexpected APT plan: %+v", plan)
 	}
 	var required int64
 	if err := db.QueryRowContext(ctx, `SELECT required_count FROM planned_publish_units WHERE epoch_id=?`, plan.Epoch.ID).Scan(&required); err != nil {
 		t.Fatal(err)
 	}
-	if required != 4 {
-		t.Fatalf("required_count=%d, want 4", required)
+	if required != 7 {
+		t.Fatalf("required_count=%d, want 7", required)
 	}
 }
