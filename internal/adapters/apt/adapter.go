@@ -388,6 +388,35 @@ func parseDeb822(r io.Reader, fn func(map[string]string) error) error {
 	return flush()
 }
 
+// sourcePackageFiles parses the multiline Debian Sources checksum field.
+// A field whose value starts on the next line has an empty first line in
+// parseDeb822. Trim the surrounding whitespace, not the individual records.
+func sourcePackageFiles(rec map[string]string, fn func(string, int64, string) error) error {
+	dir := rec["Directory"]
+	checks := strings.TrimSpace(rec["Checksums-Sha256"])
+	if dir == "" || checks == "" {
+		return fmt.Errorf("Sources 中的软件包 %s 缺少 Directory 或 Checksums-Sha256: %w", rec["Package"], domain.ErrInvalid)
+	}
+	for _, line := range strings.Split(checks, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 || !validSHA256(fields[0]) || path.Base(fields[2]) != fields[2] || fields[2] == "." || fields[2] == ".." {
+			return fmt.Errorf("Sources 中的软件包 %s 的 SHA256 文件记录无效: %q: %w", rec["Package"], line, domain.ErrInvalid)
+		}
+		size, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil || size < 0 {
+			return fmt.Errorf("Sources 中的软件包 %s 的文件大小无效: %q: %w", rec["Package"], fields[1], domain.ErrInvalid)
+		}
+		logical := path.Clean(path.Join(dir, fields[2]))
+		if strings.HasPrefix(logical, "../") || strings.HasPrefix(logical, "/") {
+			return fmt.Errorf("Sources 中的软件包 %s 的文件路径无效: %q: %w", rec["Package"], logical, domain.ErrInvalid)
+		}
+		if err = fn(logical, size, strings.ToLower(fields[0])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validSHA256(v string) bool {
 	if len(v) != 64 {
 		return false
@@ -542,37 +571,18 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 				}
 				size, x := strconv.ParseInt(sizeText, 10, 64)
 				if x != nil || size < 0 {
-					return domain.ErrInvalid
+					return fmt.Errorf("Packages 中的软件包 %s 的文件大小无效: %q: %w", rec["Package"], sizeText, domain.ErrInvalid)
 				}
 				p := path.Clean(filename)
 				if p != filename || strings.HasPrefix(p, "../") || strings.HasPrefix(p, "/") {
-					return domain.ErrInvalid
+					return fmt.Errorf("Packages 中的软件包 %s 的文件路径无效: %q: %w", rec["Package"], filename, domain.ErrInvalid)
 				}
 				return add(domain.Artifact{LogicalPath: p, Size: size, SHA256: sum, UpstreamURL: joinURL(req.Source.UpstreamURL, p), PackageKey: rec["Package"], Version: rec["Version"]})
 			}
 			if src {
-				dir := rec["Directory"]
-				checks := rec["Checksums-Sha256"]
-				if dir == "" || checks == "" {
-					return fmt.Errorf("Sources record missing Directory/Checksums-Sha256: %w", domain.ErrInvalid)
-				}
-				for _, line := range strings.Split(checks, "\n") {
-					f := strings.Fields(line)
-					if len(f) != 3 || !validSHA256(f[0]) {
-						return domain.ErrInvalid
-					}
-					size, x := strconv.ParseInt(f[1], 10, 64)
-					if x != nil || size < 0 {
-						return domain.ErrInvalid
-					}
-					lp := path.Clean(path.Join(dir, f[2]))
-					if strings.HasPrefix(lp, "../") || strings.HasPrefix(lp, "/") {
-						return domain.ErrInvalid
-					}
-					if x = add(domain.Artifact{LogicalPath: lp, Size: size, SHA256: strings.ToLower(f[0]), UpstreamURL: joinURL(req.Source.UpstreamURL, lp), PackageKey: rec["Package"], Version: rec["Version"]}); x != nil {
-						return x
-					}
-				}
+				return sourcePackageFiles(rec, func(logical string, size int64, sum string) error {
+					return add(domain.Artifact{LogicalPath: logical, Size: size, SHA256: sum, UpstreamURL: joinURL(req.Source.UpstreamURL, logical), PackageKey: rec["Package"], Version: rec["Version"]})
+				})
 			}
 			return nil
 		})
@@ -582,7 +592,7 @@ func (a *Adapter) Analyze(ctx context.Context, req ports.AnalyzeRequest, sink po
 		_, _ = io.Copy(io.Discard, tee)
 		resp.Body.Close()
 		if e != nil {
-			return plan, e
+			return plan, fmt.Errorf("无法解析 APT 索引 %s: %w", logical, e)
 		}
 		if hex.EncodeToString(h.Sum(nil)) != index.SHA256 {
 			return plan, fmt.Errorf("APT index %s sha256 mismatch: %w", index.Path, domain.ErrConflict)
