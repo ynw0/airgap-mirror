@@ -48,7 +48,7 @@ sudo ./scripts/install-agent.sh
 
 Windows 客户端采用 Wails v2、React 和 TypeScript，Linux Agent 使用 Go；SQLite 保存同步状态，实际文件保存在原生仓库目录中。项目 CI 会运行 Go 测试、Linux 构建和 Windows 桌面端构建。
 
-**APT 联网分析必须通过上游 OpenPGP 签名验证。** 请先为软件源配置可信公钥环，并在联网电脑安装 GnuPG。验签不替代内网独立验证和传输包签名。
+**APT 联网分析会验证发行版的官方仓库签名。** Ubuntu 和 Debian 的官方签名公钥随程序提供，Windows 联网电脑无需安装 GnuPG。Linux 内网发布前还会独立验证上游签名。
 
 更多部署信息见 [部署说明](docs/DEPLOYMENT.md)。其他设计文档只供参考，实际行为以源码为准。
 
@@ -78,7 +78,7 @@ sudo bash internal/server/web/configure-apt-signing.sh
 
 此脚本在 `/var/lib/airgap-mirror/gnupg` 为服务用户创建/选定专用密钥，管理员需要明确同意创建；不会偷偷在客户端添加信任。再回到 Web 管理页面点击“检查后重新签名”，重新生成内网 APT 的 `Release`、`Release.gpg` 和 `InRelease`。签完后下载公钥，按客户端仓库配置将其安装为专用受信任密钥（不要将私钥拷走）。
 
-**重要：本地重新签名与联网端验证上游签名是两个独立过程。** 本地清点和重新签名不证明已有文件来自可信上游。内网 Agent 尚未对每次离线导入独立复核上游签名。
+**重要：本地重新签名与联网端验证上游签名是两个独立过程。** 本地清点和重新签名不证明已有文件来自可信上游。内网 Agent 在发布 APT 更新前独立复核上游签名；本地重新签名仍需 Linux 上的 GnuPG。
 
 ### Windows 下载恢复
 
@@ -130,21 +130,16 @@ PyPI 已有正式 Catalog 的软件源可使用“检查缺失文件”。每 10
 
 缓存是一份额外的 SQLite 文件账本，需预留相应空间；每个软件源仅保留最近一份成功清点缓存，不包含软件包内容。若缓存损坏或需要完全重新生成，请选择全量清点。缓存不替代数据库备份，也不跳过软件包存在性检查。
 
-### APT 上游签名验证（开发分支）
+### APT 仓库签名验证
 
-联网电脑需安装 GnuPG（Windows 可安装 Gpg4win），并保证 `gpg` 可从 PATH 找到。管理员应通过独立可信渠道取得发行版的二进制 OpenPGP **公钥环**，核对发行版公布的指纹，再转换为 Base64。例如 Linux 上可执行：
+创建软件源时，Windows 和 Linux 管理界面提供官方源、常用镜像站和可手动填写的地址。Ubuntu 和 Debian 根据发行版代号使用内置的官方归档公钥，无需用户获取公钥、转换 Base64 或在联网电脑安装 GnuPG。公钥来自 Ubuntu 的 ubuntu-keyring 和 Debian 的 debian-archive-keyring 官方软件包，保存在程序内，不从所选镜像站下载。已有自定义公钥配置仍然有效；其他发行版或第三方仓库暂不提供自动公钥配置。
 
-```bash
-base64 -w0 /usr/share/keyrings/debian-archive-keyring.gpg
-```
+程序内部验证 InRelease 或 Release/Release.gpg，检查签名者、签名与密钥有效期、SHA256 或更强的摘要、Release Date、Suite/Codename 及已声明的 Valid-Until。未知或无效的签名会导致更新停止，不会跳过验证。密钥轮换时更新程序即可。原有软件源和状态文件中没有自定义公钥的 Ubuntu、Debian 配置也可使用默认官方公钥。
 
-将输出填入软件源配置的 `trustedKeyringBase64`（最多 1 MiB 解码内容），不要复制私钥，也不要直接信任镜像站临时提供的密钥。密钥轮换时，在软件源没有同步或维护任务的情况下修改公钥环并重新导出状态文件。联网端不会自动从网络取密钥。未设置公钥环、签名无效、签名者不可信、签名或密钥过期、签名摘要弱于 SHA256、Release Date 异常、Suite/Codename 不匹配或 Valid-Until 已过期时，拒绝联网分析和探测。多签名中的未知或无效签名也会导致拒绝；需配置完整且仍可信的发行版公钥环。
-
-默认允许不声明 Valid-Until 的长期稳定仓库；需要强制有效期的源设置 `requireValidUntil: true`。没有 Valid-Until 的源仍存在历史签名快照被重放的风险，本次未实现单调版本或时间防回退。已有 APT 源可以保留原 Catalog 和内网本地签名流程，但新联网分析必须先配置可信公钥。旧的离线状态文件不会自动获得新的公钥配置，应重新导出。此功能验证的是联网端下载的 Release，并使用已验证的正文生成计划；尚未实现内网导入端独立验签、传输包签名或整套仓库原子发布。
-
+默认允许未声明 Valid-Until 的稳定仓库；已有特殊有效期要求保持不变。缺少 Valid-Until 时仍可能存在历史签名快照被重放的风险，当前没有单调版本或时间防回退机制。
 
 ### APT 内网发布前独立验证（开发中）
 
-Agent 在发布任何 APT 元数据前，使用软件源自身的可信公钥环和本机 GnuPG 验证待发布的 InRelease 或 Release/Release.gpg；与同步目标游标核对，并对 Release 所列索引及 by-hash 文件逐个校验实际 SHA256。优先读取暂存文件，已完成重命名的文件从正式目录读取以支持中断重试。解析经过验证的 Packages/Sources 索引并核对文件大小、存在性及 Catalog 中的 SHA256；拒绝不属于签名 Release 的元数据。联网端非空更新携带上游签名文件，以便内网独立验证。Agent 也必须安装 GnuPG，未配置公钥环时不能发布 APT 更新。非元数据文件限制在 pool/ 中，此阶段适用于标准 Debian/Ubuntu 式仓库。
+Agent 在发布任何 APT 元数据前，使用程序内置的官方公钥或已有自定义公钥配置验证待发布的 InRelease 或 Release/Release.gpg；与同步目标游标核对，并对 Release 所列索引及 by-hash 文件逐个校验实际 SHA256。优先读取暂存文件，已完成重命名的文件从正式目录读取以支持中断重试。解析经过验证的 Packages/Sources 索引并核对文件大小、存在性及 Catalog 中的 SHA256；拒绝不属于签名 Release 的元数据。联网端非空更新携带上游签名文件，以便内网独立验证。Agent 验证上游签名无需调用 GnuPG；只有内网仓库的本地重新签名功能仍需安装 GnuPG。非元数据文件限制在 pool/ 中，此阶段适用于标准 Debian/Ubuntu 式仓库。
 
 本阶段不是全量软件包内容复核：新导入软件包由现有 Pack 导入校验字节，已有软件包按 Catalog 和大小检查；完整性校验和签名传输协议仍需进一步开发。APT 包池文件仍在导入阶段写入，发布前验证失败会保留旧元数据，但已导入的新包可能留在包池；尚未实现整仓库原子发布、独立签名传输包或历史快照防回退。上游 Valid-Until 在内网发布时也必须有效。旧版或本地重新签名的元数据不是上游签名证据，已有任务可能需要使用新版联网端重新生成同步计划。
