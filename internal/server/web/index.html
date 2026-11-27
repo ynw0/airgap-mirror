@@ -355,12 +355,6 @@ function validateConfig(kind,config){
  if(kind==='npm')for(const key of ['changePageSize','allDocsPageSize']){const n=config[key]===undefined?10000:config[key];if(!Number.isInteger(n)||n<1||n>10000)throw Error('npm 每次读取的数量必须为 1 至 10000 的整数。');}
  if(kind==='maven-central'&&(!Array.isArray(config.coordinates)||!config.coordinates.length||config.coordinates.some(c=>!c||!['groupId','artifactId','version'].every(k=>typeof c[k]==='string'&&c[k].trim()))))throw Error('请至少添加一项 Maven 依赖，并填写 Group ID、Artifact ID 和版本。');
 }
-function renderUpstreamChoices(){
- const list=el('upstreamChoices');
- list.replaceChildren();
- for(const [name,url] of upstreamPresets[el('kind').value]||[]){const option=document.createElement('option');option.value=url;option.label=name;list.appendChild(option);}
-}
-el('upstream').addEventListener('change',()=>{if(editing||el('kind').value!=='apt'||el('rawMode').checked)return;const selected=upstreamPresets.apt.find(p=>p[1]===el('upstream').value);if(selected&&selected[2]){configDraft.suite=selected[2];renderConfigFields();}});
 function openEditor(s){
  if(view!=='repositories')navigate('repositories');editing=s||null;el('editor').classList.remove('hidden');el('editorTitle').textContent=s?'修改软件源':'添加软件源';
  const kind=s?Object.keys(definitions).find(k=>definitions[k].type===s.type&&definitions[k].provider===s.provider):'apt';if(!kind){el('editor').classList.add('hidden');throw Error('当前界面不支持编辑此软件源类型，请使用兼容的客户端。');}
@@ -369,6 +363,12 @@ function openEditor(s){
  el('publicUrl').value=s?s.publicUrl:'';el('enabled').checked=s?s.enabled:true;try{loadConfig(s?s.config:d.config);}catch(e){el('editor').classList.add('hidden');throw Error('无法读取软件源配置：'+e.message);}
  el('editor').scrollIntoView({block:'start'});el('name').focus({preventScroll:true});
 }
+function renderUpstreamChoices(){
+ const list=el('upstreamChoices');
+ list.replaceChildren();
+ for(const [name,url] of upstreamPresets[el('kind').value]||[]){const option=document.createElement('option');option.value=url;option.label=name;list.appendChild(option);}
+}
+el('upstream').addEventListener('change',()=>{if(editing||el('kind').value!=='apt'||el('rawMode').checked)return;const selected=upstreamPresets.apt.find(p=>p[1]===el('upstream').value);if(selected&&selected[2]){const ubuntu=/^(focal|jammy|noble|resolute)(-|$)/;const old=String(configDraft.suite||'');if(ubuntu.test(old)!==ubuntu.test(selected[2])){configDraft.suite=selected[2];renderConfigFields();}}});
 el('kind').addEventListener('change',()=>{if(editing)return;const d=definitions[el('kind').value];const old=el('upstream').value.trim();if(!old||Object.values(definitions).some(x=>x.url===old))el('upstream').value=d.url;loadConfig(d.config);renderUpstreamChoices();});
 el('save').addEventListener('click',async()=>{if(el('save').disabled)return;el('save').disabled=true;editorError('');try{const d=definitions[el('kind').value];const input={name:el('name').value.trim(),type:d.type,provider:d.provider,upstreamUrl:el('upstream').value.trim(),rootPath:el('rootPath').value.trim(),publicUrl:el('publicUrl').value.trim(),enabled:el('enabled').checked,config:el('rawMode').checked?parseConfig(el('config').value):parseConfig(configDraft)};if(!input.name||!input.upstreamUrl||!input.publicUrl||!input.rootPath)throw Error('请完整填写名称、下载地址、内网访问地址和服务器目录。');validateConfig(el('kind').value,input.config);await api(editing?'/api/v1/sources/'+encodeURIComponent(editing.id):'/api/v1/sources',{method:editing?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});el('editor').classList.add('hidden');show('软件源已经保存。');await refresh();}catch(e){editorError('保存失败：'+e.message);show('保存失败：'+e.message,true);}finally{el('save').disabled=false;}});
 el('cancelEdit').addEventListener('click',()=>el('editor').classList.add('hidden'));
