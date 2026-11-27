@@ -27,6 +27,126 @@ const kinds: Array<{ id: Kind; label: string; type: SourceType; provider: string
   { id: 'maven-central', label: 'Maven Central 指定依赖', type: 'maven', provider: 'maven-central' },
 ]
 
+const upstreamPresets: Record<Kind, string[][]> = {
+  "apt": [
+    [
+      "Debian 官方",
+      "https://deb.debian.org/debian",
+      "bookworm"
+    ],
+    [
+      "Debian 安全更新",
+      "https://deb.debian.org/debian-security",
+      "bookworm-security"
+    ],
+    [
+      "Ubuntu 官方",
+      "https://archive.ubuntu.com/ubuntu",
+      "noble"
+    ],
+    [
+      "Ubuntu 安全更新",
+      "https://security.ubuntu.com/ubuntu",
+      "noble-security"
+    ],
+    [
+      "清华大学 · Debian",
+      "https://mirrors.tuna.tsinghua.edu.cn/debian",
+      "bookworm"
+    ],
+    [
+      "清华大学 · Ubuntu",
+      "https://mirrors.tuna.tsinghua.edu.cn/ubuntu",
+      "noble"
+    ],
+    [
+      "中科大 · Debian",
+      "https://mirrors.ustc.edu.cn/debian",
+      "bookworm"
+    ],
+    [
+      "中科大 · Ubuntu",
+      "https://mirrors.ustc.edu.cn/ubuntu",
+      "noble"
+    ],
+    [
+      "阿里云 · Debian",
+      "https://mirrors.aliyun.com/debian",
+      "bookworm"
+    ],
+    [
+      "阿里云 · Ubuntu",
+      "https://mirrors.aliyun.com/ubuntu",
+      "noble"
+    ],
+    [
+      "华为云 · Debian",
+      "https://mirrors.huaweicloud.com/debian",
+      "bookworm"
+    ],
+    [
+      "华为云 · Ubuntu",
+      "https://mirrors.huaweicloud.com/ubuntu",
+      "noble"
+    ]
+  ],
+  "pypi": [
+    [
+      "PyPI 官方",
+      "https://pypi.org/simple"
+    ],
+    [
+      "清华大学",
+      "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+    ],
+    [
+      "中科大",
+      "https://mirrors.ustc.edu.cn/pypi/simple"
+    ],
+    [
+      "阿里云",
+      "https://mirrors.aliyun.com/pypi/simple"
+    ],
+    [
+      "华为云",
+      "https://mirrors.huaweicloud.com/repository/pypi/simple"
+    ]
+  ],
+  "npm": [
+    [
+      "npm 官方",
+      "https://registry.npmjs.org"
+    ],
+    [
+      "npmmirror",
+      "https://registry.npmmirror.com"
+    ],
+    [
+      "华为云",
+      "https://mirrors.huaweicloud.com/repository/npm"
+    ]
+  ],
+  "maven-central": [
+    [
+      "Maven Central 官方",
+      "https://repo.maven.apache.org/maven2"
+    ],
+    [
+      "Maven Central 备用官方地址",
+      "https://repo1.maven.org/maven2"
+    ],
+    [
+      "阿里云 Central 镜像",
+      "https://maven.aliyun.com/repository/central"
+    ],
+    [
+      "中科大代理",
+      "https://maven.proxy.ustclug.org/maven2"
+    ]
+  ],
+  "maven-generic": []
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') {
     try {
@@ -70,14 +190,13 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
   const [validation, setValidation] = useState('')
   const [kind, setKind] = useState<Kind>(source ? kindOf(source.type, source.provider) : 'apt')
   const [name, setName] = useState(source?.name ?? '')
-  const [upstreamUrl, setUpstreamUrl] = useState(source?.upstreamUrl ?? '')
+  const [upstreamUrl, setUpstreamUrl] = useState(source?.upstreamUrl ?? upstreamPresets.apt[0][1])
   const [rootPath, setRootPath] = useState(source?.rootPath ?? '')
   const [publicUrl, setPublicUrl] = useState(source?.publicUrl ?? '')
   const [enabled, setEnabled] = useState(source?.enabled ?? true)
   const [suite, setSuite] = useState(String(initial.suite ?? 'bookworm'))
   const [releaseMode, setReleaseMode] = useState(String(initial.releaseMode ?? 'inrelease'))
   const [gcOwnsPool, setGcOwnsPool] = useState(initial.gcOwnsPool === true)
-  const [trustedKeyring, setTrustedKeyring] = useState(String(initial.trustedKeyringBase64 ?? ''))
   const [requireValidUntil, setRequireValidUntil] = useState(initial.requireValidUntil === true)
   const [replicationUrl, setReplicationUrl] = useState(String(initial.replicationUrl ?? 'https://replicate.npmjs.com/registry'))
   const [changePageSize, setChangePageSize] = useState(Number(initial.changePageSize ?? 10000))
@@ -92,8 +211,8 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
     if (editing) return
     setKind(next)
     setValidation('')
-    const defaults: Record<Kind, string> = { apt: 'https://deb.debian.org/debian', pypi: 'https://pypi.org/simple', npm: 'https://registry.npmjs.org', 'maven-generic': '', 'maven-central': 'https://repo.maven.apache.org/maven2' }
-    if (!upstreamUrl.trim() || Object.values(defaults).includes(upstreamUrl)) setUpstreamUrl(defaults[next])
+    const known = Object.values(upstreamPresets).flat().some(p => p[1] === upstreamUrl)
+    if (!upstreamUrl.trim() || known) setUpstreamUrl(upstreamPresets[next][0]?.[1] ?? '')
     if (next === 'apt') { setSuite('bookworm'); setReleaseMode('inrelease'); setGcOwnsPool(false) }
     if (next === 'npm') { setReplicationUrl('https://replicate.npmjs.com/registry'); setChangePageSize(10000); setAllDocsPageSize(10000) }
     if (next === 'maven-generic') { setInventoryMode('filesystem') }
@@ -104,7 +223,7 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
     const preserved = editing ? initial : {}
     switch (kind) {
       case 'apt':
-        return { ...preserved, suite: suite.trim(), releaseMode, gcOwnsPool, trustedKeyringBase64: trustedKeyring.trim(), requireValidUntil }
+        return { ...preserved, suite: suite.trim(), releaseMode, gcOwnsPool, requireValidUntil }
       case 'pypi':
         return { ...preserved }
       case 'npm':
@@ -167,29 +286,26 @@ export function SourceEditor({ source, busy, onCancel, onSubmit }: Props) {
       <label className="checkbox">启用这个软件源
         <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
       </label>
-      <label className="span-2">公网下载地址<input value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)} placeholder={
+      <label className="span-2">公网下载地址{upstreamPresets[kind].length > 0 && <select aria-label="选择常用公网下载地址" value="" onChange={e => { const preset = upstreamPresets[kind].find(p => p[1] === e.target.value); if (preset) { setUpstreamUrl(preset[1]); if (!editing && preset[2]) setSuite(preset[2]) } }}><option value="">选择官方源或镜像站</option>{upstreamPresets[kind].map(p => <option key={p[1]} value={p[1]}>{p[0]}</option>)}</select>}<input value={upstreamUrl} onChange={e => setUpstreamUrl(e.target.value)} placeholder={
         kind === 'apt' ? 'https://deb.debian.org/debian' :
         kind === 'pypi' ? 'https://pypi.org/simple' :
         kind === 'npm' ? 'https://registry.npmjs.org' :
         kind === 'maven-central' ? 'https://repo.maven.apache.org/maven2' :
         'https://upstream.example/repository'
-      } /></label>
+      } />{(kind === 'pypi' || kind === 'npm') && <small>镜像站可能不支持完整仓库同步所需的接口，请在联网电脑上先检查上游状态。</small>}{editing && upstreamUrl !== source?.upstreamUrl && <small>已有同步记录的软件源可能不允许直接更换地址。</small>}</label>
       <label>服务器存放目录<input value={rootPath} onChange={e => setRootPath(e.target.value)} placeholder="/srv/mirror/..." /></label>
       <label className="span-2">内网访问地址<input value={publicUrl} onChange={e => setPublicUrl(e.target.value)} placeholder="https://repo.internal/..." /></label>
       </div><div className="editor-section-heading"><h3>软件源专用配置</h3></div><div className="form-grid source-form">
       {kind === 'pypi' && <p className="span-2">PyPI 无需额外配置。</p>}
       {kind === 'apt' && <>
-        <label>发行版代号（suite）<input value={suite} onChange={e => setSuite(e.target.value)} /></label>
+        <label>发行版代号<input list="apt-suites" value={suite} onChange={e => setSuite(e.target.value)} /><datalist id="apt-suites">{["focal", "jammy", "noble", "resolute", "bullseye", "bookworm", "trixie", "stable", "testing", "sid", "focal-updates", "focal-security", "jammy-updates", "jammy-security", "noble-updates", "noble-security", "bookworm-security", "trixie-security"].map(s => <option key={s} value={s}/>)}</datalist></label>
         <label>Release 签名方式
           <select value={releaseMode} onChange={e => setReleaseMode(e.target.value)}>
             <option value="inrelease">InRelease（内嵌签名）</option>
             <option value="detached">Release.gpg（分离签名）</option>
           </select>
         </label>
-        <label className="span-2">可信上游 OpenPGP 公钥环（Base64）
-          <textarea rows={4} spellCheck={false} value={trustedKeyring} onChange={e => setTrustedKeyring(e.target.value)} placeholder="由管理员从可信发行版渠道取得的二进制公钥环，转为 Base64 后粘贴" />
-          <small>不要填写私钥。未配置公钥环时，联网端拒绝 APT 上游分析；联网电脑需要安装 GnuPG。</small>
-        </label>
+        <p className="span-2 small">{initial.trustedKeyringBase64 ? '使用此软件源已有的签名公钥配置。' : 'Ubuntu 和 Debian 使用程序内置的官方签名公钥，无需另外配置。'}</p>
         <label className="checkbox">要求上游 Release 包含 Valid-Until
           <input type="checkbox" checked={requireValidUntil} onChange={e => setRequireValidUntil(e.target.checked)} />
         </label>
