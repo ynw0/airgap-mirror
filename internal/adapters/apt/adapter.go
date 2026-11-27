@@ -100,7 +100,7 @@ func joinURL(base string, elems ...string) string {
 
 func (a *Adapter) release(ctx context.Context, source domain.Source, cfg Config) (releaseSnapshot, error) {
 	var snap releaseSnapshot
-	keyring, err := decodeTrustedKeyring(cfg.TrustedKeyringBase64)
+	keyring, err := archiveKeyring(cfg)
 	if err != nil {
 		return snap, err
 	}
